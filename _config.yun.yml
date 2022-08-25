@@ -38,28 +38,6 @@ social:
     icon: ri:telegram-line
     color: '#0088CC'
 
-menu:
-  home:
-    path: /
-    icon: ri:home-4-line
-  list:
-    - type: archives
-      path: /archives/
-      icon: ri:archive-line
-    - type: categories
-      path: /categories/
-      icon: ri:folder-2-line
-    - type: tags
-      path: /tags/
-      icon: ri:price-tag-3-line
-    # - path: https://www.yunyoujun.cn
-    #   icon: ri:cloud-line
-    #   count: 你猜
-  custom:
-    title: 文档
-    path: https://blog.jimmyisme.top
-    icon: ri:settings-line
-
 wordcount:
   enable: true
   count: true
@@ -143,23 +121,27 @@ notice:
   enable: false
   content: 欢迎来到我的博客;)
 
-# menu:
-#   home:
-#     path: /
-#     icon: ri:home-4-line
-#   list:
-#     - type: archives
-#       path: /archives/
-#       icon: ri:archive-line
-#     - type: categories
-#       path: /categories/
-#       icon: ri:folder-2-line
-#     - type: tags
-#       path: /tags/
-#       icon: ri:price-tag-3-line
-#     # - path: https://www.yunyoujun.cn
-#     #   icon: ri:cloud-line
-#     #   count: 你猜
+menu:
+  home:
+    path: /
+    icon: ri:home-4-line
+  list:
+    - type: archives
+      path: /archives/
+      icon: ri:archive-line
+    - type: categories
+      path: /categories/
+      icon: ri:folder-2-line
+    - type: tags
+      path: /tags/
+      icon: ri:price-tag-3-line
+    # - path: https://www.yunyoujun.cn
+    #   icon: ri:cloud-line
+    #   count: 你猜
+  custom:
+    title: 文档
+    path: https://yun.yunyoujun.cn
+    icon: ri:settings-line
 
 reward:
   enable: false
