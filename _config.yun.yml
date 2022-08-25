@@ -9,3 +9,159 @@ avatar:
     emoji: 🙂
     message: 摸摸鱼
 
+bg_image:
+  enable: true
+  url: images/bg/bg_white.png
+  dark: images/bg/bg_black.png
+  # blur: 30px # 设置背景模糊程度
+  opacity: 0.8
+
+search:
+  modal: true
+
+mode: auto
+
+# _config.yun.yml
+medium_zoom: true
+
+social:
+  - name: GitHub
+    link: https://github.com/JavaZeroo
+    icon: ri:github-line
+    color: '#181717'
+  - name: 哔哩哔哩动画
+    link: https://space.bilibili.com/95945127
+    icon: ri:bilibili-line
+    color: '#FF8EB3'
+  - name: Telegram
+    link: https://t.me/javaisme0
+    icon: ri:telegram-line
+    color: '#0088CC'
+
+# wordcount:
+#   enable: true
+#   count: true
+#   time: true
+
+banner:
+  enable: true
+  title: 
+    - Java不加糖
+    - Blog
+  border: false
+  cloud:
+    enable: true
+    color: white
+  go_down:
+    enable: true
+    icon: ri:arrow-down-s-line
+
+sidebar:
+  bg_image: none
+  bg_position: 
+  tagcloud:
+    enable: true
+    amount: 20
+
+font:
+  cdn:
+    enable: true
+    lib:
+      - https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400&display=swap
+  serif:
+    family: '''Noto Sans SC'', STZhongsong, STKaiti, KaiTi, Roboto, serif'
+    weight: 900
+  sans_serif:
+    family: '''Noto Sans SC'', ''PingFang SC'', ''Microsoft YaHei'', Roboto, Arial, sans-serif'
+    weight: 400
+  monospace:
+    family: '''Noto Sans SC'', ''Source Code Pro'', ''Courier New'', Courier, Consolas, Monaco, monospace'
+
+head:
+  css:
+    fonts: https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400&display=swap
+
+fireworks:
+  enable: false
+  colors:
+    - '102, 167, 221'
+    - '62, 131, 225'
+    - '33, 78, 194'
+
+
+codeblock:
+  copy_btn: true
+
+
+creative_commons:
+  license: by-Jimmy
+  post: true
+  language: deed.zh
+  clipboard: false
+
+
+footer:
+  since: 2022
+  icon:
+    name: ri:cloud-line
+    animated: true
+    color: '#0078E7'
+  powered:
+    enable: false
+  live_time:
+    enable: true
+    prefix: 本博客已默默地运行
+    suffix: (●'◡'●)
+    start_time: '2022-08-25T00:00:00'
+
+
+notice:
+  enable: false
+  content: 欢迎来到我的博客;)
+
+menu:
+  home:
+    path: /
+    icon: ri:home-4-line
+  list:
+    - type: archives
+      path: /archives/
+      icon: ri:archive-line
+    - type: categories
+      path: /categories/
+      icon: ri:folder-2-line
+    - type: tags
+      path: /tags/
+      icon: ri:price-tag-3-line
+    # - path: https://www.yunyoujun.cn
+    #   icon: ri:cloud-line
+    #   count: 你猜
+  custom:
+    title: 文档
+    path: https://yun.yunyoujun.cn
+    icon: ri:settings-line
+
+
+reward:
+  enable: false
+  icon: ri:hand-coin-line
+  comment: I'm so cute. Please give me money.
+  # url: https://github.com/YunYouJun/yunyoujun.github.io/issues/96
+
+
+mourn:
+  enable: true
+  days:
+    - 4-4
+
+
+google_analytics:
+  enable: true
+  id: G-NDVPJNZY7Q
+
+
+google_adsense:
+  enable: false
+
+tags: 
+  深度学习: bulb-on-solid
