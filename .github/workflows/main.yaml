@@ -14,7 +14,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - uses: pnpm/action-setup@v2
+      - uses: pnpm/action-setup@v2.2.2
+        with:
+          version: 6.24.1
       - uses: actions/setup-node@v3
         with:
           node-version: 16.x
@@ -23,10 +25,10 @@ jobs:
       - name: Install
         run: pnpm install
 
-      - name: algolia
-        env:
-          HEXO_ALGOLIA_INDEXING_KEY: ${{ secrets.HEXO_ALGOLIA_INDEXING_KEY }}
-        run: npm run algolia --if-present
+#       - name: algolia
+#         env:
+#           HEXO_ALGOLIA_INDEXING_KEY: ${{ secrets.HEXO_ALGOLIA_INDEXING_KEY }}
+#         run: npm run algolia --if-present
 
       - name: Build
         run: pnpm run build
