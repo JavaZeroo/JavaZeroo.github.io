@@ -38,6 +38,11 @@ social:
     icon: ri:telegram-line
     color: '#0088CC'
 
+wordcount:
+  enable: true
+  count: true
+  time: true
+
 banner:
   enable: false
   title: 
