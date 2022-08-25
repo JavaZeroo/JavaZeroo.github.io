@@ -1,4 +1,4 @@
-name: CI
+name: GitHub Pages
 
 on:
   push:
@@ -10,7 +10,7 @@ on:
       - hexo
 
 jobs:
-  lint:
+  deploy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -23,5 +23,18 @@ jobs:
       - name: Install
         run: pnpm install
 
-      - name: Lint
-        run: pnpm run lint
+      - name: algolia
+        env:
+          HEXO_ALGOLIA_INDEXING_KEY: ${{ secrets.HEXO_ALGOLIA_INDEXING_KEY }}
+        run: npm run algolia --if-present
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Deploy
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./public
+          publish_branch: master
+          force_orphan: true
