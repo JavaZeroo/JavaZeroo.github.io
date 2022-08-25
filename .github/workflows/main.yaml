@@ -1,41 +1,32 @@
-name: GitHub Pages
+name: Pages
 
 on:
   push:
     branches:
-      - hexo
-
-  pull_request:
-    branches:
-      - hexo
+      - main  # default branch
 
 jobs:
-  deploy:
+  pages:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - uses: pnpm/action-setup@v2
+      - uses: actions/checkout@v2
+      - name: Use Node.js 12.x
+        uses: actions/setup-node@v2
         with:
-          version: 6.32.9
-      - uses: actions/setup-node@v3
+          node-version: '12'
+      - name: Cache NPM dependencies
+        uses: actions/cache@v2
         with:
-          node-version: '16'
-          corepack: true
-          cache: 'pnpm'
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm test
-
-      - name: Install
-        run: pnpm install
-
+          path: node_modules
+          key: ${{ runner.OS }}-npm-cache
+          restore-keys: |
+            ${{ runner.OS }}-npm-cache
+      - name: Install Dependencies
+        run: npm install
       - name: Build
-        run: pnpm run build
-
+        run: npm run build
       - name: Deploy
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./public
-          publish_branch: master
-          force_orphan: true
-
