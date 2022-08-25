@@ -57,7 +57,7 @@ banner:
     icon: ri:arrow-down-s-line
 
 sidebar:
-  bg_image: none
+  bg_image: /images/avatar.jpg
   bg_position: 
   tagcloud:
     enable: true
