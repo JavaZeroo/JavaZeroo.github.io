@@ -6,8 +6,8 @@ avatar:
   mickey_mouse: false
   status:
     enable: true
-    emoji: 😭
-    message: 不想上学
+    emoji: 🙂
+    message: 摸摸鱼
 
 bg_image:
   enable: true
