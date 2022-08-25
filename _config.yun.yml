@@ -9,6 +9,19 @@ avatar:
     emoji: 😭
     message: 不想上学
 
+bg_image:
+  enable: true
+  url: images/bg/bg_white.png
+  dark: images/bg/bg_black.png
+  # blur: 30px # 设置背景模糊程度
+  opacity: 0.8
+
+search:
+  modal: true
+
+# _config.yun.yml
+medium_zoom: true
+
 social:
   - name: GitHub
     link: https://github.com/JavaZeroo
@@ -25,7 +38,8 @@ social:
 
 banner:
   enable: true
-  title: Java不加糖的Blog
+  title: 
+    - Java不加糖的Blog
   border: false
   cloud:
     enable: true
@@ -86,9 +100,10 @@ footer:
     start_time: '2022-08-25T00:00:00'
 
 
+pages:
 
 notice:
-  enable: true
+  enable: false
   content: 欢迎来到我的博客;)
 
 menu:
