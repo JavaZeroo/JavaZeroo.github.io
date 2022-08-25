@@ -52,7 +52,7 @@ font:
   cdn:
     enable: true
     lib:
-      - https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@900&display=swap
+      - https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400&display=swap
   serif:
     family: '''Noto Sans SC'', STZhongsong, STKaiti, KaiTi, Roboto, serif'
     weight: 900
@@ -64,7 +64,7 @@ font:
 
 head:
   css:
-    fonts: https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@900&display=swap
+    fonts: https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400&display=swap
 
 fireworks:
   enable: false
