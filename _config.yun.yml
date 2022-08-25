@@ -56,12 +56,6 @@ banner:
     enable: true
     icon: ri:arrow-down-s-line
 
-sidebar:
-  bg_image: /images/avatar.jpg
-  bg_position: 
-  tagcloud:
-    enable: true
-    amount: 20
 
 font:
   cdn:
