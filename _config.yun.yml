@@ -41,7 +41,8 @@ social:
 banner:
   enable: true
   title: 
-    - Java不加糖的Blog
+    - Java不加糖
+    - Blog
   border: false
   cloud:
     enable: true
@@ -49,6 +50,13 @@ banner:
   go_down:
     enable: true
     icon: ri:arrow-down-s-line
+
+sidebar:
+  bg_image: none
+  bg_position: 
+  tagcloud:
+    enable: true
+    amount: 20
 
 font:
   cdn:
