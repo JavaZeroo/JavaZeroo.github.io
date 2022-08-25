@@ -1,4 +1,103 @@
 avatar:
-  url: /images/avatar.jpg # 你的头像图片地址
+  enable: true
+  url: /images/avatar.jpg
   rounded: true
   opacity: 1
+  mickey_mouse: false
+  status:
+    enable: true
+    emoji: 😭
+    message: 不想上学
+
+social:
+  - name: GitHub
+    link: https://github.com/JavaZeroo
+    icon: ri:github-line
+    color: '#181717'
+  - name: 哔哩哔哩动画
+    link: https://space.bilibili.com/95945127
+    icon: ri:bilibili-line
+    color: '#FF8EB3'
+  - name: Telegram
+    link: https://t.me/javaisme0
+    icon: ri:telegram-line
+    color: '#0088CC'
+
+banner:
+  enable: true
+  title: Java不加糖的Blog
+  border: false
+  cloud:
+    enable: true
+    color: white
+  go_down:
+    enable: true
+    icon: ri:arrow-down-s-line
+
+font:
+  cdn:
+    enable: true
+    lib:
+      - https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@900&display=swap
+  serif:
+    family: '''Noto Sans SC'', STZhongsong, STKaiti, KaiTi, Roboto, serif'
+    weight: 900
+  sans_serif:
+    family: '''Noto Sans SC'', ''PingFang SC'', ''Microsoft YaHei'', Roboto, Arial, sans-serif'
+    weight: 400
+  monospace:
+    family: '''Noto Sans SC'', ''Source Code Pro'', ''Courier New'', Courier, Consolas, Monaco, monospace'
+
+head:
+  css:
+    fonts: https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@900&display=swap
+
+fireworks:
+  enable: false
+  colors:
+    - '102, 167, 221'
+    - '62, 131, 225'
+    - '33, 78, 194'
+
+
+codeblock:
+  copy_btn: true
+
+
+creative_commons:
+  license: by-Jimmy
+  post: true
+  language: deed.zh
+  clipboard: false
+
+
+footer:
+  since: 2022
+  icon:
+    name: ri:cloud-line
+    animated: true
+    color: '#0078E7'
+
+
+footer:
+  powered:
+    enable: false
+
+footer:
+  live_time:
+    enable: true
+    prefix: 本博客已默默地运行
+    suffix: (●'◡'●)
+    start_time: '2022-08-25T00:00:00'
+
+
+google_analytics:
+  enable: true
+  id: G-NDVPJNZY7Q
+
+
+google_adsense:
+  enable: false
+
+tags: 
+  深度学习: bulb-on-solid

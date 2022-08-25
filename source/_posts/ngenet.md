@@ -1,6 +1,8 @@
 ---
 title: NGENet论文理解
 date: 2022-08-25 17:09:16
+katex: true
+mathjax: true
 tags:
 - 点云配准
 - 深度学习
