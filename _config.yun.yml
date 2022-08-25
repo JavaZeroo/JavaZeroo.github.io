@@ -77,11 +77,16 @@ footer:
     name: ri:cloud-line
     animated: true
     color: '#0078E7'
-
-
-footer:
   powered:
     enable: false
+  live_time:
+    enable: true
+    prefix: 本博客已默默地运行
+    suffix: (●'◡'●)
+    start_time: '2022-08-25T00:00:00'
+
+
+
 notice:
   enable: true
   content: 欢迎来到我的博客;)
@@ -132,14 +137,6 @@ mourn:
   enable: true
   days:
     - 4-4
-
-
-footer:
-  live_time:
-    enable: true
-    prefix: 本博客已默默地运行
-    suffix: (●'◡'●)
-    start_time: '2022-08-25T00:00:00'
 
 
 google_analytics:
