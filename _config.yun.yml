@@ -52,14 +52,21 @@ menu:
     - type: tags
       path: /tags/
       icon: ri:price-tag-3-line
-      
+    # - path: https://www.yunyoujun.cn
+    #   icon: ri:cloud-line
+    #   count: 你猜
+  custom:
+    title: 文档
+    path: https://blog.jimmyisme.top
+    icon: ri:settings-line
+
 wordcount:
   enable: true
   count: true
   time: true
 
 banner:
-  enable: false
+  enable: true
   title: 
     - Java不加糖
     - Blog
