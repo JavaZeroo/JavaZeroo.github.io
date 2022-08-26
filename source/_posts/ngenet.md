@@ -60,7 +60,7 @@ NgeNet利用多尺度结构明确地生成具有多种邻域大小的点状特�
 
 $$Some formula$$
 
-> (Cardinal Number（基数）)[https://zh.wikipedia.org/wiki/基数_(数学)]：集合论中刻画集合大小的数
+> [Cardinal Number（基数）](https://zh.wikipedia.org/wiki/基数_(数学）)：集合论中刻画集合大小的数
 
 ### 邻域分析
 
@@ -74,7 +74,7 @@ $$Some formula$$
 
 ### 网络
 
-![Architecture-of-NgeNet.png](images/Architecture-of-NgeNet.png)_NgeNet的网络架构
+![Architecture-of-NgeNet.png](images/Architecture-of-NgeNet.png)_NgeNet的网络架构_
 
 可以很清楚的看到NgeNet是一个encoder-decoder网络
 - encoder模块由：**residual-style KPConv**/**strided KPConv**层、**instance norm**层和**Leaky ReLU**层（k=0.1）组成
