@@ -1,8 +1,7 @@
 ---
 title: NgeNet论文理解
 date: 2022-08-25 17:09:16
-katex: true
-mathjax: true
+math: true
 tags:
 - 深度学习
 - cv

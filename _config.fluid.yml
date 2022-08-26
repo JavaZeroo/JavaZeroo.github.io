@@ -225,7 +225,7 @@ color:
 # Font
 font:
   font_size: 16px
-  font_family: '''Noto Sans SC'', ''PingFang SC'', ''Microsoft YaHei'', Roboto, Arial, sans-serif'
+  font_family: '''Noto Sans SC''', ''PingFang SC'', ''Microsoft YaHei'', Roboto, Arial, sans-serif'
   letter_spacing: 0.02em
   code_font_size: 85%
 
@@ -424,11 +424,7 @@ open_graph:
 footer:
   # 页脚第一行文字的 HTML，建议保留 Fluid 的链接，用于向更多人推广本主题
   # HTML of the first line of the footer, it is recommended to keep the Fluid link to promote this theme to more people
-  content: '
-    <a href="https://hexo.io" target="_blank" rel="nofollow noopener"><span>Hexo</span></a>
-    <i class="iconfont icon-love"></i>
-    <a href="https://github.com/fluid-dev/hexo-theme-fluid" target="_blank" rel="nofollow noopener"><span>Fluid</span></a>
-  '
+  content: ''
 
   # 展示网站的 PV、UV 统计数
   # Display website PV and UV statistics
@@ -461,7 +457,7 @@ footer:
 index:
   # 首页 Banner 头图，可以是相对路径或绝对路径，以下相同
   # Path of Banner image, can be a relative path or an absolute path, the same on other pages
-  banner_img: http://www.jimmyisme.top:89/i/img/bg_white.png
+  banner_img: http://www.jimmyisme.top:89/i/img/bg_black.png
 
   # 头图高度，屏幕百分比
   # Height ratio of banner image
@@ -533,7 +529,7 @@ index:
 # Post Page
 #---------------------------
 post:
-  banner_img: http://www.jimmyisme.top:89/i/img/bg_white.png
+  banner_img: http://www.jimmyisme.top:89/i/img/bg_black.png
   banner_img_height: 70
   banner_mask_alpha: 0.3
 
@@ -595,7 +591,7 @@ post:
 
     # 是否使用相对时间表示，比如："3 天前"
     # If true, it will be a relative time, such as: "3 days ago"
-    relative: true
+    relative: false
 
     # 提示标签类型
     # Note class
@@ -706,7 +702,7 @@ post:
     specific: false
 
     # Options: mathjax | katex
-    engine: katex
+    engine: mathjax
 
   # 流程图，基于 mermaid-js，具体请见：https://hexo.fluid-dev.com/docs/guide/#mermaid-流程图
   # Flow chart, based on mermaid-js, see: https://hexo.fluid-dev.com/docs/en/guide/#mermaid
@@ -887,7 +883,7 @@ giscus:
 # Archive Page
 #---------------------------
 archive:
-  banner_img: http://www.jimmyisme.top:89/i/img/bg_white.png
+  banner_img: http://www.jimmyisme.top:89/i/img/bg_black.png
   banner_img_height: 60
   banner_mask_alpha: 0.3
 
@@ -898,7 +894,7 @@ archive:
 #---------------------------
 category:
   enable: true
-  banner_img: http://www.jimmyisme.top:89/i/img/bg_white.png
+  banner_img: http://www.jimmyisme.top:89/i/img/bg_black.png
   banner_img_height: 60
   banner_mask_alpha: 0.3
 
@@ -927,7 +923,7 @@ category:
 #---------------------------
 tag:
   enable: true
-  banner_img: http://www.jimmyisme.top:89/i/img/bg_white.png
+  banner_img: http://www.jimmyisme.top:89/i/img/bg_black.png
   banner_img_height: 80
   banner_mask_alpha: 0.3
   tagcloud:
@@ -944,7 +940,7 @@ tag:
 #---------------------------
 about:
   enable: true
-  banner_img: http://www.jimmyisme.top:89/i/img/bg_white.png
+  banner_img: http://www.jimmyisme.top:89/i/img/bg_black.png
   banner_img_height: 60
   banner_mask_alpha: 0.3
   avatar: /img/avatar.png
@@ -968,7 +964,7 @@ about:
 # Custom Page through `hexo new page`
 #---------------------------
 page:
-  banner_img: http://www.jimmyisme.top:89/i/img/bg_white.png
+  banner_img: http://www.jimmyisme.top:89/i/img/bg_black.png
   banner_img_height: 60
   banner_mask_alpha: 0.3
 
@@ -979,7 +975,7 @@ page:
 #---------------------------
 page404:
   enable: true
-  banner_img: http://www.jimmyisme.top:89/i/img/bg_white.png
+  banner_img: http://www.jimmyisme.top:89/i/img/bg_black.png
   banner_img_height: 85
   banner_mask_alpha: 0.3
   # 重定向到首页的延迟(毫秒)
@@ -993,7 +989,7 @@ page404:
 #---------------------------
 links:
   enable: false
-  banner_img: http://www.jimmyisme.top:89/i/img/bg_white.png
+  banner_img: http://www.jimmyisme.top:89/i/img/bg_black.png
   banner_img_height: 60
   banner_mask_alpha: 0.3
   # 友链的成员项
