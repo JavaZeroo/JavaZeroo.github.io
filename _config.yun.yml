@@ -44,7 +44,7 @@ wordcount:
   time: true
 
 banner:
-  enable: true
+  enable: false
   title: 
     - Java不加糖
     - Blog
