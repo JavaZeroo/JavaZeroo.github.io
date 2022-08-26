@@ -1,16 +1,17 @@
 ---
-title: NGENet论文理解
+title: NgeNet论文理解
 date: 2022-08-25 17:09:16
 katex: true
 mathjax: true
 tags:
-- 点云配准
 - 深度学习
-- NGENet
+- cv
+- 点云配准
+- NgeNet
 ---
 
 由于点云传统配准（ICP：迭代最近点算法）效果不佳，于是考虑使用深度学习的方法。
-这里采用[NGENet](https://paperswithcode.com/paper/neighborhood-aware-geometric-encoding-network)。
+这里采用[NgeNet](https://paperswithcode.com/paper/neighborhood-aware-geometric-encoding-network)。
 
 > Neighborhood-aware Geometric Encoding Network
 > 邻域感知几何编码网络
