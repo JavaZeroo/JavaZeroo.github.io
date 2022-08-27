@@ -1,7 +1,9 @@
 ---
 title: NgeNet论文理解
 date: 2022-08-25 17:09:16
-math: true
+mathjax: true
+categories:
+- 📝学习
 tags:
 - 深度学习
 - cv
@@ -70,7 +72,7 @@ $$
 
 ### 网络
 
-![Architecture-of-NgeNet.png](images/Architecture-of-NgeNet.png)_NgeNet的网络架构_
+![NgeNet的网络架构](http://www.jimmyisme.top:89/i/img/Architecture-of-NgeNet.png)
 
 可以很清楚的看到NgeNet是一个encoder-decoder网络
 - encoder模块由：**residual-style [KPConv](https://arxiv.org/abs/1904.08889)**/**strided KPConv**层、**instance norm**层和**Leaky ReLU**层（k=0.1）组成
@@ -81,7 +83,7 @@ $$
 
 ### Input是什么？
 
- Input为the source point cloud $X$ and its initial descriptor $F_X$ , the target point cloud $Y$ and its initial descriptor $F_Y$
+Input为the source point cloud $X$ and its initial descriptor $F_X$ , the target point cloud $Y$ and its initial descriptor $F_Y$
 
 - 其中$F_X$ and $F_Y$ 都被init为全部为$1$的矩阵
 
@@ -97,7 +99,7 @@ $$
 
 **工作流程**：
 
-- Shared Encoder：可以在绿色的Encoder部分看到一共做了四次卷积；这样做是**为了拓展领域特征**。此时一共有四个输出，最后的输出得到Super points $X'$和它的feature$F^{en}_{X'}$（我理解上标的en意思是end；最后一个输出）；前三步输出的feature作为中间变量也被保存了下来，为了decoder去生成multi-scale的feature。这三个中间变量被记为$F^1_{X}, F^2{X}, F^3_{X}$。这里需要注意的是，**每个点特征的邻接点的感知范围从$F^1_X$延伸到$F^3_{X}$** （最后一句话是KPConv的知识）
+- Shared Encoder：可以在绿色的Encoder部分看到一共做了四次卷积；这样做是**为了拓展领域特征**。此时一共有四个输出，最后的输出得到Super points $X'$ 和它的feature $F^{en}_{X'}$（我理解上标的en意思是end；最后一个输出）；前三步输出的feature作为中间变量也被保存了下来，为了decoder去生成multi-scale的feature。这三个中间变量被记为$F^1_{X}, F^2{X}, F^3_{X}$。这里需要注意的是，**每个点特征的邻接点的感知范围从$F^1_X$延伸到$F^3_{X}$** （最后一句话是KPConv的知识）
 
 - Parallel Decoder：上面说在decoder的时候需要用到我们刚才保存的$F^1_{X}, F^2{X}, F^3_{X}$，同时还有之后会介绍的$F^{inter}_{X'}$，一共这四个输入。最后得到的output是关于$X'$的高、中、低级别的feature
 

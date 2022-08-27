@@ -8,7 +8,9 @@ subtitle: 'Java不加糖的Blog'
 description: 'Java'
 keywords:
 author: Java不加糖
-language: zh_CN
+language: 
+- zh-CN
+- en
 timezone: 'Asia/Shanghai'
 
 # URL
@@ -90,15 +92,24 @@ pagination_dir: page
 
 # Include / Exclude file(s)
 ## include:/exclude: options only apply to the 'source/' folder
-include: /css/font.css
+include: 
 exclude:
 ignore:
 
+kramed:
+  gfm: true
+  pedantic: false
+  sanitize: false
+  tables: true
+  breaks: true
+  smartLists: true
+  smartypants: true
 # Extensions
 ## Plugins: https://hexo.io/plugins/
 ## Themes: https://hexo.io/themes/
 # theme: yun
 theme: fluid
+# theme: landscape
 
 
 # Deployment
