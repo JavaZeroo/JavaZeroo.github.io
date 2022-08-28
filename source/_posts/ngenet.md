@@ -72,7 +72,7 @@ $$
 
 ### 网络
 
-![NgeNet的网络架构](http://www.jimmyisme.top:89/i/img/Architecture-of-NgeNet.png)
+![NgeNet的网络架构](images/Architecture-of-NgeNet.png)
 
 可以很清楚的看到NgeNet是一个encoder-decoder网络
 - encoder模块由：**residual-style [KPConv](https://arxiv.org/abs/1904.08889)**/**strided KPConv**层、**instance norm**层和**Leaky ReLU**层（k=0.1）组成
