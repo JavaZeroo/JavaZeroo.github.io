@@ -117,5 +117,5 @@ theme: fluid
 deploy:
   type: git
   repo: https://github.com/JavaZeroo/JavaZeroo.github.io
-  branch: master
+  branch: pages
   message: Update Hexo Static Content
