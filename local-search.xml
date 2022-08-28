@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="utf-8"?>
+<search>
+  
+  
+  
+  <entry>
+    <title>齐次坐标系的理解</title>
+    <link href="/2022/08/26/%E9%BD%90%E6%AC%A1%E5%9D%90%E6%A0%87%E7%B3%BB%E7%9A%84%E7%90%86%E8%A7%A3/"/>
+    <url>/2022/08/26/%E9%BD%90%E6%AC%A1%E5%9D%90%E6%A0%87%E7%B3%BB%E7%9A%84%E7%90%86%E8%A7%A3/</url>
+    
+    <content type="html"><![CDATA[<p>在计算机图形学里面会经常碰到几何体的平移,旋转,缩放以及投影变换. 一般情况下会涉及到齐次坐标与变换矩阵. 为了后续对变换矩阵内容的讲解, 在这里先简要的介绍一下什么是齐次坐标.</p><h2 id="提出问题"><a href="#提出问题" class="headerlink" title="提出问题"></a>提出问题</h2><p><strong>两条平行线可以相交吗？</strong></p><p>在欧氏空间（几何学）中，同一平面上的两条平行线不能相交，或者说不能永远相交。这是一个大家都熟悉的常识。</p><p>但是，在投影空间中就不一样了，比如，下图上的火车铁路在远离眼睛的时候会变得更窄。最后，两条平行的铁轨在地平线处相交，也就是无限远处的一点。</p><p><img src="/images/train.jpg" alt="train.jpg"><em>铁路变窄，在地平线处相交</em></p><p>欧氏空间（或笛卡尔空间）能很好地描述我们的2D/3D几何，但它们不足以处理投影空间（实际上，欧氏几何是投影几何的一个子集）。一个2D点的笛卡尔坐标可以表示为$(x，y)$。</p><p>如果这个点远去到无穷远呢？无穷远处的点在欧氏空间中无法具体展示。在投影空间中，平行线会在无穷远处相遇，但在欧氏空间中却做不到。</p><h2 id="解决方法"><a href="#解决方法" class="headerlink" title="解决方法"></a>解决方法</h2><p>由 August Ferdinand Möbius(不错,就是那个莫比乌斯圈的那位) 提出的齐次坐标，使图形和几何学的计算在投影空间中成为可能。齐次坐标是用$N+1$个数来表示N维坐标的一种方式。</p><p>要制作二维齐次坐标，我们只需在现有坐标中增加一个额外的变量w。因此，笛卡尔坐标中的一点，$(X，Y)$在齐次坐标中就变成了$(x，y，w)$。而笛卡儿坐标中的X和Y在齐次坐标中的$x$、$y$和$w$则重新表达为</p><script type="math/tex; mode=display">\begin{aligned}X = \frac{x}{w} \\ Y = \frac{y}{w}\end{aligned}</script><p>为什么叫 “齐次”呢？<br>如前所述，为了将齐次坐标$(x，y，w)$转换为笛卡尔坐标，我们只需将$x$和$y$除以$w$即可。</p><script type="math/tex; mode=display">(x, y, w) \Leftrightarrow \Big(\frac{x}{w}, \frac{y}{w}\Big)</script><p>将Homogeneous转换为Cartesian，我们可以发现一个重要的事实。让我们看看下面的例子。</p><script type="math/tex; mode=display">\begin{aligned}Homogeneous& \quad Cartesian& \\(1, 2, 3)\ &\Rightarrow \Big( \frac{1}{3}, \frac{2}{3} \Big)& \\(2, 4, 6)\ &\Rightarrow \Big(\frac{2}{6}, \frac{4}{6} \Big)& &=\Big(\frac{1}{3}, \frac{2}{3}\Big) \\(4, 8, 12)\ &\Rightarrow \Big(\frac{4}{12}, \frac{8}{12} \Big)& &=\Big(\frac{1}{3}, \frac{2}{3}\Big) \\&\;\;\vdots \\(1a, 2a, 3a)\ &\Rightarrow \Big(\frac{1a}{3a}, \frac{2a}{4a} \Big)& &=\Big(\frac{1}{3}, \frac{2}{3}\Big) \\\end{aligned}</script><p>如你所见 $(1, 2, 3), (2, 4, 6)$和$(4, 8, 12)$这三个点对应于同一个欧氏点$(\frac{1}{3}, \frac{2}{3})$. 而任何乘以$a$的数$（1a，2a，3a）$与欧氏空间中的$（\frac{1}{3}，\frac{2}{3}）$是同一个点。因此，这些点是 “homogeneous/齐次 “的，因为它们在欧氏空间（或笛卡尔空间）中代表同一个点。换句话说，齐次坐标是与乘数$a$不相关的。</p><p><img src="/images/Homogeneous2Cartesian.jpg" alt="Homogeneous2Cartesian.jpg"></p><h2 id="数学证明-两条平行线可以相交"><a href="#数学证明-两条平行线可以相交" class="headerlink" title="数学证明: 两条平行线可以相交"></a>数学证明: 两条平行线可以相交</h2><p>考虑以下欧氏空间的线性系统。</p><script type="math/tex; mode=display">\left \{ \begin{array}{c}Ax+By+C=0 \\ Ax+By+D=0\end{array}\right.</script><p>而我们知道，由于C≠D，所以上述方程没有解。 如果C=D，那么两条线是相同的（重叠的）。</p><p>让我们重写投影空间的方程，将x和y分别替换为x/w，y/w。</p><script type="math/tex; mode=display">\left\{\begin{array}{l}A \frac{x}{w}+B \frac{y}{w}+C=0 \\ A \frac{x}{w}+B \frac{y}{w}+D=0\end{array} \quad \Rightarrow\left\{\begin{array}{l}A x+B y+C w=0 \\ A x+B y+D w=0\end{array}\right.\right.</script><p>现在，我们有一个解，$(x，y，0)$，因为$(C-D)w=0，\therefore w=0.$ 因此，两条平行线在$(x，y，0)$处相交.</p><p>$(x,y,0)$在几何上代表一条没有起点与终点, 也没有长度的射线，它只有方向。</p><h2 id="齐次坐标的应用"><a href="#齐次坐标的应用" class="headerlink" title="齐次坐标的应用"></a>齐次坐标的应用</h2><p>齐次坐标在计算机图形学中是非常有用的基本概念，通过增加一个额外的维度$W$后，可以用来对几何体进行缩放,旋转,平移,透视投影的矩阵变换.</p><p>任何$N$维度齐次坐标，只要$W$不为$0$，都可以通过将每一个分量除以$W$来转换到 $W=1$的向量, 然后获得其$N-1$维的欧式空间的点值。</p><p>而当$W=0$时，这个坐标表示无限长的一个向量，通常表示$N-1$维的矢量。</p>]]></content>
+    
+    
+    <categories>
+      
+      <category>📝学习</category>
+      
+    </categories>
+    
+    
+    <tags>
+      
+      <tag>cv</tag>
+      
+    </tags>
+    
+  </entry>
+  
+  
+  
+  <entry>
+    <title>KPConv的理解</title>
+    <link href="/2022/08/26/KPConv%E7%9A%84%E7%90%86%E8%A7%A3/"/>
+    <url>/2022/08/26/KPConv%E7%9A%84%E7%90%86%E8%A7%A3/</url>
+    
+    <content type="html"><![CDATA[<p>实际上就是对于点云的一种卷积方法</p>]]></content>
+    
+    
+    <categories>
+      
+      <category>📝学习</category>
+      
+    </categories>
+    
+    
+    <tags>
+      
+      <tag>cv</tag>
+      
+      <tag>点云</tag>
+      
+    </tags>
+    
+  </entry>
+  
+  
+  
+  <entry>
+    <title>NgeNet论文理解</title>
+    <link href="/2022/08/25/ngenet/"/>
+    <url>/2022/08/25/ngenet/</url>
+    
+    <content type="html"><![CDATA[<p>由于点云传统配准（ICP：迭代最近点算法）效果不佳，于是考虑使用深度学习的方法。<br>这里采用<a href="https://paperswithcode.com/paper/neighborhood-aware-geometric-encoding-network">NgeNet</a>。</p><blockquote><p>Neighborhood-aware Geometric Encoding Network<br>邻域感知几何编码网络</p></blockquote><h2 id="Introduction"><a href="#Introduction" class="headerlink" title="Introduction"></a>Introduction</h2><h3 id="点云配准深度学习方法的分类"><a href="#点云配准深度学习方法的分类" class="headerlink" title="点云配准深度学习方法的分类"></a>点云配准深度学习方法的分类</h3><p>作者将其分为了两种</p><ol><li><p>end-to-end：将feature learning 和 transformation estimation 融合到了一个模型</p><ol><li>其中有一些方法依赖相关性的建立来进行后续的Procrustes分析</li><li>而其他方法则更关注点云之间的全局特征</li></ol></li><li><p>feature-learning：更加关注learning of discriminative point feature（学习辨别性的点的特征），而transformation则是由pose estimators来估计的</p></li></ol><h3 id="提出网络"><a href="#提出网络" class="headerlink" title="提出网络"></a>提出网络</h3><p>NgeNet利用多尺度结构明确地生成具有多种邻域大小的点状特征，并利用几何指导的编码模块来最大限度地利用几何信息。具体来说，设计了一个投票机制，为每个点选择一个合适的邻域大小，并拒绝在无法区分的表面上出现虚假的特征。</p><h3 id="主要贡献"><a href="#主要贡献" class="headerlink" title="主要贡献"></a>主要贡献</h3><ul><li>多尺度结构与几何引导编码相结合，产生多层次的几何和语义信息编码的特征。</li><li>多层次的一致性投票，为每个点选择适当的邻域并拒绝虚假的邻域。</li><li>我们的方法中所提出的技术是与模型无关的，能够很容易地移植到其他骨干结构上并提高性能。</li></ul><h2 id="Preliminaries-（引言）"><a href="#Preliminaries-（引言）" class="headerlink" title="Preliminaries （引言）"></a>Preliminaries （引言）</h2><h3 id="点云配准问题的数学表达"><a href="#点云配准问题的数学表达" class="headerlink" title="点云配准问题的数学表达"></a>点云配准问题的数学表达</h3><blockquote><p>arg    是变元（即自变量argument）的英文缩写。<br>arg min 就是使后面这个式子达到最小值时的变量的取值<br>arg max 就是使后面这个式子达到最大值时的变量的取值<br>例如 函数F(x,y):<br>arg  min F(x,y)就是指当F(x,y)取得最小值时，变量x,y的取值<br>arg  max F(x,y)就是指当F(x,y)取得最大值时，变量x,y的取值</p></blockquote><script type="math/tex; mode=display">arg\ \underset{T}{\mathrm{min}}\frac{1}{|\sigma|}\sum_{(i, j)\in \sigma}||T (x_i ) − y_j ||_2</script><blockquote><p><a href="https://zh.wikipedia.org/wiki/基数_(数学）">Cardinal Number（基数）</a>：集合论中刻画集合大小的数</p></blockquote><h3 id="邻域分析"><a href="#邻域分析" class="headerlink" title="邻域分析"></a>邻域分析</h3><p>在特征学习中常常用到encoder-decoder网络来提取特征；<br>模型的输入为$X\in\mathbb{R}^3$<br>维数从$N\times 3$ -&gt; $N \times C $意思是每个点输出C维的特征</p><p>有两种方式去影响领域的范围一个是依靠连续的卷积层，隐形的增加了领域的范围；另一个是在encoder-decoder网络中常常使用两倍大小的分层卷积层来模拟点云的down sample。</p><h2 id="方法"><a href="#方法" class="headerlink" title="方法"></a>方法</h2><h3 id="网络"><a href="#网络" class="headerlink" title="网络"></a>网络</h3><p><img src="/images/Architecture-of-NgeNet.png" alt="NgeNet的网络架构"></p><p>可以很清楚的看到NgeNet是一个encoder-decoder网络</p><ul><li><p>encoder模块由：<strong>residual-style <a href="https://arxiv.org/abs/1904.08889">KPConv</a></strong>/<strong>strided KPConv</strong>层、<strong>instance norm</strong>层和<strong>Leaky ReLU</strong>层（k=0.1）组成</p><blockquote><p> KPConv 是用于三维点云中的一种卷积方式</p></blockquote></li><li><p>decoder模块由：decoder中的上采样块采用最近搜索来进行特征插值。 <strong>unary block</strong>由一个线性（MLP）层、一个实例范数层和一个 Leaky ReLU 层 (k=0.1) 组成，而<strong>last unary</strong> block仅由一个线性层（MLP）组成</p></li></ul><h3 id="Input是什么？"><a href="#Input是什么？" class="headerlink" title="Input是什么？"></a>Input是什么？</h3><p>Input为the source point cloud $X$ and its initial descriptor $F_X$ , the target point cloud $Y$ and its initial descriptor $F_Y$</p><ul><li>其中$F_X$ and $F_Y$ 都被init为全部为$1$的矩阵</li></ul><h3 id="组成部分"><a href="#组成部分" class="headerlink" title="组成部分"></a>组成部分</h3><h4 id="SIAMESE-MULTI-SCALE-BACKBONE"><a href="#SIAMESE-MULTI-SCALE-BACKBONE" class="headerlink" title="SIAMESE MULTI - SCALE BACKBONE"></a>SIAMESE MULTI - SCALE BACKBONE</h4><blockquote><p>连体式多级骨干（什么鬼翻译</p></blockquote><p><strong>用途：</strong>用于处理输入的点云</p><p><strong>工作流程</strong>：</p><ul><li><p>Shared Encoder：可以在绿色的Encoder部分看到一共做了四次卷积；这样做是<strong>为了拓展领域特征</strong>。此时一共有四个输出，最后的输出得到Super points $X’$ 和它的feature $F^{en}<em>{X’}$（我理解上标的en意思是end；最后一个输出）；前三步输出的feature作为中间变量也被保存了下来，为了decoder去生成multi-scale的feature。这三个中间变量被记为$F^1</em>{X}, F^2{X}, F^3<em>{X}$。这里需要注意的是，**每个点特征的邻接点的感知范围从$F^1_X$延伸到$F^3</em>{X}$** （最后一句话是KPConv的知识）</p></li><li><p>Parallel Decoder：上面说在decoder的时候需要用到我们刚才保存的$F^1<em>{X}, F^2{X}, F^3</em>{X}$，同时还有之后会介绍的$F^{inter}_{X’}$，一共这四个输入。最后得到的output是关于$X’$的高、中、低级别的feature</p></li><li><p>现在我们定义一个函数（后面要用）</p><script type="math/tex; mode=display">\phi (F^1 , F^2 , g) = cat[Up(g(F^2 )), F^1 ]</script><p>其中$F^1$和$F^2$是输入的feature，$g$是一个代表MLP或者Identity Layer的函数， $cat$表示concatenation（连接），$Up$是nearest upsampling</p></li><li><p>现在可以表示 $F^l_X , F^m_X$ 和 $F^h_X$ 的计算方式</p><ul><li>$F^l_X = MLP_2(\phi(F^1_X, F^2_X, MLP_1)$ </li><li>$F^m_X = MLP_5(\phi(F^1_X, \phi (F^2_X, F^3_X, MLP_3), MLP_4)$$</li><li>$F^h_X = MLP_8(\phi(F^1_X, \phi (F^2_X, \phi (F^3_X, F^{inter}_X, Identity), MLP_6), MLP_7 )$</li></ul></li><li><p>同时给出overlap（重复性）分数$O_X$和saliency（显著性）分数$S_X$</p></li></ul><h4 id="GEOMETRIC-GUIDED-ENCODING"><a href="#GEOMETRIC-GUIDED-ENCODING" class="headerlink" title="GEOMETRIC - GUIDED ENCODING"></a>GEOMETRIC - GUIDED ENCODING</h4><blockquote><p>几何学引导式编码</p></blockquote><p>GGE将super points和潜在的feature作为输入；然后输出几何增强的feature</p>]]></content>
+    
+    
+    <categories>
+      
+      <category>📝学习</category>
+      
+    </categories>
+    
+    
+    <tags>
+      
+      <tag>cv</tag>
+      
+      <tag>深度学习</tag>
+      
+      <tag>点云配准</tag>
+      
+      <tag>NgeNet</tag>
+      
+    </tags>
+    
+  </entry>
+  
+  
+  
+  <entry>
+    <title>2022年必装的Windows软件</title>
+    <link href="/2022/08/25/windwos-app/"/>
+    <url>/2022/08/25/windwos-app/</url>
+    
+    <content type="html"><![CDATA[<h2 id="⚒️生产力"><a href="#⚒️生产力" class="headerlink" title="⚒️生产力"></a>⚒️生产力</h2><p>平时学习、Coding、内容生产必备工具</p><h3 id="Adobe-全家桶"><a href="#Adobe-全家桶" class="headerlink" title="Adobe 全家桶"></a>Adobe 全家桶</h3><ul><li>可以去微博关注<a href="https://weibo.com/vposy">@Vposy</a>下载破解版</li></ul><h3 id="Visual-Studio-Code：文本编辑器"><a href="#Visual-Studio-Code：文本编辑器" class="headerlink" title="Visual Studio Code：文本编辑器"></a><a href="https://code.visualstudio.com/download">Visual Studio Code</a>：文本编辑器</h3><ul><li><p>网页版：<a href="vscode.dev">vscode.dev</a></p></li><li><p><strong>生产力插件</strong></p><ul><li><p><a href="https://marketplace.visualstudio.com/items?itemName=yzhang.markdown-all-in-one"><strong>Markdown All In One</strong></a></p></li><li><p><a href="https://marketplace.visualstudio.com/items?itemName=shd101wyy.markdown-preview-enhanced"><strong>Markdown Preview Enhanced</strong></a></p><ul><li>需要安装<a href="https://www.pandoc.org/installing.html">Pandoc</a></li></ul></li></ul></li><li><p><strong>美化插件</strong></p><ul><li><a href="https://marketplace.visualstudio.com/items?itemName=2gua.rainbow-brackets">Rainbow Brackets</a></li></ul></li></ul><h3 id="OBS：非常强大的开源录屏软件"><a href="#OBS：非常强大的开源录屏软件" class="headerlink" title="OBS：非常强大的开源录屏软件"></a><a href="https://obsproject.com/">OBS</a>：非常强大的开源录屏软件</h3><ul><li>可能需要配置。待补充</li></ul><h2 id="😍-娱乐"><a href="#😍-娱乐" class="headerlink" title="😍 娱乐"></a>😍 娱乐</h2><p>听歌、电影、打游戏</p><ul><li><a href="https://potplayer.daum.net/">PotPlayer</a>：最强播放器不接受反驳<ul><li>需要手动配置。待补充</li></ul></li><li><a href="https://www.spotify.com/us/download/windows/">Spotify</a>：国外音乐流媒体软件</li><li><ul><li>具体教程可看我b站视频  <a href="https://www.bilibili.com/video/BV1s54y1775x?share_source=copy_web&amp;vd_source=7804e1787180143dd098f023bb0e50f1">最全Spotify入坑指南! 解决注册问题! 附离线安装包</a></li></ul></li></ul>]]></content>
+    
+    
+    <categories>
+      
+      <category>💻Windows使用</category>
+      
+    </categories>
+    
+    
+    <tags>
+      
+      <tag>软件</tag>
+      
+      <tag>分享</tag>
+      
+    </tags>
+    
+  </entry>
+  
+  
+  
+  
+</search>
