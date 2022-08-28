@@ -64,7 +64,7 @@ $$
 
 在特征学习中常常用到encoder-decoder网络来提取特征；
 模型的输入为$X\in\mathbb{R}^3$
-维数从$N\times 3$ -> $ N \times C $意思是每个点输出C维的特征
+维数从$N\times 3$ -> $N \times C $意思是每个点输出C维的特征
 
 有两种方式去影响领域的范围一个是依靠连续的卷积层，隐形的增加了领域的范围；另一个是在encoder-decoder网络中常常使用两倍大小的分层卷积层来模拟点云的down sample。
 
