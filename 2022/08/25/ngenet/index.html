@@ -31,7 +31,7 @@
 <meta property="og:image" content="http://blog.jimmyisme.top/images/ngenet/vote.png">
 <meta property="og:image" content="http://blog.jimmyisme.top/images/ngenet/voting_algorithm.png">
 <meta property="article:published_time" content="2022-08-25T09:09:16.000Z">
-<meta property="article:modified_time" content="2022-08-29T15:46:03.535Z">
+<meta property="article:modified_time" content="2022-08-29T16:06:21.519Z">
 <meta property="article:author" content="Java不加糖">
 <meta property="article:tag" content="深度学习">
 <meta property="article:tag" content="cv">
@@ -340,9 +340,9 @@
 </ul>
 <h2 id="preliminaries-引言">Preliminaries （引言）</h2>
 <h3 id="点云配准问题的数学表达">点云配准问题的数学表达</h3>
-<blockquote>
-<p>arg 是变元（即自变量argument）的英文缩写。 arg min 就是使后面这个式子达到最小值时的变量的取值 arg max 就是使后面这个式子达到最大值时的变量的取值 例如 函数F(x,y): arg min F(x,y)就是指当F(x,y)取得最小值时，变量x,y的取值 arg max F(x,y)就是指当F(x,y)取得最大值时，变量x,y的取值</p>
-</blockquote>
+<div class="note note-info">
+            <p>arg 是变元（即自变量argument）的英文缩写。 arg min 就是使后面这个式子达到最小值时的变量的取值 arg max 就是使后面这个式子达到最大值时的变量的取值 例如 函数F(x,y): arg min F(x,y)就是指当F(x,y)取得最小值时，变量x,y的取值 arg max F(x,y)就是指当F(x,y)取得最大值时，变量x,y的取值</p>
+          </div>
 <p><span class="math display">\[
 arg\ \underset{T}{\mathrm{min}}\frac{1}{|\sigma|}\sum_{(i, j)\in \sigma}||T (x_i ) − y_j ||_2
 \]</span></p>
@@ -413,12 +413,9 @@ F^h_X &amp;= MLP_8(\phi(F^1_X, \phi (F^2_X, \phi (F^3_X, F^{inter}_X, Identity),
 <p><span class="math display">\[
 N_{X_i^{&#39;}}=\frac{1}{|J_i^N|}\sum_{x_j \in J_i^N}{N_{X_j}}
 \]</span></p>
-<p>公式里面<span class="math inline">\(J_i^N = \{x_j| \left|| x_j-x&#39;_i \right|| &lt; r^N \}\)</span> 其中<span class="math inline">\(x_j\in X\)</span>，<span class="math inline">\(r^N\)</span>是<span class="math inline">\(x&#39;_i\)</span>的邻域。</p>
-<blockquote>
-<p>稍微解释一下公式：</p>
-<p><span class="math inline">\(N_{X&#39;_i}\)</span>是我们想要的<span class="math inline">\(X&#39;\)</span>的normal vector的集合</p>
-<p><span class="math inline">\(J^N_i\)</span>代表得是点<span class="math inline">\(x_i\)</span>邻域内的点</p>
-</blockquote>
+<p>公式里面<span class="math inline">\(J_i^N = \{x_j| \left|| x_j-x&#39;_i \right|| &lt; r^N \}\)</span> 其中<span class="math inline">\(x_j\in X\)</span>，<span class="math inline">\(r^N\)</span>是<span class="math inline">\(x&#39;_i\)</span>的邻域。 <div class="note note-info">
+            <p>稍微解释一下公式：</p><p><span class="math inline">\(N_{X&#39;_i}\)</span>是我们想要的<span class="math inline">\(X&#39;\)</span>的normal vector的集合</p><p><span class="math inline">\(J^N_i\)</span>代表得是点<span class="math inline">\(x_i\)</span>邻域内的点</p>
+          </div></p>
 <ul>
 <li>Geometric encoding：这里我们想要的是每个点的几何特征，记为<span class="math inline">\(G_{x&#39;_i}\)</span>，利用<a target="_blank" rel="noopener" href="https://campar.in.tum.de/pub/drost2010CVPR/drost2010CVPR.pdf">PPF(Point Pair feature)</a>去计算几何特征</li>
 </ul>
@@ -432,7 +429,7 @@ G_{x&#39;_i} &amp;= max\{ G_{x&#39;_j}|x&#39;_j \in J^G_i \}.
 \end{equation}
 \]</span></p>
 <p>公式里面<span class="math inline">\(\angle(\cdot, \cdot)\in(0, \pi)\)</span> 代表两个向量之间的夹角, <span class="math inline">\(f_1\)</span>是pointnet里的一个函数, <span class="math inline">\(J^G_i = \{x&#39;_j \left|| x&#39;_j-x&#39;_i\right||&lt;r^G\}\)</span>，<span class="math inline">\(r^G\)</span>是<span class="math inline">\(x&#39;_i\)</span>邻域的半径，<span class="math inline">\(max(\cdot)\)</span>意思是channel-wise max-pooling <div class="note note-info">
-            <blockquote><p>这个公式也解释一下：</p><p>PPF我这里理解的就是一个四维向量包含了（按照NgeNet的顺序），一个法向量和{两个法向量之间的向量d}的夹角，另一个法向量和{两个法向量之间的向量d}的夹角，两个法向量的夹角，两点之间的距离。对应下图的<span class="math inline">\((F_2, F_3, F_4, F_1)\)</span></p><figure><img src="/images/ngenet/PPF.png" srcset="/img/loading.gif" lazyload alt="原论文的图片" /><figcaption aria-hidden="true">原论文的图片</figcaption></figure><p><span class="math inline">\(f_1\)</span>函数：暂时不清楚什么意思</p><p><span class="math inline">\(G_{x&#39;_i}\)</span>：找到<span class="math inline">\(G_{x&#39;_j}\)</span>中最大的；至于channel-wise再点云中代表什么几何含义，暂时不清楚</p></blockquote>
+            <p>这个公式也解释一下：</p><p>PPF我这里理解的就是一个四维向量包含了（按照NgeNet的顺序），一个法向量和{两个法向量之间的向量d}的夹角，另一个法向量和{两个法向量之间的向量d}的夹角，两个法向量的夹角，两点之间的距离。对应下图的<span class="math inline">\((F_2, F_3, F_4, F_1)\)</span></p><figure><img src="/images/ngenet/PPF.png" srcset="/img/loading.gif" lazyload alt="原论文的图片" /><figcaption aria-hidden="true">原论文的图片</figcaption></figure><p><span class="math inline">\(f_1\)</span>函数：暂时不清楚什么意思 <span class="math inline">\(G_{x&#39;_i}\)</span>：找到<span class="math inline">\(G_{x&#39;_j}\)</span>中最大的；至于channel-wise再点云中代表什么几何含义，暂时不清楚</p>
           </div></p>
 <ul>
 <li>Semantic encoding：<strong>需要更新</strong></li>
