@@ -117,22 +117,22 @@
   
   
   <entry>
-    <title>categories</title>
+    <title>关于我☺️</title>
     <link href="/"/>
     <url>/</url>
     
-    <content type="html"><![CDATA[]]></content>
+    <content type="html"><![CDATA[<ul><li>知识的记录</li><li>有一些些cv的论文</li><li>或许会有自己的日常</li></ul>]]></content>
     
   </entry>
   
   
   
   <entry>
-    <title>关于我☺️</title>
+    <title>categories</title>
     <link href="/"/>
     <url>/</url>
     
-    <content type="html"><![CDATA[<ul><li>知识的记录</li><li>有一些些cv的论文</li><li>或许会有自己的日常</li></ul>]]></content>
+    <content type="html"><![CDATA[]]></content>
     
   </entry>
   
