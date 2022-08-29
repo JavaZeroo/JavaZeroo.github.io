@@ -26,7 +26,7 @@ apple_touch_icon: /images/avatar.jpg
 
 # 浏览器标签页中的标题分隔符，效果： 文章名 - 站点名
 # Title separator in browser tab, eg: article - site
-tab_title_separator: " - "
+tab_title_separator: " | "
 
 # 强制所有链接升级为 HTTPS（适用于图片等资源出现 HTTP 混入报错）
 # Force all links to be HTTPS (applicable to HTTP mixed error)
@@ -87,7 +87,7 @@ fun_features:
 
     # 打印速度，数字越大越慢
     # Typing speed, the larger the number, the slower
-    typeSpeed: 50
+    typeSpeed: 70
 
     # 游标字符
     # Cursor character
@@ -107,12 +107,12 @@ fun_features:
   anchorjs:
     enable: true
     element: h1,h2,h3,h4,h5,h6
-    # Options: left | right
+      # Options: left | right
     placement: left
     # Options: hover | always | touch
     visible: hover
-    # Options: § | # | ❡
-    icon: ""
+      #    Options: § | # | ❡
+    icon: "§"
 
   # 加载进度条
   # Progress bar when loading
@@ -337,7 +337,7 @@ navbar:
 
     # 模糊像素，只能为数字，数字越大模糊度越高
     # Number of blurred pixel. the larger the number, the higher the blur
-    px: 3
+    px: 5
 
     # 不透明度，数字越大透明度越低，注意透明过度可能看不清菜单字体
     # Ratio of opacity, 1.0 is completely opaque
@@ -370,7 +370,7 @@ search:
   # 搜索的范围
   # Search field
   # Options: post | page | all
-  field: post
+  field: all
 
   # 搜索是否扫描正文
   # If true, search will scan the post content
@@ -468,7 +468,7 @@ index:
   # 头图黑色蒙版的不透明度，available: 0 - 1.0， 1 是完全不透明
   # Opacity of the banner mask, 1.0 is completely opaque
   # Available: 0 - 1.0
-  banner_mask_alpha: 0
+  banner_mask_alpha: 0.1
 
   # 首页副标题的独立设置
   # Independent config of home page subtitle
@@ -477,7 +477,7 @@ index:
 
     # 为空则按 hexo config.subtitle 显示
     # If empty, text based on `subtitle` in hexo config
-    text: You only live once, but if you do it right once is enough
+    text: <b>You only live once, but if you do it right once is enough</b>
 
     # 通过 API 接口作为首页副标题的内容，必须返回的是 JSON 格式，如果请求失败则按 text 字段显示，该功能必须先开启 typing 打字机功能
     # Subtitle of the homepage through the API, must be returned a JSON. If the request fails, it will be displayed in `text` value. This feature must first enable the typing animation
@@ -569,7 +569,7 @@ post:
       awl: 2
       # 每分钟阅读字数，如果大部分是技术文章可适度调低
       # Words per minute
-      wpm: 40
+      wpm: 45
 
     # 浏览量计数
     # Number of visits
@@ -630,7 +630,7 @@ post:
     # 置于板块的左侧或右侧
     # place in the board
     # Options: left | right
-    placement: right
+    placement: left
 
     # 目录会选择这些节点作为标题
     # TOC will select these nodes as headings
@@ -638,7 +638,7 @@ post:
 
     # 层级的折叠深度，0 是全部折叠，大于 0 后如果存在下级标题则默认展开
     # Collapse depth. If 0, all headings collapsed. If greater than 0, it will be expanded by default if there are sub headings
-    collapseDepth: 0
+    collapseDepth: 2
 
   # 版权声明，会显示在每篇文章的结尾
   # Copyright, will be displayed at the end of each post
@@ -954,7 +954,7 @@ about:
   icons:
     - { class: "iconfont icon-github-fill", link: "https://github.com/JavaZeroo", tip: "GitHub" }
     - { class: "iconfont icon-bilibili", link: "https://space.bilibili.com/95945127", tip: "BiliBili" }
-    - { class: "iconfont icon-youtube-fill", link: "https://www.youtube.com/channel/UCfzZkyrERhLix5ckmlg4seQ", tip: "BiliBili" }
+    - { class: "iconfont icon-youtube-fill", link: "https://www.youtube.com/channel/UCfzZkyrERhLix5ckmlg4seQ", tip: "Youtube" }
     # - { class: "iconfont icon-douban-fill", link: "https://douban.com", tip: "豆瓣" }
     # - { class: "iconfont icon-wechat-fill", qrcode: "/img/favicon.png" }
 

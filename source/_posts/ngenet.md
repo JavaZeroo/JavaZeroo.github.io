@@ -101,7 +101,7 @@ Input为the source point cloud $X$ and its initial descriptor $F_X$ , the target
 
 - Shared Encoder：可以在绿色的Encoder部分看到一共做了四次卷积；这样做是**为了拓展领域特征**。此时一共有四个输出，最后的输出得到**Super points $X'$** （$X'$集合会在下文经常提到其中包括他的点$x'_i \in X '$）和它的feature $F^{en}_{X'}$（我理解上标的en意思是end；最后一个输出）；前三步输出的feature作为中间变量也被保存了下来，为了decoder去生成multi-scale的feature。这三个中间变量被记为$F^1_{X}, F^2{X}, F^3_{X}$。这里需要注意的是，**每个点特征的邻接点的感知范围从$F^1_X$延伸到$F^3_{X}$** （最后一句话是KPConv的知识）
 
-  - 最后Shared Encoder输出的是$X' \in \mathbb{R}^{N' \times 3}$ 和$F^{en}_{X'} \in \mathbb{R}^{N' \times D_{en} }$ ，加起来是应该是$(X', F^{en}_{X'}) \in \R^{N' \times (3+D_en)}$（**有待考证**） 
+  - 最后Shared Encoder输出的是$X' \in \mathbb{R}^{N' \times 3}$ 和$F^{en}_{X'} \in \mathbb{R}^{N' \times D_{en} }$ ，加起来是应该是$(X', F^{en}_{X'}) \in \mathbb{R}^{N' \times (3+D_en)}$（**有待考证**） 
 
 - Parallel Decoder：上面说在decoder的时候需要用到我们刚才保存的$F^1_{X}, F^2{X}, F^3_{X}$，同时还有之后会介绍的$F^{inter}_{X'}$，一共这四个输入。最后得到的output是关于$X'$的高、中、低级别的feature
 
