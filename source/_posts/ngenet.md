@@ -16,6 +16,8 @@ tags:
 
 > Neighborhood-aware Geometric Encoding Network
 > 邻域感知几何编码网络
+>
+> 论文链接：https://arxiv.org/abs/2201.12094
 
 ## Introduction
 
@@ -99,11 +101,11 @@ Input为the source point cloud $X$ and its initial descriptor $F_X$ , the target
 
 **如何工作？**
 
-- Shared Encoder：可以在绿色的Encoder部分看到一共做了四次卷积；这样做是**为了拓展领域特征**。此时一共有四个输出，最后的输出得到**Super points $X'$** （$X'$集合会在下文经常提到其中包括他的点$x'_i \in X '$）和它的feature $F^{en}_{X'}$（我理解上标的en意思是end；最后一个输出）；前三步输出的feature作为中间变量也被保存了下来，为了decoder去生成multi-scale的feature。这三个中间变量被记为$F^1_{X}, F^2{X}, F^3_{X}$。这里需要注意的是，**每个点特征的邻接点的感知范围从$F^1_X$延伸到$F^3_{X}$** （最后一句话是KPConv的知识）
+- Shared Encoder：可以在绿色的Encoder部分看到一共做了四次卷积；这样做是**为了拓展领域特征**。此时一共有四个输出，最后的输出得到**Super points $X'$** （$X'$集合会在下文经常提到其中包括他的点$x'_i \in X '$）和它的feature $F^{en}_{X'}$（我理解上标的en意思是end；最后一个输出）；前三步输出的feature作为中间变量也被保存了下来，为了decoder去生成multi-scale的feature。这三个中间变量被记为$F^1_{X}, F^2_{X}, F^3_{X}$。这里需要注意的是，**每个点特征的邻接点的感知范围从$F^1_X$延伸到$F^3_{X}$** （最后一句话是KPConv的知识）
 
   - 最后Shared Encoder输出的是$X' \in \mathbb{R}^{N' \times 3}$ 和$F^{en}_{X'} \in \mathbb{R}^{N' \times D_{en} }$ ，加起来是应该是$(X', F^{en}_{X'}) \in \mathbb{R}^{N' \times (3+D_en)}$（**有待考证**） 
 
-- Parallel Decoder：上面说在decoder的时候需要用到我们刚才保存的$F^1_{X}, F^2{X}, F^3_{X}$，同时还有之后会介绍的$F^{inter}_{X'}$，一共这四个输入。最后得到的output是关于$X'$的高、中、低级别的feature
+- Parallel Decoder：上面说在decoder的时候需要用到我们刚才保存的$F^1_{X}, F^2_{X}, F^3_{X}$，同时还有之后会介绍的$F^{inter}_{X'}$，一共这四个输入。最后得到的output是关于$X'$的高、中、低级别的feature
 
 - 现在我们定义一个函数（后面要用）
   $$
@@ -172,6 +174,20 @@ $$
 > $f_1$函数：暂时不清楚什么意思
 >
 > $G_{x'_i}$：找到$G_{x'_j}$中最大的；至于channel-wise再点云中代表什么几何含义，暂时不清楚
+
+- Semantic encoding：**需要更新**
+
+## 损失函数
+
+这里我们将损失函数从两个方面来看：特征损失 和 重叠与显着性损失
+
+### 特征损失
+
+这里说的特征损失，就是我们之前提到的$F^h_X, F^m_X, F^l_X, F^h_Y, F^m_Y, F^l_Y$ 两个点云三个类别的特征。
+
+### 重叠与显着性损失
+
+
 
 ## 投票机制
 
