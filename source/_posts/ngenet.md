@@ -46,13 +46,14 @@ NgeNet利用多尺度结构明确地生成具有多种邻域大小的点状特�
 ## Preliminaries （引言）
 
 ### 点云配准问题的数学表达
-
-> arg    是变元（即自变量argument）的英文缩写。
-> arg min 就是使后面这个式子达到最小值时的变量的取值
-> arg max 就是使后面这个式子达到最大值时的变量的取值
-> 例如 函数F(x,y):
-> arg  min F(x,y)就是指当F(x,y)取得最小值时，变量x,y的取值
-> arg  max F(x,y)就是指当F(x,y)取得最大值时，变量x,y的取值
+{% note info %}
+arg    是变元（即自变量argument）的英文缩写。
+arg min 就是使后面这个式子达到最小值时的变量的取值
+arg max 就是使后面这个式子达到最大值时的变量的取值
+例如 函数F(x,y):
+arg  min F(x,y)就是指当F(x,y)取得最小值时，变量x,y的取值
+arg  max F(x,y)就是指当F(x,y)取得最大值时，变量x,y的取值
+{% endnote %}
 
 $$
 arg\ \underset{T}{\mathrm{min}}\frac{1}{|\sigma|}\sum_{(i, j)\in \sigma}||T (x_i ) − y_j ||_2
@@ -144,12 +145,13 @@ N_{X_i^{'}}=\frac{1}{|J_i^N|}\sum_{x_j \in J_i^N}{N_{X_j}}
 $$
 
 公式里面$J_i^N = \{x_j| \left|| x_j-x'_i \right|| < r^N \}$ 其中$x_j\in X$，$r^N$是$x'_i$的邻域。
+{% note info %}
+稍微解释一下公式：
 
-> 稍微解释一下公式：
->
-> $N_{X'_i}$是我们想要的$X'$的normal vector的集合
->
-> $J^N_i$代表得是点$x_i$邻域内的点
+$N_{X'_i}$是我们想要的$X'$的normal vector的集合
+
+$J^N_i$代表得是点$x_i$邻域内的点
+{% endnote %}
 
 - Geometric encoding：这里我们想要的是每个点的几何特征，记为$G_{x'_i}$，利用[PPF(Point Pair feature)](https://campar.in.tum.de/pub/drost2010CVPR/drost2010CVPR.pdf)去计算几何特征 
 
@@ -165,15 +167,14 @@ $$
 
 公式里面$\angle(\cdot, \cdot)\in(0, \pi)$	代表两个向量之间的夹角, $f_1$是pointnet里的一个函数, $J^G_i = \{x'_j \left|| x'_j-x'_i\right||<r^G\}$，$r^G$是$x'_i$邻域的半径，$max(\cdot)$意思是channel-wise max-pooling
 {% note info %}
-> 这个公式也解释一下：
->
-> PPF我这里理解的就是一个四维向量包含了（按照NgeNet的顺序），一个法向量和{两个法向量之间的向量d}的夹角，另一个法向量和{两个法向量之间的向量d}的夹角，两个法向量的夹角，两点之间的距离。对应下图的$(F_2, F_3, F_4, F_1)$
->
-> ![原论文的图片](/images/ngenet/PPF.png)
->
-> $f_1$函数：暂时不清楚什么意思
->
-> $G_{x'_i}$：找到$G_{x'_j}$中最大的；至于channel-wise再点云中代表什么几何含义，暂时不清楚
+这个公式也解释一下：
+
+PPF我这里理解的就是一个四维向量包含了（按照NgeNet的顺序），一个法向量和{两个法向量之间的向量d}的夹角，另一个法向量和{两个法向量之间的向量d}的夹角，两个法向量的夹角，两点之间的距离。对应下图的$(F_2, F_3, F_4, F_1)$
+
+![原论文的图片](/images/ngenet/PPF.png)
+
+$f_1$函数：暂时不清楚什么意思
+$G_{x'_i}$：找到$G_{x'_j}$中最大的；至于channel-wise再点云中代表什么几何含义，暂时不清楚
 {% endnote %}
 
 - Semantic encoding：**需要更新**
