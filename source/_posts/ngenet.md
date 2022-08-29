@@ -101,7 +101,7 @@ Input为the source point cloud $X$ and its initial descriptor $F_X$ , the target
 
 - Shared Encoder：可以在绿色的Encoder部分看到一共做了四次卷积；这样做是**为了拓展领域特征**。此时一共有四个输出，最后的输出得到**Super points $X'$** （$X'$集合会在下文经常提到其中包括他的点$x'_i \in X '$）和它的feature $F^{en}_{X'}$（我理解上标的en意思是end；最后一个输出）；前三步输出的feature作为中间变量也被保存了下来，为了decoder去生成multi-scale的feature。这三个中间变量被记为$F^1_{X}, F^2{X}, F^3_{X}$。这里需要注意的是，**每个点特征的邻接点的感知范围从$F^1_X$延伸到$F^3_{X}$** （最后一句话是KPConv的知识）
 
-  - 最后Shared Encoder输出的是$X' \in \R^{N' \times 3}$ 和$F^{en}_{X'} \in \R^{N' \times D_{en} }$ ，加起来是应该是$(X', F^{en}_{X'}) \in \R^{N' \times (3+D_en)}$（**有待考证**） 
+  - 最后Shared Encoder输出的是$X' \in \mathbb{R}^{N' \times 3}$ 和$F^{en}_{X'} \in \mathbb{R}^{N' \times D_{en} }$ ，加起来是应该是$(X', F^{en}_{X'}) \in \R^{N' \times (3+D_en)}$（**有待考证**） 
 
 - Parallel Decoder：上面说在decoder的时候需要用到我们刚才保存的$F^1_{X}, F^2{X}, F^3_{X}$，同时还有之后会介绍的$F^{inter}_{X'}$，一共这四个输入。最后得到的output是关于$X'$的高、中、低级别的feature
 
@@ -131,7 +131,7 @@ GGE模块是一个 一个输入一个输出的模块
 
 ![GGE模块](/images/ngenet/Architecture-of-GGE.png)
 
-**用途：**GGE将super points和潜在的feature(**也就是Shared Encoder输出的$(X', F^{en}_{X'}) \in \R^{N' \times (3+D_en)}$**)作为输入；然后输出几何增强后的feature
+**用途：**GGE将super points和潜在的feature(**也就是Shared Encoder输出的$(X', F^{en}_{X'}) \in \mathbb{R}^{N' \times (3 + D_{en})}$**)作为输入；然后输出几何增强后的feature
 
 **如何工作？**
 
@@ -154,14 +154,14 @@ $$
 $$
 \begin{equation}
 \begin{split}
-PPF(x'_i, x'_j) &= (\ang(x'_j-x'_i, N_{x'_i}), \ang(x'_j-x'_i, N_{x'_j}), \ang(N_{x'_i}, N_{x'_j}), \left|| x'_i - x'_j\right||_2), \\
+PPF(x'_i, x'_j) &= (\angle(x'_j-x'_i, N_{x'_i}), \angle(x'_j-x'_i, N_{x'_j}), \angle(N_{x'_i}, N_{x'_j}), \left|| x'_i - x'_j\right||_2), \\
 G_{x'_j} &= f_1(x'_i, x'_j-x'_i, PPF(x'_i, x'_j)), \\
 G_{x'_i} &= max\{ G_{x'_j}|x'_j \in J^G_i \}.
 \end{split}
 \end{equation}
 $$
 
-公式里面$\ang(\cdot, \cdot)\in(0, \pi)$	代表两个向量之间的夹角, $f_1$是pointnet里的一个函数, $J^G_i = \{x'_j \left|| x'_j-x'_i\right||<r^G\}$，$r^G$是$x'_i$邻域的半径，$max(\cdot)$意思是channel-wise max-pooling
+公式里面$\angle(\cdot, \cdot)\in(0, \pi)$	代表两个向量之间的夹角, $f_1$是pointnet里的一个函数, $J^G_i = \{x'_j \left|| x'_j-x'_i\right||<r^G\}$，$r^G$是$x'_i$邻域的半径，$max(\cdot)$意思是channel-wise max-pooling
 
 > 这个公式也解释一下：
 >
