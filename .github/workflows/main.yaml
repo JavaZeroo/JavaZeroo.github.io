@@ -26,7 +26,11 @@ jobs:
       - name: Install Dependencies
         run: npm install
       - name: Build
-        run: npm run build
+        run: |
+          npm run build
+          wget https://github.com/jgm/pandoc/releases/download/2.10.1/pandoc-2.10.1-1-amd64.deb
+          sudo dpkg -i pandoc-2.10.1-1-amd64.deb
+          npm install hexo-renderer-pandoc --save  # for mathjax
       - name: Deploy
         uses: peaceiris/actions-gh-pages@v3
         with:
