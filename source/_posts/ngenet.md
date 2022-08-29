@@ -17,7 +17,7 @@ tags:
 > Neighborhood-aware Geometric Encoding Network
 > 邻域感知几何编码网络
 >
-> 论文链接：https://arxiv.org/abs/2201.12094
+> 论文链接：[https://arxiv.org/abs/2201.12094](https://arxiv.org/abs/2201.12094)
 
 ## Introduction
 
@@ -60,7 +60,7 @@ $$
 
 
 
-> [Cardinal Number（基数）](https://zh.wikipedia.org/wiki/基数_(数学）)：集合论中刻画集合大小的数
+> [ Cardinal Number（基数） ](https://zh.wikipedia.org/wiki/基数_(数学）)：集合论中刻画集合大小的数
 
 ### 邻域分析
 
@@ -164,7 +164,7 @@ G_{x'_i} &= max\{ G_{x'_j}|x'_j \in J^G_i \}.
 $$
 
 公式里面$\angle(\cdot, \cdot)\in(0, \pi)$	代表两个向量之间的夹角, $f_1$是pointnet里的一个函数, $J^G_i = \{x'_j \left|| x'_j-x'_i\right||<r^G\}$，$r^G$是$x'_i$邻域的半径，$max(\cdot)$意思是channel-wise max-pooling
-
+{% note info %}
 > 这个公式也解释一下：
 >
 > PPF我这里理解的就是一个四维向量包含了（按照NgeNet的顺序），一个法向量和{两个法向量之间的向量d}的夹角，另一个法向量和{两个法向量之间的向量d}的夹角，两个法向量的夹角，两点之间的距离。对应下图的$(F_2, F_3, F_4, F_1)$
@@ -174,6 +174,7 @@ $$
 > $f_1$函数：暂时不清楚什么意思
 >
 > $G_{x'_i}$：找到$G_{x'_j}$中最大的；至于channel-wise再点云中代表什么几何含义，暂时不清楚
+{% endnote %}
 
 - Semantic encoding：**需要更新**
 
