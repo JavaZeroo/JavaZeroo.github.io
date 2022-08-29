@@ -16,17 +16,17 @@
   <meta name="author" content="Java不加糖">
   <meta name="keywords" content="">
   
-    <meta name="description" content="在计算机图形学里面会经常碰到几何体的平移,旋转,缩放以及投影变换. 一般情况下会涉及到齐次坐标与变换矩阵. 为了后续对变换矩阵内容的讲解, 在这里先简要的介绍一下什么是齐次坐标. 提出问题两条平行线可以相交吗？ 在欧氏空间（几何学）中，同一平面上的两条平行线不能相交，或者说不能永远相交。这是一个大家都熟悉的常识。 但是，在投影空间中就不一样了，比如，下图上的火车铁路在远离眼睛的时候会变得更窄。最后">
+    <meta name="description" content="在计算机图形学里面会经常碰到几何体的平移,旋转,缩放以及投影变换. 一般情况下会涉及到齐次坐标与变换矩阵. 为了后续对变换矩阵内容的讲解, 在这里先简要的介绍一下什么是齐次坐标. 提出问题 两条平行线可以相交吗？ 在欧氏空间（几何学）中，同一平面上的两条平行线不能相交，或者说不能永远相交。这是一个大家都熟悉的常识。 但是，在投影空间中就不一样了，比如，下图上的火车铁路在远离眼睛的时候会变得更窄。最">
 <meta property="og:type" content="article">
 <meta property="og:title" content="齐次坐标系的理解">
 <meta property="og:url" content="http://blog.jimmyisme.top/2022/08/26/%E9%BD%90%E6%AC%A1%E5%9D%90%E6%A0%87%E7%B3%BB%E7%9A%84%E7%90%86%E8%A7%A3/index.html">
 <meta property="og:site_name" content="Java不加糖的Blog">
-<meta property="og:description" content="在计算机图形学里面会经常碰到几何体的平移,旋转,缩放以及投影变换. 一般情况下会涉及到齐次坐标与变换矩阵. 为了后续对变换矩阵内容的讲解, 在这里先简要的介绍一下什么是齐次坐标. 提出问题两条平行线可以相交吗？ 在欧氏空间（几何学）中，同一平面上的两条平行线不能相交，或者说不能永远相交。这是一个大家都熟悉的常识。 但是，在投影空间中就不一样了，比如，下图上的火车铁路在远离眼睛的时候会变得更窄。最后">
+<meta property="og:description" content="在计算机图形学里面会经常碰到几何体的平移,旋转,缩放以及投影变换. 一般情况下会涉及到齐次坐标与变换矩阵. 为了后续对变换矩阵内容的讲解, 在这里先简要的介绍一下什么是齐次坐标. 提出问题 两条平行线可以相交吗？ 在欧氏空间（几何学）中，同一平面上的两条平行线不能相交，或者说不能永远相交。这是一个大家都熟悉的常识。 但是，在投影空间中就不一样了，比如，下图上的火车铁路在远离眼睛的时候会变得更窄。最">
 <meta property="og:locale" content="zh_CN">
 <meta property="og:image" content="http://blog.jimmyisme.top/images/train.jpg">
 <meta property="og:image" content="http://blog.jimmyisme.top/images/Homogeneous2Cartesian.jpg">
 <meta property="article:published_time" content="2022-08-26T06:19:25.000Z">
-<meta property="article:modified_time" content="2022-08-29T04:57:33.807Z">
+<meta property="article:modified_time" content="2022-08-29T09:10:44.161Z">
 <meta property="article:author" content="Java不加糖">
 <meta property="article:tag" content="cv">
 <meta name="twitter:card" content="summary_large_image">
@@ -34,7 +34,7 @@
   
   
   
-  <title>齐次坐标系的理解 - Java不加糖的Blog</title>
+  <title>齐次坐标系的理解 | Java不加糖的Blog</title>
 
   <link  rel="stylesheet" href="https://lib.baomitu.com/twitter-bootstrap/4.6.1/css/bootstrap.min.css" />
 
@@ -72,7 +72,7 @@
   <script id="fluid-configs">
     var Fluid = window.Fluid || {};
     Fluid.ctx = Object.assign({}, Fluid.ctx)
-    var CONFIG = {"hostname":"blog.jimmyisme.top","root":"/","version":"1.9.2","typing":{"enable":true,"typeSpeed":50,"cursorChar":"_","loop":false,"scope":[]},"anchorjs":{"enable":true,"element":"h1,h2,h3,h4,h5,h6","placement":"left","visible":"hover","icon":""},"progressbar":{"enable":true,"height_px":3,"color":"#29d","options":{"showSpinner":false,"trickleSpeed":100}},"code_language":{"enable":true,"default":"TEXT"},"copy_btn":true,"image_caption":{"enable":true},"image_zoom":{"enable":true,"img_url_replace":["",""]},"toc":{"enable":true,"placement":"right","headingSelector":"h1,h2,h3,h4,h5,h6","collapseDepth":0},"lazyload":{"enable":true,"loading_img":"/img/loading.gif","onlypost":false,"offset_factor":2},"web_analytics":{"enable":true,"follow_dnt":true,"baidu":null,"google":"G-NDVPJNZY7Q","gtag":null,"tencent":{"sid":null,"cid":null},"woyaola":null,"cnzz":null,"leancloud":{"app_id":null,"app_key":null,"server_url":null,"path":"window.location.pathname","ignore_local":false}},"search_path":"/local-search.xml"};
+    var CONFIG = {"hostname":"blog.jimmyisme.top","root":"/","version":"1.9.2","typing":{"enable":true,"typeSpeed":70,"cursorChar":"_","loop":false,"scope":[]},"anchorjs":{"enable":true,"element":"h1,h2,h3,h4,h5,h6","placement":"left","visible":"hover","icon":"§"},"progressbar":{"enable":true,"height_px":3,"color":"#29d","options":{"showSpinner":false,"trickleSpeed":100}},"code_language":{"enable":true,"default":"TEXT"},"copy_btn":true,"image_caption":{"enable":true},"image_zoom":{"enable":true,"img_url_replace":["",""]},"toc":{"enable":true,"placement":"left","headingSelector":"h1,h2,h3,h4,h5,h6","collapseDepth":2},"lazyload":{"enable":true,"loading_img":"/img/loading.gif","onlypost":false,"offset_factor":2},"web_analytics":{"enable":true,"follow_dnt":true,"baidu":null,"google":"G-NDVPJNZY7Q","gtag":null,"tencent":{"sid":null,"cid":null},"woyaola":null,"cnzz":null,"leancloud":{"app_id":null,"app_key":null,"server_url":null,"path":"window.location.pathname","ignore_local":false}},"search_path":"/local-search.xml"};
 
     if (CONFIG.web_analytics.follow_dnt) {
       var dntVal = navigator.doNotTrack || window.doNotTrack || navigator.msDoNotTrack;
@@ -210,7 +210,7 @@
 <div id="banner" class="banner" parallax=true
      style="background: url('/images/bg/bg_black.png') no-repeat center center; background-size: cover;">
   <div class="full-bg-img">
-    <div class="mask flex-center" style="background-color: rgba(0, 0, 0, 0)">
+    <div class="mask flex-center" style="background-color: rgba(0, 0, 0, 0.1)">
       <div class="banner-text text-center fade-in-up">
         <div class="h2">
           
@@ -237,7 +237,7 @@
       <span class="post-meta mr-2">
         <i class="iconfont icon-chart"></i>
         
-          2.1k 字
+          2.2k 字
         
       </span>
     
@@ -248,7 +248,7 @@
         
         
         
-          26 分钟
+          25 分钟
         
       </span>
     
@@ -282,6 +282,16 @@
   <div class="row nomargin-x">
     <div class="side-col d-none d-lg-block col-lg-2">
       
+  <aside class="sidebar" style="padding-left: 2rem; margin-right: -1rem">
+    <div id="toc">
+  <p class="toc-header"><i class="iconfont icon-list"></i>&nbsp;目录</p>
+  <div class="toc-body" id="toc-body"></div>
+</div>
+
+
+
+  </aside>
+
 
     </div>
 
@@ -296,45 +306,54 @@
               <div class="markdown-body">
                 
                 <p>在计算机图形学里面会经常碰到几何体的平移,旋转,缩放以及投影变换. 一般情况下会涉及到齐次坐标与变换矩阵. 为了后续对变换矩阵内容的讲解, 在这里先简要的介绍一下什么是齐次坐标.</p>
-<h2 id="提出问题"><a href="#提出问题" class="headerlink" title="提出问题"></a>提出问题</h2><p><strong>两条平行线可以相交吗？</strong></p>
+<h2 id="提出问题">提出问题</h2>
+<p><strong>两条平行线可以相交吗？</strong></p>
 <p>在欧氏空间（几何学）中，同一平面上的两条平行线不能相交，或者说不能永远相交。这是一个大家都熟悉的常识。</p>
 <p>但是，在投影空间中就不一样了，比如，下图上的火车铁路在远离眼睛的时候会变得更窄。最后，两条平行的铁轨在地平线处相交，也就是无限远处的一点。</p>
-<p><img src="/images/train.jpg" srcset="/img/loading.gif" lazyload alt="train.jpg"><em>铁路变窄，在地平线处相交</em></p>
-<p>欧氏空间（或笛卡尔空间）能很好地描述我们的2D/3D几何，但它们不足以处理投影空间（实际上，欧氏几何是投影几何的一个子集）。一个2D点的笛卡尔坐标可以表示为$(x，y)$。</p>
+<p><img src="/images/train.jpg" srcset="/img/loading.gif" lazyload alt="train.jpg" /><em>铁路变窄，在地平线处相交</em></p>
+<p>欧氏空间（或笛卡尔空间）能很好地描述我们的2D/3D几何，但它们不足以处理投影空间（实际上，欧氏几何是投影几何的一个子集）。一个2D点的笛卡尔坐标可以表示为<span class="math inline">\((x，y)\)</span>。</p>
 <p>如果这个点远去到无穷远呢？无穷远处的点在欧氏空间中无法具体展示。在投影空间中，平行线会在无穷远处相遇，但在欧氏空间中却做不到。</p>
-<h2 id="解决方法"><a href="#解决方法" class="headerlink" title="解决方法"></a>解决方法</h2><p>由 August Ferdinand Möbius(不错,就是那个莫比乌斯圈的那位) 提出的齐次坐标，使图形和几何学的计算在投影空间中成为可能。齐次坐标是用$N+1$个数来表示N维坐标的一种方式。</p>
-<p>要制作二维齐次坐标，我们只需在现有坐标中增加一个额外的变量w。因此，笛卡尔坐标中的一点，$(X，Y)$在齐次坐标中就变成了$(x，y，w)$。而笛卡儿坐标中的X和Y在齐次坐标中的$x$、$y$和$w$则重新表达为</p>
-<script type="math/tex; mode=display">
+<h2 id="解决方法">解决方法</h2>
+<p>由 August Ferdinand Möbius(不错,就是那个莫比乌斯圈的那位) 提出的齐次坐标，使图形和几何学的计算在投影空间中成为可能。齐次坐标是用<span class="math inline">\(N+1\)</span>个数来表示N维坐标的一种方式。</p>
+<p>要制作二维齐次坐标，我们只需在现有坐标中增加一个额外的变量w。因此，笛卡尔坐标中的一点，<span class="math inline">\((X，Y)\)</span>在齐次坐标中就变成了<span class="math inline">\((x，y，w)\)</span>。而笛卡儿坐标中的X和Y在齐次坐标中的<span class="math inline">\(x\)</span>、<span class="math inline">\(y\)</span>和<span class="math inline">\(w\)</span>则重新表达为</p>
+<p><span class="math display">\[
 \begin{aligned}
 X = \frac{x}{w} \\ Y = \frac{y}{w}
-\end{aligned}</script><p>为什么叫 “齐次”呢？<br>如前所述，为了将齐次坐标$(x，y，w)$转换为笛卡尔坐标，我们只需将$x$和$y$除以$w$即可。</p>
-<script type="math/tex; mode=display">
-(x, y, w) \Leftrightarrow \Big(\frac{x}{w}, \frac{y}{w}\Big)</script><p>将Homogeneous转换为Cartesian，我们可以发现一个重要的事实。让我们看看下面的例子。</p>
-<script type="math/tex; mode=display">
+\end{aligned}
+\]</span></p>
+<p>为什么叫 “齐次”呢？ 如前所述，为了将齐次坐标<span class="math inline">\((x，y，w)\)</span>转换为笛卡尔坐标，我们只需将<span class="math inline">\(x\)</span>和<span class="math inline">\(y\)</span>除以<span class="math inline">\(w\)</span>即可。 <span class="math display">\[
+(x, y, w) \Leftrightarrow \Big(\frac{x}{w}, \frac{y}{w}\Big)
+\]</span> 将Homogeneous转换为Cartesian，我们可以发现一个重要的事实。让我们看看下面的例子。 <span class="math display">\[
 \begin{aligned}
-Homogeneous& \quad Cartesian& \\
-(1, 2, 3)\ &\Rightarrow \Big( \frac{1}{3}, \frac{2}{3} \Big)& \\
-(2, 4, 6)\ &\Rightarrow \Big(\frac{2}{6}, \frac{4}{6} \Big)& &=\Big(\frac{1}{3}, \frac{2}{3}\Big) \\
-(4, 8, 12)\ &\Rightarrow \Big(\frac{4}{12}, \frac{8}{12} \Big)& &=\Big(\frac{1}{3}, \frac{2}{3}\Big) \\
-&\;\;\vdots \\
-(1a, 2a, 3a)\ &\Rightarrow \Big(\frac{1a}{3a}, \frac{2a}{4a} \Big)& &=\Big(\frac{1}{3}, \frac{2}{3}\Big) \\
-\end{aligned}</script><p>如你所见 $(1, 2, 3), (2, 4, 6)$和$(4, 8, 12)$这三个点对应于同一个欧氏点$(\frac{1}{3}, \frac{2}{3})$. 而任何乘以$a$的数$（1a，2a，3a）$与欧氏空间中的$（\frac{1}{3}，\frac{2}{3}）$是同一个点。因此，这些点是 “homogeneous/齐次 “的，因为它们在欧氏空间（或笛卡尔空间）中代表同一个点。换句话说，齐次坐标是与乘数$a$不相关的。</p>
-<p><img src="/images/Homogeneous2Cartesian.jpg" srcset="/img/loading.gif" lazyload alt="Homogeneous2Cartesian.jpg"></p>
-<h2 id="数学证明-两条平行线可以相交"><a href="#数学证明-两条平行线可以相交" class="headerlink" title="数学证明: 两条平行线可以相交"></a>数学证明: 两条平行线可以相交</h2><p>考虑以下欧氏空间的线性系统。</p>
-<script type="math/tex; mode=display">
+Homogeneous&amp; \quad Cartesian&amp; \\
+(1, 2, 3)\ &amp;\Rightarrow \Big( \frac{1}{3}, \frac{2}{3} \Big)&amp; \\
+(2, 4, 6)\ &amp;\Rightarrow \Big(\frac{2}{6}, \frac{4}{6} \Big)&amp; &amp;=\Big(\frac{1}{3}, \frac{2}{3}\Big) \\
+(4, 8, 12)\ &amp;\Rightarrow \Big(\frac{4}{12}, \frac{8}{12} \Big)&amp; &amp;=\Big(\frac{1}{3}, \frac{2}{3}\Big) \\
+&amp;\;\;\vdots \\
+(1a, 2a, 3a)\ &amp;\Rightarrow \Big(\frac{1a}{3a}, \frac{2a}{4a} \Big)&amp; &amp;=\Big(\frac{1}{3}, \frac{2}{3}\Big) \\
+\end{aligned}
+\]</span> 如你所见 <span class="math inline">\((1, 2, 3), (2, 4, 6)\)</span>和<span class="math inline">\((4, 8, 12)\)</span>这三个点对应于同一个欧氏点<span class="math inline">\((\frac{1}{3}, \frac{2}{3})\)</span>. 而任何乘以<span class="math inline">\(a\)</span>的数<span class="math inline">\(（1a，2a，3a）\)</span>与欧氏空间中的<span class="math inline">\(（\frac{1}{3}，\frac{2}{3}）\)</span>是同一个点。因此，这些点是 “homogeneous/齐次 “的，因为它们在欧氏空间（或笛卡尔空间）中代表同一个点。换句话说，齐次坐标是与乘数<span class="math inline">\(a\)</span>不相关的。</p>
+<figure>
+<img src="/images/Homogeneous2Cartesian.jpg" srcset="/img/loading.gif" lazyload alt="Homogeneous2Cartesian.jpg" /><figcaption aria-hidden="true">Homogeneous2Cartesian.jpg</figcaption>
+</figure>
+<h2 id="数学证明-两条平行线可以相交">数学证明: 两条平行线可以相交</h2>
+<p>考虑以下欧氏空间的线性系统。 <span class="math display">\[
 \left \{ 
 \begin{array}{c}
 Ax+By+C=0 \\ 
 Ax+By+D=0
 \end{array}
-\right.</script><p>而我们知道，由于C≠D，所以上述方程没有解。 如果C=D，那么两条线是相同的（重叠的）。</p>
-<p>让我们重写投影空间的方程，将x和y分别替换为x/w，y/w。</p>
-<script type="math/tex; mode=display">
-\left\{\begin{array}{l}A \frac{x}{w}+B \frac{y}{w}+C=0 \\ A \frac{x}{w}+B \frac{y}{w}+D=0\end{array} \quad \Rightarrow\left\{\begin{array}{l}A x+B y+C w=0 \\ A x+B y+D w=0\end{array}\right.\right.</script><p>现在，我们有一个解，$(x，y，0)$，因为$(C-D)w=0，\therefore w=0.$ 因此，两条平行线在$(x，y，0)$处相交.</p>
-<p>$(x,y,0)$在几何上代表一条没有起点与终点, 也没有长度的射线，它只有方向。</p>
-<h2 id="齐次坐标的应用"><a href="#齐次坐标的应用" class="headerlink" title="齐次坐标的应用"></a>齐次坐标的应用</h2><p>齐次坐标在计算机图形学中是非常有用的基本概念，通过增加一个额外的维度$W$后，可以用来对几何体进行缩放,旋转,平移,透视投影的矩阵变换.</p>
-<p>任何$N$维度齐次坐标，只要$W$不为$0$，都可以通过将每一个分量除以$W$来转换到 $W=1$的向量, 然后获得其$N-1$维的欧式空间的点值。</p>
-<p>而当$W=0$时，这个坐标表示无限长的一个向量，通常表示$N-1$维的矢量。</p>
+\right.
+\]</span></p>
+<p>而我们知道，由于C≠D，所以上述方程没有解。 如果C=D，那么两条线是相同的（重叠的）。</p>
+<p>让我们重写投影空间的方程，将x和y分别替换为x/w，y/w。 <span class="math display">\[
+\left\{\begin{array}{l}A \frac{x}{w}+B \frac{y}{w}+C=0 \\ A \frac{x}{w}+B \frac{y}{w}+D=0\end{array} \quad \Rightarrow\left\{\begin{array}{l}A x+B y+C w=0 \\ A x+B y+D w=0\end{array}\right.\right.
+\]</span> 现在，我们有一个解，<span class="math inline">\((x，y，0)\)</span>，因为<span class="math inline">\((C-D)w=0，\therefore w=0.\)</span> 因此，两条平行线在<span class="math inline">\((x，y，0)\)</span>处相交.</p>
+<p><span class="math inline">\((x,y,0)\)</span>在几何上代表一条没有起点与终点, 也没有长度的射线，它只有方向。</p>
+<h2 id="齐次坐标的应用">齐次坐标的应用</h2>
+<p>齐次坐标在计算机图形学中是非常有用的基本概念，通过增加一个额外的维度<span class="math inline">\(W\)</span>后，可以用来对几何体进行缩放,旋转,平移,透视投影的矩阵变换.</p>
+<p>任何<span class="math inline">\(N\)</span>维度齐次坐标，只要<span class="math inline">\(W\)</span>不为<span class="math inline">\(0\)</span>，都可以通过将每一个分量除以<span class="math inline">\(W\)</span>来转换到 <span class="math inline">\(W=1\)</span>的向量, 然后获得其<span class="math inline">\(N-1\)</span>维的欧式空间的点值。</p>
+<p>而当<span class="math inline">\(W=0\)</span>时，这个坐标表示无限长的一个向量，通常表示<span class="math inline">\(N-1\)</span>维的矢量。</p>
 
                 
               </div>
@@ -434,16 +453,6 @@ Ax+By+D=0
 
     <div class="side-col d-none d-lg-block col-lg-2">
       
-  <aside class="sidebar" style="margin-left: -1rem">
-    <div id="toc">
-  <p class="toc-header"><i class="iconfont icon-list"></i>&nbsp;目录</p>
-  <div class="toc-body" id="toc-body"></div>
-</div>
-
-
-
-  </aside>
-
 
     </div>
   </div>

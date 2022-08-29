@@ -60,7 +60,7 @@
   <script id="fluid-configs">
     var Fluid = window.Fluid || {};
     Fluid.ctx = Object.assign({}, Fluid.ctx)
-    var CONFIG = {"hostname":"blog.jimmyisme.top","root":"/","version":"1.9.2","typing":{"enable":true,"typeSpeed":50,"cursorChar":"_","loop":false,"scope":[]},"anchorjs":{"enable":true,"element":"h1,h2,h3,h4,h5,h6","placement":"left","visible":"hover","icon":""},"progressbar":{"enable":true,"height_px":3,"color":"#29d","options":{"showSpinner":false,"trickleSpeed":100}},"code_language":{"enable":true,"default":"TEXT"},"copy_btn":true,"image_caption":{"enable":true},"image_zoom":{"enable":true,"img_url_replace":["",""]},"toc":{"enable":true,"placement":"right","headingSelector":"h1,h2,h3,h4,h5,h6","collapseDepth":0},"lazyload":{"enable":true,"loading_img":"/img/loading.gif","onlypost":false,"offset_factor":2},"web_analytics":{"enable":true,"follow_dnt":true,"baidu":null,"google":"G-NDVPJNZY7Q","gtag":null,"tencent":{"sid":null,"cid":null},"woyaola":null,"cnzz":null,"leancloud":{"app_id":null,"app_key":null,"server_url":null,"path":"window.location.pathname","ignore_local":false}},"search_path":"/local-search.xml"};
+    var CONFIG = {"hostname":"blog.jimmyisme.top","root":"/","version":"1.9.2","typing":{"enable":true,"typeSpeed":70,"cursorChar":"_","loop":false,"scope":[]},"anchorjs":{"enable":true,"element":"h1,h2,h3,h4,h5,h6","placement":"left","visible":"hover","icon":"§"},"progressbar":{"enable":true,"height_px":3,"color":"#29d","options":{"showSpinner":false,"trickleSpeed":100}},"code_language":{"enable":true,"default":"TEXT"},"copy_btn":true,"image_caption":{"enable":true},"image_zoom":{"enable":true,"img_url_replace":["",""]},"toc":{"enable":true,"placement":"left","headingSelector":"h1,h2,h3,h4,h5,h6","collapseDepth":2},"lazyload":{"enable":true,"loading_img":"/img/loading.gif","onlypost":false,"offset_factor":2},"web_analytics":{"enable":true,"follow_dnt":true,"baidu":null,"google":"G-NDVPJNZY7Q","gtag":null,"tencent":{"sid":null,"cid":null},"woyaola":null,"cnzz":null,"leancloud":{"app_id":null,"app_key":null,"server_url":null,"path":"window.location.pathname","ignore_local":false}},"search_path":"/local-search.xml"};
 
     if (CONFIG.web_analytics.follow_dnt) {
       var dntVal = navigator.doNotTrack || window.doNotTrack || navigator.msDoNotTrack;
@@ -198,11 +198,11 @@
 <div id="banner" class="banner" parallax=true
      style="background: url('/images/bg/bg_black.png') no-repeat center center; background-size: cover;">
   <div class="full-bg-img">
-    <div class="mask flex-center" style="background-color: rgba(0, 0, 0, 0)">
+    <div class="mask flex-center" style="background-color: rgba(0, 0, 0, 0.1)">
       <div class="banner-text text-center fade-in-up">
         <div class="h2">
           
-            <span id="subtitle" data-typed-text="You only live once, but if you do it right once is enough"></span>
+            <span id="subtitle" data-typed-text="&lt;b&gt;You only live once, but if you do it right once is enough&lt;/b&gt;"></span>
           
         </div>
 
@@ -248,7 +248,7 @@
       
       <a class="index-excerpt index-excerpt__noimg" href="/2022/08/26/%E9%BD%90%E6%AC%A1%E5%9D%90%E6%A0%87%E7%B3%BB%E7%9A%84%E7%90%86%E8%A7%A3/" target="_blank">
         <div>
-          在计算机图形学里面会经常碰到几何体的平移,旋转,缩放以及投影变换. 一般情况下会涉及到齐次坐标与变换矩阵. 为了后续对变换矩阵内容的讲解, 在这里先简要的介绍一下什么是齐次坐标. 提出问题两条平行线可以相交吗？ 在欧氏空间（几何学）中，同一平面上的两条平行线不能相交，或者说不能永远相交。这是一个大家都熟悉的常识。 但是，在投影空间中就不一样了，比如，下图上的火车铁路在远离眼睛的时候会变得更窄。最后
+          在计算机图形学里面会经常碰到几何体的平移,旋转,缩放以及投影变换. 一般情况下会涉及到齐次坐标与变换矩阵. 为了后续对变换矩阵内容的讲解, 在这里先简要的介绍一下什么是齐次坐标. 提出问题 两条平行线可以相交吗？ 在欧氏空间（几何学）中，同一平面上的两条平行线不能相交，或者说不能永远相交。这是一个大家都熟悉的常识。 但是，在投影空间中就不一样了，比如，下图上的火车铁路在远离眼睛的时候会变得更窄。最
         </div>
       </a>
 
@@ -372,7 +372,7 @@
       
       <a class="index-excerpt index-excerpt__noimg" href="/2022/08/25/ngenet/" target="_blank">
         <div>
-          由于点云传统配准（ICP：迭代最近点算法）效果不佳，于是考虑使用深度学习的方法。这里采用NgeNet。  Neighborhood-aware Geometric Encoding Network邻域感知几何编码网络  Introduction点云配准深度学习方法的分类作者将其分为了两种  end-to-end：将feature learning 和 transformation estimat
+          由于点云传统配准（ICP：迭代最近点算法）效果不佳，于是考虑使用深度学习的方法。 这里采用NgeNet。  Neighborhood-aware Geometric Encoding Network 邻域感知几何编码网络  Introduction 点云配准深度学习方法的分类 作者将其分为了两种  end-to-end：将feature learning 和 transformation est
         </div>
       </a>
 
@@ -439,7 +439,7 @@
       
       <a class="index-excerpt index-excerpt__noimg" href="/2022/08/25/windwos-app/" target="_blank">
         <div>
-          ⚒️生产力平时学习、Coding、内容生产必备工具 Adobe 全家桶 可以去微博关注@Vposy下载破解版  Visual Studio Code：文本编辑器 网页版：vscode.dev  生产力插件  Markdown All In One  Markdown Preview Enhanced  需要安装Pandoc     美化插件  Rainbow Brackets    OBS：非常强
+          ⚒️生产力 平时学习、Coding、内容生产必备工具 Adobe 全家桶  可以去微博关注[@Vposy](https:&#x2F;&#x2F;weibo.com&#x2F;vposy)下载破解版  Visual Studio Code：文本编辑器  网页版：vscode.dev 生产力插件  Markdown All In One Markdown Preview Enhanced  需要安装Pandoc   美化插件  R
         </div>
       </a>
 
