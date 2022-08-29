@@ -29,33 +29,6 @@
   
   
   <entry>
-    <title>KPConv的理解</title>
-    <link href="/2022/08/26/KPConv%E7%9A%84%E7%90%86%E8%A7%A3/"/>
-    <url>/2022/08/26/KPConv%E7%9A%84%E7%90%86%E8%A7%A3/</url>
-    
-    <content type="html"><![CDATA[<p>实际上就是对于点云的一种卷积方法</p>]]></content>
-    
-    
-    <categories>
-      
-      <category>📝学习</category>
-      
-    </categories>
-    
-    
-    <tags>
-      
-      <tag>cv</tag>
-      
-      <tag>点云</tag>
-      
-    </tags>
-    
-  </entry>
-  
-  
-  
-  <entry>
     <title>NgeNet论文理解</title>
     <link href="/2022/08/25/ngenet/"/>
     <url>/2022/08/25/ngenet/</url>
@@ -72,9 +45,9 @@
     
     <tags>
       
-      <tag>cv</tag>
-      
       <tag>深度学习</tag>
+      
+      <tag>cv</tag>
       
       <tag>点云配准</tag>
       
@@ -117,22 +90,22 @@
   
   
   <entry>
-    <title>关于我☺️</title>
+    <title>categories</title>
     <link href="/"/>
     <url>/</url>
     
-    <content type="html"><![CDATA[<ul><li>知识的记录</li><li>有一些些cv的论文</li><li>或许会有自己的日常</li></ul>]]></content>
+    <content type="html"><![CDATA[]]></content>
     
   </entry>
   
   
   
   <entry>
-    <title>categories</title>
+    <title>关于我☺️</title>
     <link href="/"/>
     <url>/</url>
     
-    <content type="html"><![CDATA[]]></content>
+    <content type="html"><![CDATA[<ul><li>知识的记录</li><li>有一些些cv的论文</li><li>或许会有自己的日常</li></ul>]]></content>
     
   </entry>
   
