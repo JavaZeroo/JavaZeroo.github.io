@@ -10,7 +10,7 @@ tags:
 - 点云配准
 - NgeNet
 ---
-
+****
 由于点云传统配准（ICP：迭代最近点算法）效果不佳，于是考虑使用深度学习的方法。
 这里采用[NgeNet](https://paperswithcode.com/paper/neighborhood-aware-geometric-encoding-network)。
 
@@ -72,7 +72,7 @@ $$
 
 ### 网络
 
-![NgeNet的网络架构](/images/Architecture-of-NgeNet.png)
+![NgeNet的网络架构](/images/ngenet/Architecture-of-NgeNet.png)
 
 可以很清楚的看到NgeNet是一个encoder-decoder网络
 - encoder模块由：**residual-style [KPConv](https://arxiv.org/abs/1904.08889)**/**strided KPConv**层、**instance norm**层和**Leaky ReLU**层（k=0.1）组成
@@ -97,9 +97,11 @@ Input为the source point cloud $X$ and its initial descriptor $F_X$ , the target
 
 **用途：**用于处理输入的点云
 
-**工作流程**：
+**如何工作？**
 
-- Shared Encoder：可以在绿色的Encoder部分看到一共做了四次卷积；这样做是**为了拓展领域特征**。此时一共有四个输出，最后的输出得到Super points $X'$ 和它的feature $F^{en}_{X'}$（我理解上标的en意思是end；最后一个输出）；前三步输出的feature作为中间变量也被保存了下来，为了decoder去生成multi-scale的feature。这三个中间变量被记为$F^1_{X}, F^2{X}, F^3_{X}$。这里需要注意的是，**每个点特征的邻接点的感知范围从$F^1_X$延伸到$F^3_{X}$** （最后一句话是KPConv的知识）
+- Shared Encoder：可以在绿色的Encoder部分看到一共做了四次卷积；这样做是**为了拓展领域特征**。此时一共有四个输出，最后的输出得到**Super points $X'$** （$X'$集合会在下文经常提到其中包括他的点$x'_i \in X '$）和它的feature $F^{en}_{X'}$（我理解上标的en意思是end；最后一个输出）；前三步输出的feature作为中间变量也被保存了下来，为了decoder去生成multi-scale的feature。这三个中间变量被记为$F^1_{X}, F^2{X}, F^3_{X}$。这里需要注意的是，**每个点特征的邻接点的感知范围从$F^1_X$延伸到$F^3_{X}$** （最后一句话是KPConv的知识）
+
+  - 最后Shared Encoder输出的是$X' \in \R^{N' \times 3}$ 和$F^{en}_{X'} \in \R^{N' \times D_{en} }$ ，加起来是应该是$(X', F^{en}_{X'}) \in \R^{N' \times (3+D_en)}$（**有待考证**） 
 
 - Parallel Decoder：上面说在decoder的时候需要用到我们刚才保存的$F^1_{X}, F^2{X}, F^3_{X}$，同时还有之后会介绍的$F^{inter}_{X'}$，一共这四个输入。最后得到的output是关于$X'$的高、中、低级别的feature
 
@@ -107,13 +109,17 @@ Input为the source point cloud $X$ and its initial descriptor $F_X$ , the target
   $$
   \phi (F^1 , F^2 , g) = cat[Up(g(F^2 )), F^1 ]
   $$
-  其中$F^1$和$F^2$是输入的feature，$g$是一个代表MLP或者Identity Layer的函数， $cat$表示concatenation（连接），$Up$是nearest upsampling
+  其中$F^1$和$F^2$是输入的feature，$g$是一个代表MLP或者Identity Layer的函数， $cat$表示concatenation（拼接矩阵），$Up$是nearest upsampling
 
 - 现在可以表示 $F^l_X , F^m_X$ 和 $F^h_X$ 的计算方式
 
-  - $F^l_X = MLP_2(\phi(F^1_X, F^2_X, MLP_1)$ 
-  - $F^m_X = MLP_5(\phi(F^1_X, \phi (F^2_X, F^3_X, MLP_3), MLP_4)$$
-  - $F^h_X = MLP_8(\phi(F^1_X, \phi (F^2_X, \phi (F^3_X, F^{inter}_X, Identity), MLP_6), MLP_7 )$
+$$
+\begin{split}
+F^l_X &= MLP_2(\phi(F^1_X, F^2_X, MLP_1), \\
+F^m_X &= MLP_5(\phi(F^1_X, \phi (F^2_X, F^3_X, MLP_3), MLP_4), \\
+F^h_X &= MLP_8(\phi(F^1_X, \phi (F^2_X, \phi (F^3_X, F^{inter}_X, Identity), MLP_6), MLP_7 ).
+\end{split}
+$$
 
 - 同时给出overlap（重复性）分数$O_X$和saliency（显著性）分数$S_X$
 
@@ -121,4 +127,62 @@ Input为the source point cloud $X$ and its initial descriptor $F_X$ , the target
 
 > 几何学引导式编码
 
-GGE将super points和潜在的feature作为输入；然后输出几何增强的feature
+GGE模块是一个 一个输入一个输出的模块
+
+![GGE模块](/images/ngenet/Architecture-of-GGE.png)
+
+**用途：**GGE将super points和潜在的feature(**也就是Shared Encoder输出的$(X', F^{en}_{X'}) \in \R^{N' \times (3+D_en)}$**)作为输入；然后输出几何增强后的feature
+
+**如何工作？**
+
+- Normal vectors smoothing：这里计算Normal vector的方式比较特别。这一步的目的是去获得super points的Normal vector，但是他没有直接去用open3d的库直接计算。而是将super points的点映射回原来的全部点集中。再通过全部点集中，super points周围点的normal vectors去平均得到super points的normal vector。
+
+$$
+N_{X_i^{'}}=\frac{1}{|J_i^N|}\sum_{x_j \in J_i^N}{N_{X_j}}
+$$
+
+公式里面$J_i^N = \{x_j| \left|| x_j-x'_i \right|| < r^N \}$ 其中$x_j\in X$，$r^N$是$x'_i$的邻域。
+
+> 稍微解释一下公式：
+>
+> $N_{X'_i}$是我们想要的$X'$的normal vector的集合
+>
+> $J^N_i$代表得是点$x_i$邻域内的点
+
+- Geometric encoding：这里我们想要的是每个点的几何特征，记为$G_{x'_i}$，利用[PPF(Point Pair feature)](https://campar.in.tum.de/pub/drost2010CVPR/drost2010CVPR.pdf)去计算几何特征 
+
+$$
+\begin{equation}
+\begin{split}
+PPF(x'_i, x'_j) &= (\ang(x'_j-x'_i, N_{x'_i}), \ang(x'_j-x'_i, N_{x'_j}), \ang(N_{x'_i}, N_{x'_j}), \left|| x'_i - x'_j\right||_2), \\
+G_{x'_j} &= f_1(x'_i, x'_j-x'_i, PPF(x'_i, x'_j)), \\
+G_{x'_i} &= max\{ G_{x'_j}|x'_j \in J^G_i \}.
+\end{split}
+\end{equation}
+$$
+
+公式里面$\ang(\cdot, \cdot)\in(0, \pi)$	代表两个向量之间的夹角, $f_1$是pointnet里的一个函数, $J^G_i = \{x'_j \left|| x'_j-x'_i\right||<r^G\}$，$r^G$是$x'_i$邻域的半径，$max(\cdot)$意思是channel-wise max-pooling
+
+> 这个公式也解释一下：
+>
+> PPF我这里理解的就是一个四维向量包含了（按照NgeNet的顺序），一个法向量和{两个法向量之间的向量d}的夹角，另一个法向量和{两个法向量之间的向量d}的夹角，两个法向量的夹角，两点之间的距离。对应下图的$(F_2, F_3, F_4, F_1)$
+>
+> ![原论文的图片](/images/ngenet/PPF.png)
+>
+> $f_1$函数：暂时不清楚什么意思
+>
+> $G_{x'_i}$：找到$G_{x'_j}$中最大的；至于channel-wise再点云中代表什么几何含义，暂时不清楚
+
+## 投票机制
+
+### 为什么要投票
+
+![不同级别的特征](/images/ngenet/vote.png)
+
+在Parallel Decoder我们强调了，在每一次计算特征的时候，我们都保存下来了那些中间变量；他们是$F^l_X $和$ F^m_X$ ，最后的输出是 $F^h_X$ 。
+
+此时它们三个分别可以决定哪些source的特征点和target的特征点可以一一对应。**那么每一个特征点都会存在三种方案**。所以需要通过投票决定使用哪一种。
+
+### 如何投票
+
+![投票算法](/images/ngenet/voting_algorithm.png)
