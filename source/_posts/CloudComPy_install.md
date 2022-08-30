@@ -86,3 +86,7 @@ ctest
 . <path install>/bin/condaCloud.sh activate CloudComPy39
 code -g <folder to edit>
 ```
+
+### 官方文档
+
+[https://www.simulation.openfields.fr/documentation/CloudComPy/html/index.html](https://www.simulation.openfields.fr/documentation/CloudComPy/html/index.html)
