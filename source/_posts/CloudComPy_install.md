@@ -15,19 +15,16 @@ tags:
 
 ## Installing, testing and using a CloudComPy binary on Linux, with conda
 
+{% note danger %}
+建议切换SHELL为bash
+我在zsh上安装失败，切换bash成功
+{% endnote %}
+
 先下载 *CloudComPy_Conda39_Linux64_-date-.tgz* [here](https://www.simulation.openfields.fr/index.php/download-binaries)
-
-
-As CloudComPy is under development, these instructions and the link are subject to change from time to time...
-
-**This binary works only on Linux 64, on recent distributions, and with a Conda environment as described below, not anywhere else!**
-
-**Only tested un Ubuntu 20.04 (focal) and Debian 11 (bullseye), please report any problems on other distributions.**
 
 GLIBC版本需要``2.29``以上。
 
 检查GLIBC版本:
-
 ```
 ldd --version
 ```
@@ -55,80 +52,37 @@ conda install "boost=1.72" "cgal=5.0" cmake ffmpeg "gdal=3.3" jupyterlab "matplo
 可以尝试重新新建一个conda环境
 {% endnote %}
 
-where `<conda_dir>` is the installation directory of conda (often `~/anaconda3` or `~/miniconda3`)
 
-Install the binary in the directory of your choice.
+### 如何使用:
 
-### Using CloudCompare and CloudComPy:
+不能用``conda activate <env>``需要使用 ``CloudComPy39/bin/condaCloud.sh`` 替代
 
-Before using CloudCompare or CloudComPy, you need to load the environment. 
-The script `bin/condaCloud.sh` overrides the conda command for activation and deactivation, it must be sourced. 
-
-From a new prompt (replace `<path install>` by its value): 
-
+将``<path install>``替换成你的CloudComPy39的目录
 ```
 . <path install>/bin/condaCloud.sh activate CloudComPy39
 ```
 
-if conda is unknown, execute the following instruction before:
-
-```
-. <conda_dir>/etc/profile.d/conda.sh
-```
-where `<conda_dir>` is the installation directory of conda (often `~/anaconda3` or `~/miniconda3`)
-
-Have a look on the script usage:
-```
-. <path install>/bin/condaCloud.sh
-```
-
-To run CloudCompare:
-
-```
-CloudCompare
-```
-
-To execute a Python script using CloudComPy:
-
-```
-Python myscript.py
-```
-**Remark**: You may need to install libomp.so.5:
+**Remark**: 可能需要安装 libomp.so.5:
 ```
 sudo apt-get install libomp5
 
 ```
-The IDE [Spyder](https://www.spyder-ide.org/) and [Jupyter](https://jupyter.org/) can be launched in this environment:
 
-```
-spyder
-```
-
-```
-jupyter notebook
-```
-
-An example of notebook is provided in ```doc/samples/histogramOnDistanceComputation.ipynb```.
-
-### Execute all the Python tests:
-
+测试所有项目（大约需要2分钟）:
 ```
 . <path install>/bin/condaCloud.sh activate CloudComPy39
 cd  <path install>/doc/PythonAPI_test
-```
-
-To execute all the tests (about two minutes):
-
-```
 ctest
 ```
 
-The files created with the tests are in your user space: `${HOME}/CloudComPy/Data`
+测试会输出到这里: `${HOME}/CloudComPy/Data`
 
-From the prompt, you can :
+### 在vscode上编辑
 
-### In case of problem:
+如果直接打开在vscode的话就无法``import cloudComPy``
 
-There may be differences in the versions of conda packages. When updating the conda configuration, the package versions may change slightly.This is usually not a problem, but since the CloudComPy binary is fixed, there may be a version difference on a package, which makes it incompatible with CloudComPy. For your information, here is the list of package versions when CloudComPy was built.
-
-The result of ```conda list``` command is provided in the sources in [building directory](../building)
+**正确的做法是**
+```
+. <path install>/bin/condaCloud.sh activate CloudComPy39
+code -g <folder to edit>
+```
