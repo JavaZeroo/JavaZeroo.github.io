@@ -18,25 +18,23 @@
   <meta name="author" content="Java不加糖">
   <meta name="keywords" content="">
   
-    <meta name="description" content="在计算机图形学里面会经常碰到几何体的平移,旋转,缩放以及投影变换. 一般情况下会涉及到齐次坐标与变换矩阵. 为了后续对变换矩阵内容的讲解, 在这里先简要的介绍一下什么是齐次坐标. 提出问题 两条平行线可以相交吗？ 在欧氏空间（几何学）中，同一平面上的两条平行线不能相交，或者说不能永远相交。这是一个大家都熟悉的常识。 但是，在投影空间中就不一样了，比如，下图上的火车铁路在远离眼睛的时候会变得更窄。最">
+    <meta name="description" content="下载链接：https:&#x2F;&#x2F;www.simulation.openfields.fr&#x2F;index.php&#x2F;download-binaries 官方教程：https:&#x2F;&#x2F;github.com&#x2F;CloudCompare&#x2F;CloudComPy&#x2F;blob&#x2F;master&#x2F;doc&#x2F;UseLinuxCondaBinary.md Installing, testing and using a CloudComPy">
 <meta property="og:type" content="article">
-<meta property="og:title" content="齐次坐标系的理解">
-<meta property="og:url" content="http://blog.jimmyisme.top/2022/08/26/%E9%BD%90%E6%AC%A1%E5%9D%90%E6%A0%87%E7%B3%BB%E7%9A%84%E7%90%86%E8%A7%A3/index.html">
+<meta property="og:title" content="CloudComPy库安装">
+<meta property="og:url" content="http://blog.jimmyisme.top/2022/08/30/CloudComPy_install/index.html">
 <meta property="og:site_name" content="Java不加糖的Blog">
-<meta property="og:description" content="在计算机图形学里面会经常碰到几何体的平移,旋转,缩放以及投影变换. 一般情况下会涉及到齐次坐标与变换矩阵. 为了后续对变换矩阵内容的讲解, 在这里先简要的介绍一下什么是齐次坐标. 提出问题 两条平行线可以相交吗？ 在欧氏空间（几何学）中，同一平面上的两条平行线不能相交，或者说不能永远相交。这是一个大家都熟悉的常识。 但是，在投影空间中就不一样了，比如，下图上的火车铁路在远离眼睛的时候会变得更窄。最">
+<meta property="og:description" content="下载链接：https:&#x2F;&#x2F;www.simulation.openfields.fr&#x2F;index.php&#x2F;download-binaries 官方教程：https:&#x2F;&#x2F;github.com&#x2F;CloudCompare&#x2F;CloudComPy&#x2F;blob&#x2F;master&#x2F;doc&#x2F;UseLinuxCondaBinary.md Installing, testing and using a CloudComPy">
 <meta property="og:locale" content="zh_CN">
-<meta property="og:image" content="http://blog.jimmyisme.top/images/train.jpg">
-<meta property="og:image" content="http://blog.jimmyisme.top/images/Homogeneous2Cartesian.jpg">
-<meta property="article:published_time" content="2022-08-26T06:19:25.000Z">
+<meta property="article:published_time" content="2022-08-30T03:16:22.000Z">
 <meta property="article:modified_time" content="2022-08-30T03:54:11.459Z">
 <meta property="article:author" content="Java不加糖">
 <meta property="article:tag" content="cv">
+<meta property="article:tag" content="点云配准">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:image" content="http://blog.jimmyisme.top/images/train.jpg">
   
   
   
-  <title>齐次坐标系的理解 | Java不加糖的Blog</title>
+  <title>CloudComPy库安装 | Java不加糖的Blog</title>
 
   <link  rel="stylesheet" href="https://lib.baomitu.com/twitter-bootstrap/4.6.1/css/bootstrap.min.css" />
 
@@ -216,7 +214,7 @@
       <div class="banner-text text-center fade-in-up">
         <div class="h2">
           
-            <span id="subtitle" data-typed-text="齐次坐标系的理解"></span>
+            <span id="subtitle" data-typed-text="CloudComPy库安装"></span>
           
         </div>
 
@@ -227,8 +225,8 @@
     
       <span class="post-meta">
         <i class="iconfont icon-date-fill" aria-hidden="true"></i>
-        <time datetime="2022-08-26 14:19" pubdate>
-          2022年8月26日 下午
+        <time datetime="2022-08-30 11:16" pubdate>
+          2022年8月30日 上午
         </time>
       </span>
     
@@ -239,7 +237,7 @@
       <span class="post-meta mr-2">
         <i class="iconfont icon-chart"></i>
         
-          2.2k 字
+          3k 字
         
       </span>
     
@@ -250,7 +248,7 @@
         
         
         
-          25 分钟
+          33 分钟
         
       </span>
     
@@ -302,60 +300,54 @@
         <div id="board">
           <article class="post-content mx-auto">
             <!-- SEO header -->
-            <h1 style="display: none">齐次坐标系的理解</h1>
+            <h1 style="display: none">CloudComPy库安装</h1>
             
             
               <div class="markdown-body">
                 
-                <p>在计算机图形学里面会经常碰到几何体的平移,旋转,缩放以及投影变换. 一般情况下会涉及到齐次坐标与变换矩阵. 为了后续对变换矩阵内容的讲解, 在这里先简要的介绍一下什么是齐次坐标.</p>
-<h2 id="提出问题">提出问题</h2>
-<p><strong>两条平行线可以相交吗？</strong></p>
-<p>在欧氏空间（几何学）中，同一平面上的两条平行线不能相交，或者说不能永远相交。这是一个大家都熟悉的常识。</p>
-<p>但是，在投影空间中就不一样了，比如，下图上的火车铁路在远离眼睛的时候会变得更窄。最后，两条平行的铁轨在地平线处相交，也就是无限远处的一点。</p>
-<p><img src="/images/train.jpg" srcset="/img/loading.gif" lazyload alt="train.jpg" /><em>铁路变窄，在地平线处相交</em></p>
-<p>欧氏空间（或笛卡尔空间）能很好地描述我们的2D/3D几何，但它们不足以处理投影空间（实际上，欧氏几何是投影几何的一个子集）。一个2D点的笛卡尔坐标可以表示为<span class="math inline">\((x，y)\)</span>。</p>
-<p>如果这个点远去到无穷远呢？无穷远处的点在欧氏空间中无法具体展示。在投影空间中，平行线会在无穷远处相遇，但在欧氏空间中却做不到。</p>
-<h2 id="解决方法">解决方法</h2>
-<p>由 August Ferdinand Möbius(不错,就是那个莫比乌斯圈的那位) 提出的齐次坐标，使图形和几何学的计算在投影空间中成为可能。齐次坐标是用<span class="math inline">\(N+1\)</span>个数来表示N维坐标的一种方式。</p>
-<p>要制作二维齐次坐标，我们只需在现有坐标中增加一个额外的变量w。因此，笛卡尔坐标中的一点，<span class="math inline">\((X，Y)\)</span>在齐次坐标中就变成了<span class="math inline">\((x，y，w)\)</span>。而笛卡儿坐标中的X和Y在齐次坐标中的<span class="math inline">\(x\)</span>、<span class="math inline">\(y\)</span>和<span class="math inline">\(w\)</span>则重新表达为</p>
-<p><span class="math display">\[
-\begin{aligned}
-X = \frac{x}{w} \\ Y = \frac{y}{w}
-\end{aligned}
-\]</span></p>
-<p>为什么叫 “齐次”呢？ 如前所述，为了将齐次坐标<span class="math inline">\((x，y，w)\)</span>转换为笛卡尔坐标，我们只需将<span class="math inline">\(x\)</span>和<span class="math inline">\(y\)</span>除以<span class="math inline">\(w\)</span>即可。 <span class="math display">\[
-(x, y, w) \Leftrightarrow \Big(\frac{x}{w}, \frac{y}{w}\Big)
-\]</span> 将Homogeneous转换为Cartesian，我们可以发现一个重要的事实。让我们看看下面的例子。 <span class="math display">\[
-\begin{aligned}
-Homogeneous&amp; \quad Cartesian&amp; \\
-(1, 2, 3)\ &amp;\Rightarrow \Big( \frac{1}{3}, \frac{2}{3} \Big)&amp; \\
-(2, 4, 6)\ &amp;\Rightarrow \Big(\frac{2}{6}, \frac{4}{6} \Big)&amp; &amp;=\Big(\frac{1}{3}, \frac{2}{3}\Big) \\
-(4, 8, 12)\ &amp;\Rightarrow \Big(\frac{4}{12}, \frac{8}{12} \Big)&amp; &amp;=\Big(\frac{1}{3}, \frac{2}{3}\Big) \\
-&amp;\;\;\vdots \\
-(1a, 2a, 3a)\ &amp;\Rightarrow \Big(\frac{1a}{3a}, \frac{2a}{4a} \Big)&amp; &amp;=\Big(\frac{1}{3}, \frac{2}{3}\Big) \\
-\end{aligned}
-\]</span> 如你所见 <span class="math inline">\((1, 2, 3), (2, 4, 6)\)</span>和<span class="math inline">\((4, 8, 12)\)</span>这三个点对应于同一个欧氏点<span class="math inline">\((\frac{1}{3}, \frac{2}{3})\)</span>. 而任何乘以<span class="math inline">\(a\)</span>的数<span class="math inline">\(（1a，2a，3a）\)</span>与欧氏空间中的<span class="math inline">\(（\frac{1}{3}，\frac{2}{3}）\)</span>是同一个点。因此，这些点是 “homogeneous/齐次 “的，因为它们在欧氏空间（或笛卡尔空间）中代表同一个点。换句话说，齐次坐标是与乘数<span class="math inline">\(a\)</span>不相关的。</p>
-<figure>
-<img src="/images/Homogeneous2Cartesian.jpg" srcset="/img/loading.gif" lazyload alt="Homogeneous2Cartesian.jpg" /><figcaption aria-hidden="true">Homogeneous2Cartesian.jpg</figcaption>
-</figure>
-<h2 id="数学证明-两条平行线可以相交">数学证明: 两条平行线可以相交</h2>
-<p>考虑以下欧氏空间的线性系统。 <span class="math display">\[
-\left \{ 
-\begin{array}{c}
-Ax+By+C=0 \\ 
-Ax+By+D=0
-\end{array}
-\right.
-\]</span></p>
-<p>而我们知道，由于C≠D，所以上述方程没有解。 如果C=D，那么两条线是相同的（重叠的）。</p>
-<p>让我们重写投影空间的方程，将x和y分别替换为x/w，y/w。 <span class="math display">\[
-\left\{\begin{array}{l}A \frac{x}{w}+B \frac{y}{w}+C=0 \\ A \frac{x}{w}+B \frac{y}{w}+D=0\end{array} \quad \Rightarrow\left\{\begin{array}{l}A x+B y+C w=0 \\ A x+B y+D w=0\end{array}\right.\right.
-\]</span> 现在，我们有一个解，<span class="math inline">\((x，y，0)\)</span>，因为<span class="math inline">\((C-D)w=0，\therefore w=0.\)</span> 因此，两条平行线在<span class="math inline">\((x，y，0)\)</span>处相交.</p>
-<p><span class="math inline">\((x,y,0)\)</span>在几何上代表一条没有起点与终点, 也没有长度的射线，它只有方向。</p>
-<h2 id="齐次坐标的应用">齐次坐标的应用</h2>
-<p>齐次坐标在计算机图形学中是非常有用的基本概念，通过增加一个额外的维度<span class="math inline">\(W\)</span>后，可以用来对几何体进行缩放,旋转,平移,透视投影的矩阵变换.</p>
-<p>任何<span class="math inline">\(N\)</span>维度齐次坐标，只要<span class="math inline">\(W\)</span>不为<span class="math inline">\(0\)</span>，都可以通过将每一个分量除以<span class="math inline">\(W\)</span>来转换到 <span class="math inline">\(W=1\)</span>的向量, 然后获得其<span class="math inline">\(N-1\)</span>维的欧式空间的点值。</p>
-<p>而当<span class="math inline">\(W=0\)</span>时，这个坐标表示无限长的一个向量，通常表示<span class="math inline">\(N-1\)</span>维的矢量。</p>
+                <p>下载链接：<a target="_blank" rel="noopener" href="https://www.simulation.openfields.fr/index.php/download-binaries">https://www.simulation.openfields.fr/index.php/download-binaries</a></p>
+<p>官方教程：<a target="_blank" rel="noopener" href="https://github.com/CloudCompare/CloudComPy/blob/master/doc/UseLinuxCondaBinary.md">https://github.com/CloudCompare/CloudComPy/blob/master/doc/UseLinuxCondaBinary.md</a></p>
+<h2 id="installing-testing-and-using-a-cloudcompy-binary-on-linux-with-conda">Installing, testing and using a CloudComPy binary on Linux, with conda</h2>
+<p>先下载 <em>CloudComPy_Conda39_Linux64_-date-.tgz</em> <a target="_blank" rel="noopener" href="https://www.simulation.openfields.fr/index.php/download-binaries">here</a></p>
+<p>As CloudComPy is under development, these instructions and the link are subject to change from time to time...</p>
+<p><strong>This binary works only on Linux 64, on recent distributions, and with a Conda environment as described below, not anywhere else!</strong></p>
+<p><strong>Only tested un Ubuntu 20.04 (focal) and Debian 11 (bullseye), please report any problems on other distributions.</strong></p>
+<p>GLIBC版本需要<code>2.29</code>以上。</p>
+<p>检查GLIBC版本:</p>
+<figure class="highlight ada"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><code class="hljs ada">ldd <span class="hljs-comment">--version</span><br></code></pre></td></tr></table></figure>
+<p>必须先更新conda <figure class="highlight excel"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><code class="hljs excel">conda update -y -<span class="hljs-built_in">n</span> <span class="hljs-built_in">base</span> -c defaults conda<br></code></pre></td></tr></table></figure></p>
+<p>新建一个conda环境 <figure class="highlight apache"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><code class="hljs apache"><span class="hljs-attribute">conda</span> create --name CloudComPy39 python=<span class="hljs-number">3</span>.<span class="hljs-number">9</span><br></code></pre></td></tr></table></figure></p>
+<p>安装需要的包 <figure class="highlight mipsasm"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><code class="hljs mipsasm">conda activate <span class="hljs-keyword">CloudComPy39</span><br><span class="hljs-keyword"></span>conda <span class="hljs-built_in">config</span> --<span class="hljs-keyword">add </span>channels conda-forge<br>conda <span class="hljs-built_in">config</span> --set channel_priority strict<br>conda <span class="hljs-keyword">install </span><span class="hljs-string">&quot;boost=1.72&quot;</span> <span class="hljs-string">&quot;cgal=5.0&quot;</span> cmake ffmpeg <span class="hljs-string">&quot;gdal=3.3&quot;</span> <span class="hljs-keyword">jupyterlab </span><span class="hljs-string">&quot;matplotlib=3.5&quot;</span> <span class="hljs-string">&quot;mysql=8.0&quot;</span> <span class="hljs-string">&quot;numpy=1.22&quot;</span> <span class="hljs-string">&quot;opencv=4.5.3&quot;</span> <span class="hljs-string">&quot;openmp=8.0&quot;</span> <span class="hljs-string">&quot;pcl=1.11&quot;</span> <span class="hljs-string">&quot;pdal=2.3&quot;</span> <span class="hljs-string">&quot;psutil=5.9&quot;</span> <span class="hljs-string">&quot;qhull=2019.1&quot;</span> <span class="hljs-string">&quot;qt=5.12&quot;</span> <span class="hljs-string">&quot;scipy=1.8&quot;</span> sphinx_rtd_theme spyder tbb tbb-devel <span class="hljs-string">&quot;xerces-c=3.2&quot;</span><br></code></pre></td></tr></table></figure></p>
+<div class="note note-info">
+            <p>如果遇到<code>Solving environment: failed with initial frozen solve. Retrying with flexible solve.</code> 可以尝试重新新建一个conda环境</p>
+          </div>
+<p>where <code>&lt;conda_dir&gt;</code> is the installation directory of conda (often <code>~/anaconda3</code> or <code>~/miniconda3</code>)</p>
+<p>Install the binary in the directory of your choice.</p>
+<h3 id="using-cloudcompare-and-cloudcompy">Using CloudCompare and CloudComPy:</h3>
+<p>Before using CloudCompare or CloudComPy, you need to load the environment. The script <code>bin/condaCloud.sh</code> overrides the conda command for activation and deactivation, it must be sourced.</p>
+<p>From a new prompt (replace <code>&lt;path install&gt;</code> by its value):</p>
+<figure class="highlight arcade"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><code class="hljs arcade">. &lt;path install&gt;<span class="hljs-regexp">/bin/</span>condaCloud.sh activate CloudComPy39<br></code></pre></td></tr></table></figure>
+<p>if conda is unknown, execute the following instruction before:</p>
+<figure class="highlight vim"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><code class="hljs vim">. <span class="hljs-symbol">&lt;conda_dir&gt;</span>/etc/<span class="hljs-keyword">profile</span>.d/conda.<span class="hljs-keyword">sh</span><br></code></pre></td></tr></table></figure>
+<p>where <code>&lt;conda_dir&gt;</code> is the installation directory of conda (often <code>~/anaconda3</code> or <code>~/miniconda3</code>)</p>
+<p>Have a look on the script usage: <figure class="highlight arcade"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><code class="hljs arcade">. &lt;path install&gt;<span class="hljs-regexp">/bin/</span>condaCloud.sh<br></code></pre></td></tr></table></figure></p>
+<p>To run CloudCompare:</p>
+<figure class="highlight ebnf"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><code class="hljs ebnf"><span class="hljs-attribute">CloudCompare</span><br></code></pre></td></tr></table></figure>
+<p>To execute a Python script using CloudComPy:</p>
+<figure class="highlight nginx"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><code class="hljs nginx"><span class="hljs-attribute">Python</span> myscript.py<br></code></pre></td></tr></table></figure>
+<p><strong>Remark</strong>: You may need to install libomp.so.5: <figure class="highlight routeros"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><code class="hljs routeros">sudo apt-<span class="hljs-built_in">get</span> install libomp5<br><br></code></pre></td></tr></table></figure> The IDE <a target="_blank" rel="noopener" href="https://www.spyder-ide.org/">Spyder</a> and <a target="_blank" rel="noopener" href="https://jupyter.org/">Jupyter</a> can be launched in this environment:</p>
+<figure class="highlight ebnf"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><code class="hljs ebnf"><span class="hljs-attribute">spyder</span><br></code></pre></td></tr></table></figure>
+<figure class="highlight ebnf"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><code class="hljs ebnf"><span class="hljs-attribute">jupyter notebook</span><br></code></pre></td></tr></table></figure>
+<p>An example of notebook is provided in <code>doc/samples/histogramOnDistanceComputation.ipynb</code>.</p>
+<h3 id="execute-all-the-python-tests">Execute all the Python tests:</h3>
+<figure class="highlight arcade"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><code class="hljs arcade">. &lt;path install&gt;<span class="hljs-regexp">/bin/</span>condaCloud.sh activate CloudComPy39<br>cd  &lt;path install&gt;<span class="hljs-regexp">/doc/</span>PythonAPI_test<br></code></pre></td></tr></table></figure>
+<p>To execute all the tests (about two minutes):</p>
+<figure class="highlight ebnf"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><code class="hljs ebnf"><span class="hljs-attribute">ctest</span><br></code></pre></td></tr></table></figure>
+<p>The files created with the tests are in your user space: <code>$&#123;HOME&#125;/CloudComPy/Data</code></p>
+<p>From the prompt, you can :</p>
+<h3 id="in-case-of-problem">In case of problem:</h3>
+<p>There may be differences in the versions of conda packages. When updating the conda configuration, the package versions may change slightly.This is usually not a problem, but since the CloudComPy binary is fixed, there may be a version difference on a package, which makes it incompatible with CloudComPy. For your information, here is the list of package versions when CloudComPy was built.</p>
+<p>The result of <code>conda list</code> command is provided in the sources in <a href="../building">building directory</a></p>
 
                 
               </div>
@@ -374,7 +366,7 @@ Ax+By+D=0
     
       <span class="category-chain">
         
-  <a href="/categories/%F0%9F%93%9D%E5%AD%A6%E4%B9%A0/" class="category-chain-item">📝学习</a>
+  <a href="/categories/%F0%9F%96%A5%EF%B8%8FPython/" class="category-chain-item">🖥️Python</a>
   
   
 
@@ -391,6 +383,8 @@ Ax+By+D=0
       
         <a href="/tags/cv/">#cv</a>
       
+        <a href="/tags/%E7%82%B9%E4%BA%91%E9%85%8D%E5%87%86/">#点云配准</a>
+      
     </div>
   
 </div>
@@ -403,18 +397,12 @@ Ax+By+D=0
                   <article class="post-prev col-6">
                     
                     
-                      <a href="/2022/08/30/pandas%E7%94%A8%E6%B3%95/" title="Pandas的数据操作">
-                        <i class="iconfont icon-arrowleft"></i>
-                        <span class="hidden-mobile">Pandas的数据操作</span>
-                        <span class="visible-mobile">上一篇</span>
-                      </a>
-                    
                   </article>
                   <article class="post-next col-6">
                     
                     
-                      <a href="/2022/08/25/ngenet/" title="NgeNet论文理解">
-                        <span class="hidden-mobile">NgeNet论文理解</span>
+                      <a href="/2022/08/30/pandas%E7%94%A8%E6%B3%95/" title="Pandas的数据操作">
+                        <span class="hidden-mobile">Pandas的数据操作</span>
                         <span class="visible-mobile">下一篇</span>
                         <i class="iconfont icon-arrowright"></i>
                       </a>
