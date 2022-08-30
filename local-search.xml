@@ -4,6 +4,33 @@
   
   
   <entry>
+    <title>Pandas的数据操作</title>
+    <link href="/2022/08/30/pandas%E7%94%A8%E6%B3%95/"/>
+    <url>/2022/08/30/pandas%E7%94%A8%E6%B3%95/</url>
+    
+    <content type="html"><![CDATA[<p>最近在打Kaggle，遇到很夸张的数据预处理。 平时每次要用pandas都是现翻文档，感觉太慢，以后用到什么pandas的函数就在这里记录一下😘</p><h2 id="提取数据">提取数据</h2><h3 id="locilocix">loc、iloc、ix</h3><p>都是对DataFrame类的方法。</p><p>loc：通过选取行（列）标签索引数据 iloc：通过选取行（列）位置编号索引数据 ix：既可以通过行（列）标签索引数据，也可以通过行（列）位置编号索引数据</p>]]></content>
+    
+    
+    <categories>
+      
+      <category>🖥️Python</category>
+      
+    </categories>
+    
+    
+    <tags>
+      
+      <tag>Pandas</tag>
+      
+      <tag>数据处理</tag>
+      
+    </tags>
+    
+  </entry>
+  
+  
+  
+  <entry>
     <title>齐次坐标系的理解</title>
     <link href="/2022/08/26/%E9%BD%90%E6%AC%A1%E5%9D%90%E6%A0%87%E7%B3%BB%E7%9A%84%E7%90%86%E8%A7%A3/"/>
     <url>/2022/08/26/%E9%BD%90%E6%AC%A1%E5%9D%90%E6%A0%87%E7%B3%BB%E7%9A%84%E7%90%86%E8%A7%A3/</url>
