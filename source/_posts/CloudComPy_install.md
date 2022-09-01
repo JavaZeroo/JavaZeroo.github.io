@@ -75,7 +75,7 @@ cd  <path install>/doc/PythonAPI_test
 ctest
 ```
 
-测试会输出到这里: `${HOME}/CloudComPy/Data`
+测试会输出到这里: ``${HOME}/CloudComPy/Data``
 
 ### 在vscode上编辑
 
@@ -90,3 +90,13 @@ code -g <folder to edit>
 ### 官方文档
 
 [https://www.simulation.openfields.fr/documentation/CloudComPy/html/index.html](https://www.simulation.openfields.fr/documentation/CloudComPy/html/index.html)
+
+# 一些小细节
+
+## 读取CloudComPy的点云数据
+
+和open3d不太一样，读取点云数据有两种选择
+
+1. 需要去修改点云的位置时用``toNpArray() ``
+
+2. 复制出点云的点时用``toNpArrayCopy()``
