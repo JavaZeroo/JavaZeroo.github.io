@@ -16,8 +16,8 @@ tags:
 ## Installing, testing and using a CloudComPy binary on Linux, with conda
 
 {% note danger %}
-建议切换SHELL为bash
-我在zsh上安装失败，切换bash成功
+🚫 建议切换SHELL为bash
+🚫 我在zsh上安装失败，切换bash成功
 {% endnote %}
 
 先下载 *CloudComPy_Conda39_Linux64_-date-.tgz* [here](https://www.simulation.openfields.fr/index.php/download-binaries)
@@ -100,3 +100,7 @@ code -g <folder to edit>
 1. 需要去修改点云的位置时用``toNpArray() ``
 
 2. 复制出点云的点时用``toNpArrayCopy()``
+
+## 给CloudComPy点云上色
+
+当前版本(2.12)好像存在一些问题，建议转成open3d的数据类型后再添加颜色🤨
