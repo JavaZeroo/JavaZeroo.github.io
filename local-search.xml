@@ -4,6 +4,35 @@
   
   
   <entry>
+    <title>Kaggle比赛RSNA-2022骨折检测</title>
+    <link href="/2022/09/01/Kaggle_RSNA/"/>
+    <url>/2022/09/01/Kaggle_RSNA/</url>
+    
+    <content type="html"><![CDATA[<p>记录一下第一次认真参加Kaggle比赛 比赛链接：<a href="https://www.kaggle.com/competitions/rsna-2022-cervical-spine-fracture-detection">https://www.kaggle.com/competitions/rsna-2022-cervical-spine-fracture-detection</a></p><p>等待更新☺️</p>]]></content>
+    
+    
+    <categories>
+      
+      <category>📝学习</category>
+      
+    </categories>
+    
+    
+    <tags>
+      
+      <tag>cv</tag>
+      
+      <tag>深度学习</tag>
+      
+      <tag>Kaggle</tag>
+      
+    </tags>
+    
+  </entry>
+  
+  
+  
+  <entry>
     <title>CloudComPy库安装</title>
     <link href="/2022/08/30/CloudComPy_install/"/>
     <url>/2022/08/30/CloudComPy_install/</url>
