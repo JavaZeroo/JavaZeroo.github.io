@@ -61,7 +61,7 @@ $$
 
 
 
-> [ Cardinal Number（基数） ](https://zh.wikipedia.org/wiki/基数_(数学）)：集合论中刻画集合大小的数
+> [Cardinal Number(基数)](https://zh.wikipedia.org/wiki/%E5%9F%BA%E6%95%B0_(%E6%95%B0%E5%AD%A6))：集合论中刻画集合大小的数
 
 ### 邻域分析
 
