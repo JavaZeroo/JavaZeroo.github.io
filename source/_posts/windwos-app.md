@@ -34,6 +34,19 @@ tags:
 ### [OBS](https://obsproject.com/)：非常强大的开源录屏软件
   - 可能需要配置。待补充
 
+### [office tools](https://otp.landian.vip/zh-cn/)
+
+
+### [PowerToys](https://docs.microsoft.com/en-us/windows/powertoys/install)
+
+
+### Auto Dark Mode
+
+### Start All Back
+
+### Eagle
+
+
 ## 😍 娱乐
 
 听歌、电影、打游戏
