@@ -73,7 +73,7 @@ oh-my-posh init pwsh --config ~/.jandedobbeleer.omp.json | Invoke-Expression
 ```
 {% note info %}
 其实可以看出来``~/.jandedobbeleer.omp.json`` 这个就是``jandedobbeleer``对应的json文件，所有主题都是以json文件储存的。
-{% endnote %
+{% endnote %}
 
 其实你可以自己创建一个主题，这里是[官方教程](https://ohmyposh.dev/docs/configuration/overview)，事实上他包括很多插件，eg. Spotiy；
 
