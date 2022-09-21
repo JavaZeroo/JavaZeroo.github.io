@@ -4,6 +4,35 @@
   
   
   <entry>
+    <title>使用socket代理解决企业微信可信ip问题</title>
+    <link href="/2022/09/21/%E4%BD%BF%E7%94%A8%E4%BB%A3%E7%90%86%E8%A7%A3%E5%86%B3%E4%BC%81%E4%B8%9A%E5%BE%AE%E4%BF%A1%E5%8F%AF%E4%BF%A1ip%E9%97%AE%E9%A2%98/"/>
+    <url>/2022/09/21/%E4%BD%BF%E7%94%A8%E4%BB%A3%E7%90%86%E8%A7%A3%E5%86%B3%E4%BC%81%E4%B8%9A%E5%BE%AE%E4%BF%A1%E5%8F%AF%E4%BF%A1ip%E9%97%AE%E9%A2%98/</url>
+    
+    <content type="html"><![CDATA[<p>最近在网上看到了使用微信测试公众号给女朋友弄的每日推送。不过还是有很多问题的，主要是不能更改头像和名字，非常的不优雅。于是找到了企业微信的api，非常满足我的需要求。</p><p>于是打算自己重新写一个。<a href="https://github.com/JavaZeroo/wechat-bot">直达链接</a> (目前还没有施工完🛠️)</p><h2 id="主要思路">主要思路</h2><p>首先我们需要明确需求：需要一个<strong>固定的公网ip来访问企业微信的api</strong>。</p><p>那第一反应当然就是租用云服务器，然后同时购买固定的公网ip，然后再把云服务器作为代理服务器，帮助我们去访问企业微信api。</p><pre><code class=" mermaid">flowchart LR    A[本地服务器] ---&gt;|Socks代理| B[云服务器] ---&gt; C[企业微信api]    C -.-&gt; B -.-&gt;|Socks代理| A</code></pre><div class="note note-info">            <p><strong>为什么用Socks代理而不用http？</strong></p><ul><li><p>主要是因为http代理无法代理https的流量，比较麻烦。</p></li><li><p>Socks代理性能更好，因为他只负责转发流量，简单理解为Socks代理更纯粹。</p></li></ul>          </div><h2 id="实际操作">实际操作</h2><div class="note note-info">            <p>我的内核：</p><p>CentOS Linux release 7.6.1810 (Core)</p>          </div><h3 id="安装socks5服务端">安装socks5服务端</h3><p>项目地址：<a href="https://github.com/Lozy/danted">https://github.com/Lozy/danted</a></p><p>项目给出了两种安装方式，我这里使用的是脚本安装，直接安装在服务器上。(主要是腾讯云上貌似没有自带docker，懒得折腾了)</p><p>首先下载脚本 <figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><code class="hljs bash">wget --no-check-certificate https://raw.github.com/Lozy/danted/master/install.sh -O install.sh <br></code></pre></td></tr></table></figure></p><p>安装脚本 <figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><code class="hljs bash"><span class="hljs-built_in">chmod</span> +x install.sh &amp;&amp; ./install.sh<br></code></pre></td></tr></table></figure> <div class="note note-info">            <p><strong>默认配置的端口是2016，且没有账号密码！！！！</strong></p><p>如果需要自定义参数可以加上：</p><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><code class="hljs bash">--port=端口 \<br>--user=账号 \<br>--passwd=密码<br></code></pre></td></tr></table></figure>          </div></p><figure><img src="/images/socks/安装完成.png" alt="安装完成界面" /><figcaption aria-hidden="true">安装完成界面</figcaption></figure><h3 id="后续配置">后续配置</h3><div class="note note-warning">                      </div><h2 id="参考">参考</h2><p>Socks：https://cloud.tencent.com/developer/article/1682604?from=15425</p><p>安装：https://blog.csdn.net/weixin_44471270/article/details/121343578</p>]]></content>
+    
+    
+    <categories>
+      
+      <category>💾服务器</category>
+      
+    </categories>
+    
+    
+    <tags>
+      
+      <tag>分享</tag>
+      
+      <tag>折腾</tag>
+      
+      <tag>网络</tag>
+      
+    </tags>
+    
+  </entry>
+  
+  
+  
+  <entry>
     <title>PowerShell美化</title>
     <link href="/2022/09/03/PowerShell%E7%BE%8E%E5%8C%96/"/>
     <url>/2022/09/03/PowerShell%E7%BE%8E%E5%8C%96/</url>
