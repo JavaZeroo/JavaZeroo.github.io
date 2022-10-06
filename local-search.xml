@@ -197,7 +197,7 @@
     <link href="/2022/08/25/windwos-app/"/>
     <url>/2022/08/25/windwos-app/</url>
     
-    <content type="html"><![CDATA[<h2 id="生产力">⚒️生产力</h2><p>平时学习、Coding、内容生产必备工具</p><h3 id="adobe-全家桶">Adobe 全家桶</h3><ul><li>可以去微博关注<span class="citation" data-cites="Vposy">[@Vposy]</span>(https://weibo.com/vposy)下载破解版</li></ul><h3 id="visual-studio-code文本编辑器"><a href="https://code.visualstudio.com/download">Visual Studio Code</a>：文本编辑器</h3><ul><li><p>网页版：<a href="vscode.dev">vscode.dev</a></p></li><li><p><strong>生产力插件</strong></p><ul><li><p><a href="https://marketplace.visualstudio.com/items?itemName=yzhang.markdown-all-in-one"><strong>Markdown All In One</strong></a></p></li><li><p><a href="https://marketplace.visualstudio.com/items?itemName=shd101wyy.markdown-preview-enhanced"><strong>Markdown Preview Enhanced</strong></a></p><ul><li>需要安装<a href="https://www.pandoc.org/installing.html">Pandoc</a></li></ul></li></ul></li><li><p><strong>美化插件</strong></p><ul><li><a href="https://marketplace.visualstudio.com/items?itemName=2gua.rainbow-brackets">Rainbow Brackets</a></li></ul></li></ul><h3 id="obs非常强大的开源录屏软件"><a href="https://obsproject.com/">OBS</a>：非常强大的开源录屏软件</h3><ul><li>可能需要配置。待补充</li></ul><h3 id="office-tools"><a href="https://otp.landian.vip/zh-cn/">office tools</a></h3><h3 id="powertoys"><a href="https://docs.microsoft.com/en-us/windows/powertoys/install">PowerToys</a></h3><h3 id="auto-dark-mode">Auto Dark Mode</h3><h3 id="start-all-back">Start All Back</h3><h3 id="eagle">Eagle</h3><h2 id="娱乐">😍 娱乐</h2><p>听歌、电影、打游戏</p><ul><li><a href="https://potplayer.daum.net/">PotPlayer</a>：最强播放器不接受反驳<ul><li>需要手动配置。待补充</li></ul></li><li><a href="https://www.spotify.com/us/download/windows/">Spotify</a>：国外音乐流媒体软件</li><li><ul><li>具体教程可看我b站视频 <a href="https://www.bilibili.com/video/BV1s54y1775x?share_source=copy_web&amp;vd_source=7804e1787180143dd098f023bb0e50f1">最全Spotify入坑指南! 解决注册问题! 附离线安装包</a></li></ul></li></ul>]]></content>
+    <content type="html"><![CDATA[<h2 id="生产力">⚒️生产力</h2><p>平时学习、Coding、内容生产必备工具</p><h3 id="adobe-全家桶">Adobe 全家桶</h3><ul><li>可以去微博关注<span class="citation" data-cites="Vposy">[@Vposy]</span>(https://weibo.com/vposy)下载破解版</li></ul><h3 id="visual-studio-code文本编辑器"><a href="https://code.visualstudio.com/download">Visual Studio Code</a>：文本编辑器</h3><ul><li><p>网页版：<a href="vscode.dev">vscode.dev</a></p></li><li><p><strong>生产力插件</strong></p><ul><li><p><a href="https://marketplace.visualstudio.com/items?itemName=yzhang.markdown-all-in-one"><strong>Markdown All In One</strong></a></p></li><li><p><a href="https://marketplace.visualstudio.com/items?itemName=shd101wyy.markdown-preview-enhanced"><strong>Markdown Preview Enhanced</strong></a></p><ul><li>需要安装<a href="https://www.pandoc.org/installing.html">Pandoc</a></li></ul></li></ul></li><li><p><strong>美化插件</strong></p><ul><li><a href="https://marketplace.visualstudio.com/items?itemName=2gua.rainbow-brackets">Rainbow Brackets</a></li></ul></li></ul><h3 id="obs非常强大的开源录屏软件"><a href="https://obsproject.com/">OBS</a>：非常强大的开源录屏软件</h3><ul><li>可能需要配置。待补充</li></ul><h3 id="office-tools"><a href="https://otp.landian.vip/zh-cn/">office tools</a></h3><h3 id="powertoys"><a href="https://docs.microsoft.com/en-us/windows/powertoys/install">PowerToys</a></h3><h3 id="diskitude只有10kb的磁盘分析工具"><a href="https://madebyevan.com/diskitude/">Diskitude</a>:只有10kb的磁盘分析工具</h3><figure><img src="/images/windows_app/Diskitude.jpg" alt="Diskitude" /><figcaption aria-hidden="true">Diskitude</figcaption></figure><ul><li>非常必要！！！</li><li>很小巧，磁盘满的时候可以用这个删除大文件</li></ul><h4 id="使用方法">使用方法</h4><ol type="1"><li>双击打开</li><li>选择磁盘or文件夹</li><li>左键打开文件夹，右键在Diskitude内拓展。</li></ol><h3 id="auto-dark-mode">Auto Dark Mode</h3><h3 id="start-all-back">Start All Back</h3><h3 id="eagle">Eagle</h3><h2 id="娱乐">😍 娱乐</h2><p>听歌、电影、打游戏</p><ul><li><a href="https://potplayer.daum.net/">PotPlayer</a>：最强播放器不接受反驳<ul><li>需要手动配置。待补充</li></ul></li><li><a href="https://www.spotify.com/us/download/windows/">Spotify</a>：国外音乐流媒体软件</li><li><ul><li>具体教程可看我b站视频 <a href="https://www.bilibili.com/video/BV1s54y1775x?share_source=copy_web&amp;vd_source=7804e1787180143dd098f023bb0e50f1">最全Spotify入坑指南! 解决注册问题! 附离线安装包</a></li></ul></li></ul>]]></content>
     
     
     <categories>
@@ -223,22 +223,22 @@
   
   
   <entry>
-    <title>关于我☺️</title>
+    <title>categories</title>
     <link href="/"/>
     <url>/</url>
     
-    <content type="html"><![CDATA[<ul><li>知识的记录</li><li>有一些些cv的论文</li><li>或许会有自己的日常</li></ul>]]></content>
+    <content type="html"><![CDATA[]]></content>
     
   </entry>
   
   
   
   <entry>
-    <title>categories</title>
+    <title>关于我☺️</title>
     <link href="/"/>
     <url>/</url>
     
-    <content type="html"><![CDATA[]]></content>
+    <content type="html"><![CDATA[<ul><li>知识的记录</li><li>有一些些cv的论文</li><li>或许会有自己的日常</li></ul>]]></content>
     
   </entry>
   
