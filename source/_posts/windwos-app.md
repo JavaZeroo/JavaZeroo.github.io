@@ -39,6 +39,18 @@ tags:
 
 ### [PowerToys](https://docs.microsoft.com/en-us/windows/powertoys/install)
 
+### [Diskitude](https://madebyevan.com/diskitude/):只有10kb的磁盘分析工具
+
+![Diskitude](/images/windows_app/Diskitude.jpg)
+
+- 非常必要！！！
+- 很小巧，磁盘满的时候可以用这个删除大文件
+
+#### 使用方法
+
+1. 双击打开
+2. 选择磁盘or文件夹
+3. 左键打开文件夹，右键在Diskitude内拓展。
 
 ### Auto Dark Mode
 
