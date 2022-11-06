@@ -1,6 +1,6 @@
 ---
 title: docker配置wikijs 
-date: 2022-08-30 11:16:22
+date: 2022-11-06 15:14:22
 mathjax: false
 categories:
 - 💾服务器
