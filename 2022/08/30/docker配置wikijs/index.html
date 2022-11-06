@@ -18,26 +18,26 @@
   <meta name="author" content="Java不加糖">
   <meta name="keywords" content="">
   
-    <meta name="description" content="最近在网上看到了使用微信测试公众号给女朋友弄的每日推送。不过还是有很多问题的，主要是不能更改头像和名字，非常的不优雅。于是找到了企业微信的api，非常满足我的需要求。 于是打算自己重新写一个。直达链接 (目前还没有施工完🛠️) 主要思路 首先我们需要明确需求：需要一个固定的公网ip来访问企业微信的api。 那第一反应当然就是租用云服务器，然后同时购买固定的公网ip，然后再把云服务器作为代理服务器">
+    <meta name="description" content="默认你已经安装好了docker 安装 安装centos 1docker run -i -t -d -p 8888:8888 -p 888:888 -p 80:80 -p 3306:3306 --privileged&#x3D;true -v [随便设置一个文件夹]:&#x2F;wwwroot --name&#x3D;baota centos:7 &#x2F;usr&#x2F;sbin&#x2F;init 进入docker内的centos 1docker e">
 <meta property="og:type" content="article">
-<meta property="og:title" content="使用socket代理解决企业微信可信ip问题">
-<meta property="og:url" content="http://blog.jimmyisme.top/2022/09/21/%E4%BD%BF%E7%94%A8%E4%BB%A3%E7%90%86%E8%A7%A3%E5%86%B3%E4%BC%81%E4%B8%9A%E5%BE%AE%E4%BF%A1%E5%8F%AF%E4%BF%A1ip%E9%97%AE%E9%A2%98/index.html">
+<meta property="og:title" content="docker配置wikijs">
+<meta property="og:url" content="http://blog.jimmyisme.top/2022/08/30/docker%E9%85%8D%E7%BD%AEwikijs/index.html">
 <meta property="og:site_name" content="Java不加糖的Blog">
-<meta property="og:description" content="最近在网上看到了使用微信测试公众号给女朋友弄的每日推送。不过还是有很多问题的，主要是不能更改头像和名字，非常的不优雅。于是找到了企业微信的api，非常满足我的需要求。 于是打算自己重新写一个。直达链接 (目前还没有施工完🛠️) 主要思路 首先我们需要明确需求：需要一个固定的公网ip来访问企业微信的api。 那第一反应当然就是租用云服务器，然后同时购买固定的公网ip，然后再把云服务器作为代理服务器">
+<meta property="og:description" content="默认你已经安装好了docker 安装 安装centos 1docker run -i -t -d -p 8888:8888 -p 888:888 -p 80:80 -p 3306:3306 --privileged&#x3D;true -v [随便设置一个文件夹]:&#x2F;wwwroot --name&#x3D;baota centos:7 &#x2F;usr&#x2F;sbin&#x2F;init 进入docker内的centos 1docker e">
 <meta property="og:locale" content="zh_CN">
-<meta property="og:image" content="http://blog.jimmyisme.top/images/socks/安装完成.png">
-<meta property="article:published_time" content="2022-09-21T03:16:22.000Z">
+<meta property="og:image" content="http://blog.jimmyisme.top/2022/08/30/docker%E9%85%8D%E7%BD%AEwikijs/images/">
+<meta property="og:image" content="http://blog.jimmyisme.top/2022/08/30/docker%E9%85%8D%E7%BD%AEwikijs/images/">
+<meta property="og:image" content="http://blog.jimmyisme.top/2022/08/30/docker%E9%85%8D%E7%BD%AEwikijs/images/">
+<meta property="article:published_time" content="2022-08-30T03:16:22.000Z">
 <meta property="article:modified_time" content="2022-11-06T07:10:24.707Z">
 <meta property="article:author" content="Java不加糖">
-<meta property="article:tag" content="分享">
 <meta property="article:tag" content="折腾">
-<meta property="article:tag" content="网络">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:image" content="http://blog.jimmyisme.top/images/socks/安装完成.png">
+<meta name="twitter:image" content="http://blog.jimmyisme.top/2022/08/30/docker%E9%85%8D%E7%BD%AEwikijs/images/">
   
   
   
-  <title>使用socket代理解决企业微信可信ip问题 | Java不加糖的Blog</title>
+  <title>docker配置wikijs | Java不加糖的Blog</title>
 
   <link  rel="stylesheet" href="https://lib.baomitu.com/twitter-bootstrap/4.6.1/css/bootstrap.min.css" />
 
@@ -217,7 +217,7 @@
       <div class="banner-text text-center fade-in-up">
         <div class="h2">
           
-            <span id="subtitle" data-typed-text="使用socket代理解决企业微信可信ip问题"></span>
+            <span id="subtitle" data-typed-text="docker配置wikijs"></span>
           
         </div>
 
@@ -228,8 +228,8 @@
     
       <span class="post-meta">
         <i class="iconfont icon-date-fill" aria-hidden="true"></i>
-        <time datetime="2022-09-21 11:16" pubdate>
-          2022年9月21日 上午
+        <time datetime="2022-08-30 11:16" pubdate>
+          2022年8月30日 上午
         </time>
       </span>
     
@@ -240,7 +240,7 @@
       <span class="post-meta mr-2">
         <i class="iconfont icon-chart"></i>
         
-          893 字
+          405 字
         
       </span>
     
@@ -251,7 +251,7 @@
         
         
         
-          10 分钟
+          5 分钟
         
       </span>
     
@@ -303,44 +303,27 @@
         <div id="board">
           <article class="post-content mx-auto">
             <!-- SEO header -->
-            <h1 style="display: none">使用socket代理解决企业微信可信ip问题</h1>
+            <h1 style="display: none">docker配置wikijs</h1>
             
             
               <div class="markdown-body">
                 
-                <p>最近在网上看到了使用微信测试公众号给女朋友弄的每日推送。不过还是有很多问题的，主要是不能更改头像和名字，非常的不优雅。于是找到了企业微信的api，非常满足我的需要求。</p>
-<p>于是打算自己重新写一个。<a target="_blank" rel="noopener" href="https://github.com/JavaZeroo/wechat-bot">直达链接</a> (目前还没有施工完🛠️)</p>
-<h2 id="主要思路">主要思路</h2>
-<p>首先我们需要明确需求：需要一个<strong>固定的公网ip来访问企业微信的api</strong>。</p>
-<p>那第一反应当然就是租用云服务器，然后同时购买固定的公网ip，然后再把云服务器作为代理服务器，帮助我们去访问企业微信api。</p>
-<pre><code class=" mermaid">flowchart LR
-    A[本地服务器] ---&gt;|Socks代理| B[云服务器] ---&gt; C[企业微信api]
-    C -.-&gt; B -.-&gt;|Socks代理| A
-</code></pre>
-<div class="note note-info">
-            <p><strong>为什么用Socks代理而不用http？</strong></p><ul><li><p>主要是因为http代理无法代理https的流量，比较麻烦。</p></li><li><p>Socks代理性能更好，因为他只负责转发流量，简单理解为Socks代理更纯粹。</p></li></ul>
-          </div>
-<h2 id="实际操作">实际操作</h2>
-<div class="note note-info">
-            <p>我的内核：</p><p>CentOS Linux release 7.6.1810 (Core)</p>
-          </div>
-<h3 id="安装socks5服务端">安装socks5服务端</h3>
-<p>项目地址：<a target="_blank" rel="noopener" href="https://github.com/Lozy/danted">https://github.com/Lozy/danted</a></p>
-<p>项目给出了两种安装方式，我这里使用的是脚本安装，直接安装在服务器上。(主要是腾讯云上貌似没有自带docker，懒得折腾了)</p>
-<p>首先下载脚本 <figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><code class="hljs bash">wget --no-check-certificate https://raw.github.com/Lozy/danted/master/install.sh -O install.sh <br></code></pre></td></tr></table></figure></p>
-<p>安装脚本 <figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><code class="hljs bash"><span class="hljs-built_in">chmod</span> +x install.sh &amp;&amp; ./install.sh<br></code></pre></td></tr></table></figure> <div class="note note-info">
-            <p><strong>默认配置的端口是2016，且没有账号密码！！！！</strong></p><p>如果需要自定义参数可以加上：</p><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><code class="hljs bash">--port=端口 \<br>--user=账号 \<br>--passwd=密码<br></code></pre></td></tr></table></figure>
-          </div></p>
+                <p>默认你已经安装好了docker</p>
+<h2 id="安装">安装</h2>
+<p>安装centos <figure class="highlight apache"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><code class="hljs apache"><span class="hljs-attribute">docker</span> run -i -t -d -p <span class="hljs-number">8888</span>:<span class="hljs-number">8888</span> -p <span class="hljs-number">888</span>:<span class="hljs-number">888</span> -p <span class="hljs-number">80</span>:<span class="hljs-number">80</span> -p <span class="hljs-number">3306</span>:<span class="hljs-number">3306</span> --privileged=true -v<span class="hljs-meta"> [随便设置一个文件夹]:/wwwroot --name=baota centos:7 /usr/sbin/init</span><br></code></pre></td></tr></table></figure></p>
+<p>进入docker内的centos <figure class="highlight awk"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><code class="hljs awk">docker exec -i -t baota <span class="hljs-regexp">/bin/</span>bash<br></code></pre></td></tr></table></figure></p>
+<p>安装宝塔 <figure class="highlight vim"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><code class="hljs vim">yum install -<span class="hljs-keyword">y</span> wget &amp;&amp; wget -O install.<span class="hljs-keyword">sh</span> http://download.bt.<span class="hljs-keyword">cn</span>/install/install_6.<span class="hljs-number">0</span>.<span class="hljs-keyword">sh</span> &amp;&amp; <span class="hljs-keyword">sh</span> install.<span class="hljs-keyword">sh</span><br></code></pre></td></tr></table></figure></p>
+<p>进入宝塔后，在宝塔内地软件商店安装Postgresql和Node.js</p>
 <figure>
-<img src="/images/socks/安装完成.png" srcset="/img/loading.gif" lazyload alt="安装完成界面" /><figcaption aria-hidden="true">安装完成界面</figcaption>
+<img src="images/" srcset="/img/loading.gif" lazyload alt="postgresql安装版本" /><figcaption aria-hidden="true">postgresql安装版本</figcaption>
 </figure>
-<h3 id="后续配置">后续配置</h3>
-<div class="note note-warning">
-            
-          </div>
-<h2 id="参考">参考</h2>
-<p>Socks：https://cloud.tencent.com/developer/article/1682604?from=15425</p>
-<p>安装：https://blog.csdn.net/weixin_44471270/article/details/121343578</p>
+<figure>
+<img src="images/" srcset="/img/loading.gif" lazyload alt="Node.js安装版本" /><figcaption aria-hidden="true">Node.js安装版本</figcaption>
+</figure>
+<p>下载<a target="_blank" rel="noopener" href="https://github.com/requarks/wiki/releases/">wiki.js</a>后在<code>/www/wwwroot</code>下解压</p>
+<figure>
+<img src="images/" srcset="/img/loading.gif" lazyload alt="解压后看起来长这样" /><figcaption aria-hidden="true">解压后看起来长这样</figcaption>
+</figure>
 
                 
               </div>
@@ -374,11 +357,7 @@
     <div class="post-meta">
       <i class="iconfont icon-tags"></i>
       
-        <a href="/tags/%E5%88%86%E4%BA%AB/">#分享</a>
-      
         <a href="/tags/%E6%8A%98%E8%85%BE/">#折腾</a>
-      
-        <a href="/tags/%E7%BD%91%E7%BB%9C/">#网络</a>
       
     </div>
   
@@ -392,12 +371,18 @@
                   <article class="post-prev col-6">
                     
                     
+                      <a href="/2022/08/30/CloudComPy_install/" title="CloudComPy库安装">
+                        <i class="iconfont icon-arrowleft"></i>
+                        <span class="hidden-mobile">CloudComPy库安装</span>
+                        <span class="visible-mobile">上一篇</span>
+                      </a>
+                    
                   </article>
                   <article class="post-next col-6">
                     
                     
-                      <a href="/2022/09/03/PowerShell%E7%BE%8E%E5%8C%96/" title="PowerShell美化">
-                        <span class="hidden-mobile">PowerShell美化</span>
+                      <a href="/2022/08/30/pandas%E7%94%A8%E6%B3%95/" title="Pandas的数据操作">
+                        <span class="hidden-mobile">Pandas的数据操作</span>
                         <span class="visible-mobile">下一篇</span>
                         <i class="iconfont icon-arrowright"></i>
                       </a>
@@ -471,13 +456,6 @@
 
   
 
-
-
-  <script>
-  Fluid.utils.createScript('https://lib.baomitu.com/mermaid/8.14.0/mermaid.min.js', function() {
-    mermaid.initialize({"theme":"default"});
-  });
-</script>
 
 
 

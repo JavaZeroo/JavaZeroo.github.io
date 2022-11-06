@@ -110,6 +110,31 @@
   
   
   <entry>
+    <title>docker配置wikijs</title>
+    <link href="/2022/08/30/docker%E9%85%8D%E7%BD%AEwikijs/"/>
+    <url>/2022/08/30/docker%E9%85%8D%E7%BD%AEwikijs/</url>
+    
+    <content type="html"><![CDATA[<p>默认你已经安装好了docker</p><h2 id="安装">安装</h2><p>安装centos <figure class="highlight apache"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><code class="hljs apache"><span class="hljs-attribute">docker</span> run -i -t -d -p <span class="hljs-number">8888</span>:<span class="hljs-number">8888</span> -p <span class="hljs-number">888</span>:<span class="hljs-number">888</span> -p <span class="hljs-number">80</span>:<span class="hljs-number">80</span> -p <span class="hljs-number">3306</span>:<span class="hljs-number">3306</span> --privileged=true -v<span class="hljs-meta"> [随便设置一个文件夹]:/wwwroot --name=baota centos:7 /usr/sbin/init</span><br></code></pre></td></tr></table></figure></p><p>进入docker内的centos <figure class="highlight awk"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><code class="hljs awk">docker exec -i -t baota <span class="hljs-regexp">/bin/</span>bash<br></code></pre></td></tr></table></figure></p><p>安装宝塔 <figure class="highlight vim"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><code class="hljs vim">yum install -<span class="hljs-keyword">y</span> wget &amp;&amp; wget -O install.<span class="hljs-keyword">sh</span> http://download.bt.<span class="hljs-keyword">cn</span>/install/install_6.<span class="hljs-number">0</span>.<span class="hljs-keyword">sh</span> &amp;&amp; <span class="hljs-keyword">sh</span> install.<span class="hljs-keyword">sh</span><br></code></pre></td></tr></table></figure></p><p>进入宝塔后，在宝塔内地软件商店安装Postgresql和Node.js</p><figure><img src="images/" alt="postgresql安装版本" /><figcaption aria-hidden="true">postgresql安装版本</figcaption></figure><figure><img src="images/" alt="Node.js安装版本" /><figcaption aria-hidden="true">Node.js安装版本</figcaption></figure><p>下载<a href="https://github.com/requarks/wiki/releases/">wiki.js</a>后在<code>/www/wwwroot</code>下解压</p><figure><img src="images/" alt="解压后看起来长这样" /><figcaption aria-hidden="true">解压后看起来长这样</figcaption></figure>]]></content>
+    
+    
+    <categories>
+      
+      <category>💾服务器</category>
+      
+    </categories>
+    
+    
+    <tags>
+      
+      <tag>折腾</tag>
+      
+    </tags>
+    
+  </entry>
+  
+  
+  
+  <entry>
     <title>Pandas的数据操作</title>
     <link href="/2022/08/30/pandas%E7%94%A8%E6%B3%95/"/>
     <url>/2022/08/30/pandas%E7%94%A8%E6%B3%95/</url>
@@ -223,22 +248,22 @@
   
   
   <entry>
-    <title>categories</title>
+    <title>关于我☺️</title>
     <link href="/"/>
     <url>/</url>
     
-    <content type="html"><![CDATA[]]></content>
+    <content type="html"><![CDATA[<ul><li>知识的记录</li><li>有一些些cv的论文</li><li>或许会有自己的日常</li></ul>]]></content>
     
   </entry>
   
   
   
   <entry>
-    <title>关于我☺️</title>
+    <title>categories</title>
     <link href="/"/>
     <url>/</url>
     
-    <content type="html"><![CDATA[<ul><li>知识的记录</li><li>有一些些cv的论文</li><li>或许会有自己的日常</li></ul>]]></content>
+    <content type="html"><![CDATA[]]></content>
     
   </entry>
   
