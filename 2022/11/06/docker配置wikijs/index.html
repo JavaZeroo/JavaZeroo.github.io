@@ -25,22 +25,22 @@
 <meta property="og:site_name" content="Java不加糖的Blog">
 <meta property="og:description" content="默认你已经安装好了docker 安装 安装centos 1docker run -i -t -d -p 8888:8888 -p 888:888 -p 80:80 -p 3306:3306 --privileged&#x3D;true -v [随便设置一个文件夹]:&#x2F;wwwroot --name&#x3D;baota centos:7 &#x2F;usr&#x2F;sbin&#x2F;init 进入docker内的centos 1docker e">
 <meta property="og:locale" content="zh_CN">
-<meta property="og:image" content="http://blog.jimmyisme.top/2022/11/06/docker%E9%85%8D%E7%BD%AEwikijs/images/wikijs/安装插件.png">
-<meta property="og:image" content="http://blog.jimmyisme.top/2022/11/06/docker%E9%85%8D%E7%BD%AEwikijs/images/wikijs/安装插件_postgresql.png">
-<meta property="og:image" content="http://blog.jimmyisme.top/2022/11/06/docker%E9%85%8D%E7%BD%AEwikijs/images/wikijs/安装插件_nodejs.png">
-<meta property="og:image" content="http://blog.jimmyisme.top/2022/11/06/docker%E9%85%8D%E7%BD%AEwikijs/images/wikijs/配置数据库.png">
-<meta property="og:image" content="http://blog.jimmyisme.top/2022/11/06/docker%E9%85%8D%E7%BD%AEwikijs/images/wikijs/配置数据库_2.png">
-<meta property="og:image" content="http://blog.jimmyisme.top/2022/11/06/docker%E9%85%8D%E7%BD%AEwikijs/images/wikijs/配置插件_nginx.png">
-<meta property="og:image" content="http://blog.jimmyisme.top/2022/11/06/docker%E9%85%8D%E7%BD%AEwikijs/images/wikijs/配置网站_node.png">
-<meta property="og:image" content="http://blog.jimmyisme.top/2022/11/06/docker%E9%85%8D%E7%BD%AEwikijs/images/wikijs/配置网站文件.png">
-<meta property="og:image" content="http://blog.jimmyisme.top/2022/11/06/docker%E9%85%8D%E7%BD%AEwikijs/images/wikijs/配置网站配置文件.png">
-<meta property="og:image" content="http://blog.jimmyisme.top/2022/11/06/docker%E9%85%8D%E7%BD%AEwikijs/images/wikijs/配置网站离线.png">
+<meta property="og:image" content="http://blog.jimmyisme.top/images/wikijs/安装插件.png">
+<meta property="og:image" content="http://blog.jimmyisme.top/images/wikijs/安装插件_postgresql.png">
+<meta property="og:image" content="http://blog.jimmyisme.top/images/wikijs/安装插件_nodejs.png">
+<meta property="og:image" content="http://blog.jimmyisme.top/images/wikijs/配置数据库.png">
+<meta property="og:image" content="http://blog.jimmyisme.top/images/wikijs/配置数据库_2.png">
+<meta property="og:image" content="http://blog.jimmyisme.top/images/wikijs/配置插件_nginx.png">
+<meta property="og:image" content="http://blog.jimmyisme.top/images/wikijs/配置网站_node.png">
+<meta property="og:image" content="http://blog.jimmyisme.top/images/wikijs/配置网站文件.png">
+<meta property="og:image" content="http://blog.jimmyisme.top/images/wikijs/配置网站配置文件.png">
+<meta property="og:image" content="http://blog.jimmyisme.top/images/wikijs/配置网站离线.png">
 <meta property="article:published_time" content="2022-11-06T07:14:22.000Z">
-<meta property="article:modified_time" content="2022-11-11T14:39:38.292Z">
+<meta property="article:modified_time" content="2022-11-11T14:43:22.738Z">
 <meta property="article:author" content="Java不加糖">
 <meta property="article:tag" content="折腾">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:image" content="http://blog.jimmyisme.top/2022/11/06/docker%E9%85%8D%E7%BD%AEwikijs/images/wikijs/安装插件.png">
+<meta name="twitter:image" content="http://blog.jimmyisme.top/images/wikijs/安装插件.png">
   
   
   
@@ -322,13 +322,13 @@
 <p>安装宝塔 <figure class="highlight vim"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><code class="hljs vim">yum install -<span class="hljs-keyword">y</span> wget &amp;&amp; wget -O install.<span class="hljs-keyword">sh</span> http://download.bt.<span class="hljs-keyword">cn</span>/install/install_6.<span class="hljs-number">0</span>.<span class="hljs-keyword">sh</span> &amp;&amp; <span class="hljs-keyword">sh</span> install.<span class="hljs-keyword">sh</span><br></code></pre></td></tr></table></figure></p>
 <p>进入宝塔后，在宝塔内地软件商店安装Postgresql和Node.js</p>
 <figure>
-<img src="images/wikijs/安装插件.png" srcset="/img/loading.gif" lazyload alt="安装插件" /><figcaption aria-hidden="true">安装插件</figcaption>
+<img src="/images/wikijs/安装插件.png" srcset="/img/loading.gif" lazyload alt="安装插件" /><figcaption aria-hidden="true">安装插件</figcaption>
 </figure>
-<p><img src="images/wikijs/安装插件_postgresql.png" srcset="/img/loading.gif" lazyload alt="Node.js安装版本" /> <img src="images/wikijs/安装插件_nodejs.png" srcset="/img/loading.gif" lazyload alt="Node.js安装版本" /></p>
+<p><img src="/images/wikijs/安装插件_postgresql.png" srcset="/img/loading.gif" lazyload alt="Node.js安装版本" /> <img src="/images/wikijs/安装插件_nodejs.png" srcset="/img/loading.gif" lazyload alt="Node.js安装版本" /></p>
 <p>下载<a target="_blank" rel="noopener" href="https://github.com/requarks/wiki/releases/">wiki.js</a>后在<code>/www/wwwroot</code>下解压</p>
-<!-- ![解压后看起来长这样](images/wikijs/) -->
-<p><img src="images/wikijs/配置数据库.png" srcset="/img/loading.gif" lazyload alt="配置数据库" /> <img src="images/wikijs/配置数据库_2.png" srcset="/img/loading.gif" lazyload alt="配置数据库" /></p>
-<p><img src="images/wikijs/配置插件_nginx.png" srcset="/img/loading.gif" lazyload alt="配置插件_nginx" /> <img src="images/wikijs/配置网站_node.png" srcset="/img/loading.gif" lazyload alt="配置网站_node" /> <img src="images/wikijs/配置网站文件.png" srcset="/img/loading.gif" lazyload alt="配置网站文件" /> <img src="images/wikijs/配置网站配置文件.png" srcset="/img/loading.gif" lazyload alt="配置网站配置文件" /> <img src="images/wikijs/配置网站离线.png" srcset="/img/loading.gif" lazyload alt="配置网站离线" /></p>
+<!-- ![解压后看起来长这样](/images/wikijs/) -->
+<p><img src="/images/wikijs/配置数据库.png" srcset="/img/loading.gif" lazyload alt="配置数据库" /> <img src="/images/wikijs/配置数据库_2.png" srcset="/img/loading.gif" lazyload alt="配置数据库" /></p>
+<p><img src="/images/wikijs/配置插件_nginx.png" srcset="/img/loading.gif" lazyload alt="配置插件_nginx" /> <img src="/images/wikijs/配置网站_node.png" srcset="/img/loading.gif" lazyload alt="配置网站_node" /> <img src="/images/wikijs/配置网站文件.png" srcset="/img/loading.gif" lazyload alt="配置网站文件" /> <img src="/images/wikijs/配置网站配置文件.png" srcset="/img/loading.gif" lazyload alt="配置网站配置文件" /> <img src="/images/wikijs/配置网站离线.png" srcset="/img/loading.gif" lazyload alt="配置网站离线" /></p>
 
                 
               </div>
