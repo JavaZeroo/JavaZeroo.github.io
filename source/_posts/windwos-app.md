@@ -3,7 +3,7 @@ title: 2022年必装的Windows软件
 date: 2022-08-25 14:49:00
 mathjax: false
 categories:
-- 💻Windows使用
+- 💻Windows
 tags: 
 - 软件
 - 分享
