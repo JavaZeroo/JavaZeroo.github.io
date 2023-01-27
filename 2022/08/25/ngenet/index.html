@@ -31,7 +31,7 @@
 <meta property="og:image" content="http://blog.jimmyisme.top/images/ngenet/vote.png">
 <meta property="og:image" content="http://blog.jimmyisme.top/images/ngenet/voting_algorithm.png">
 <meta property="article:published_time" content="2022-08-25T09:09:16.000Z">
-<meta property="article:modified_time" content="2023-01-02T07:06:44.227Z">
+<meta property="article:modified_time" content="2023-01-27T03:42:09.939Z">
 <meta property="article:author" content="Java不加糖">
 <meta property="article:tag" content="cv">
 <meta property="article:tag" content="点云配准">
@@ -444,7 +444,7 @@ G_{x&#39;_i} &amp;= max\{ G_{x&#39;_j}|x&#39;_j \in J^G_i \}.
 <figure>
 <img src="/images/ngenet/vote.png" srcset="/img/loading.gif" lazyload alt="不同级别的特征" /><figcaption aria-hidden="true">不同级别的特征</figcaption>
 </figure>
-<p>在Parallel Decoder我们强调了，在每一次计算特征的时候，我们都保存下来了那些中间变量；他们是$F^l_X <span class="math inline">\(和\)</span> F^m_X$ ，最后的输出是 <span class="math inline">\(F^h_X\)</span> 。</p>
+<p>在Parallel Decoder我们强调了，在每一次计算特征的时候，我们都保存下来了那些中间变量；他们是<span class="math inline">\(F^l_X\)</span> 和<span class="math inline">\(F^m_X\)</span> ，最后的输出是<span class="math inline">\(F^h_X\)</span> 。</p>
 <p>此时它们三个分别可以决定哪些source的特征点和target的特征点可以一一对应。<strong>那么每一个特征点都会存在三种方案</strong>。所以需要通过投票决定使用哪一种。</p>
 <h3 id="如何投票">如何投票</h3>
 <figure>
