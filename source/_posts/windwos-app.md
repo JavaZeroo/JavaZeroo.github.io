@@ -41,6 +41,8 @@ tags:
 
 ### [Diskitude](https://madebyevan.com/diskitude/):只有10kb的磁盘分析工具
 
+### [starship](https://starship.rs/):比oh-my-posh更好用的windows terminal美化软件
+
 ![Diskitude](/images/windows_app/Diskitude.jpg)
 
 - 非常必要！！！
