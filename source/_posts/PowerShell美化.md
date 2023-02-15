@@ -1,6 +1,8 @@
 ---
 title: PowerShell美化
 date: 2022-09-03 14:40:53
+categories:
+- 💻Windows
 tags:
 - 软件
 - 分享
