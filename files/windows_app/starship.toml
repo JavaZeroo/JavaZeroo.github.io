@@ -1,0 +1,62 @@
+format = '''
+$os$status$directory$package$git_branch$git_status$conda$time
+💫'''
+
+scan_timeout = 10
+
+
+[os]
+format = "[$symbol]($style)"
+style = "dimmed white"
+disabled = false # Disabled by default
+
+[os.symbols]
+Ubuntu = " "
+Windows = " "
+
+
+
+[conda]
+format = '[$symbol$environment](green) '
+symbol = " "
+ignore_base = false
+
+
+[directory]
+truncation_length = 20
+truncation_symbol = '…/'
+read_only = " "
+
+
+[docker_context]
+symbol = " "
+
+
+[git_branch]
+symbol = " "
+
+
+[git_status]
+ahead = '⇡${count}'
+diverged = '⇕⇡${ahead_count}⇣${behind_count}'
+behind = '⇣${count}'
+
+[time]
+disabled = false
+format = '🕙[\[ $time \]]($style) '
+
+
+[nodejs]
+symbol = " "
+
+[package]
+symbol = " "
+
+[python]
+symbol = " "
+
+[status]
+symbol = '🔴 '
+format = '[$symbol$common_meaning$signal_name$maybe_int]($style) '
+map_symbol = true
+disabled = false
