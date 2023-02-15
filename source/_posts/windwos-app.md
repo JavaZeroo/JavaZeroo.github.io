@@ -47,7 +47,6 @@ tags:
 - 非常必要！！！
 - 很小巧，磁盘满的时候可以用这个删除大文件
 
-### [starship](https://starship.rs/):比oh-my-posh更好用的windows terminal美化软件
 
 #### 使用方法
 
@@ -55,11 +54,25 @@ tags:
 2. 选择磁盘or文件夹
 3. 左键打开文件夹，右键在Diskitude内拓展。
 
-### Auto Dark Mode
+### [starship](https://starship.rs/):比oh-my-posh更好用的windows terminal美化软件
 
-### Start All Back
+![配置截图](/images/windows_app/starship.png)
 
-### Eagle
+另附我的[配置文件](source\files\windows_app\starship.toml)
+
+### [Auto Dark Mode](https://github.com/AutoDarkMode/Windows-Auto-Night-Mode)
+
+配合[Wallpaper Engine\(壁纸引擎\)](https://www.wallpaperengine.io)可以实现自动切换动态壁纸
+
+### [Start All Back](https://www.startallback.com/)
+
+![软件截图](/images/windows_app/Start_All_Back.png)
+
+想要Win11的动画，又想要win10的菜单🥰 (小孩子才做选择，成年人全都要
+
+### [Eagle](https://en.eagle.cool/)
+
+~~这辈子买过最亏的软件。素材管理不如直接文件夹，对我来说唯一有点用的可能就是字体管理了。~~
 
 
 ## 😍 娱乐
