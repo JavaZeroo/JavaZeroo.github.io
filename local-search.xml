@@ -4,6 +4,31 @@
   
   
   <entry>
+    <title>ODE常微分方程总结</title>
+    <link href="/2023/02/24/ODE%E5%B8%B8%E5%BE%AE%E5%88%86%E6%96%B9%E7%A8%8B%E6%80%BB%E7%BB%93/"/>
+    <url>/2023/02/24/ODE%E5%B8%B8%E5%BE%AE%E5%88%86%E6%96%B9%E7%A8%8B%E6%80%BB%E7%BB%93/</url>
+    
+    <content type="html"><![CDATA[<h2 id="explicit-first-order-equations">Explicit First Order Equations</h2><p>这种形式的 <span class="math display">\[y&#39; = f(x, y)\]</span> 称为 'Explicit First Order Equations' 。</p><h3 id="yfx"><span class="math inline">\(y&#39;=f(x)\)</span></h3><h3 id="equations-with-separated-variables">Equations with Separated Variables</h3><p><span class="math display">\[y&#39; = f(x)g(y) \]</span></p><p>这种可以直接变成 <span class="math inline">\(\frac{dy}{g(y)}=f(x)dx\)</span></p><p>积分完后 <span class="math display">\[\int\frac{dy}{g(y)}=\int f(x)dx\]</span> IVP: <span class="math inline">\(y(\xi)=\eta\)</span> <span class="math display">\[\int^y_{\eta}\frac{dy}{g(y)}=\int^x_{\xi} f(x)dx\]</span> 这里需要注意的是如果<span class="math inline">\(g(y(\xi))=g(\eta)=0\)</span> 那么，直接就有 <span class="math inline">\(y&#39;=0\)</span> 因此<span class="math inline">\(y=\eta\)</span> ;</p><h3 id="普通的替换">普通的替换</h3><p><span class="math display">\[y&#39;=f(ax+by+c)\]</span></p><p>这种情况用<span class="math inline">\(u(x) = ax+by+c\)</span> 去替换掉变量<span class="math inline">\(x\)</span> 。原理是<span class="math inline">\(u&#39;=a+by&#39;(x)=a+bf(u)\)</span>。很关键的一点是，<span class="math inline">\(u\)</span> 和<span class="math inline">\(y\)</span> 都是一次的。求导后刚好是线性关系。</p><p>因此 最后得出的<span class="math inline">\(u(x)\)</span>后可以直接利用<span class="math inline">\(u(x)=ax+by+c\)</span>得到<span class="math inline">\(y\)</span>。</p><h3 id="普通的homogeneous-differential-equation">普通的Homogeneous Differential Equation</h3><p><span class="math display">\[y&#39;=f(\frac{y}{x})\]</span></p><p>同样的道理用<span class="math inline">\(u(x) = \frac{y(x)}{x}, (x\neq0)\)</span>替换掉变量<span class="math inline">\(y\)</span>。有<span class="math inline">\(y&#39;=u+xu&#39;=f(\frac{y}{x})\)</span> ，可得<span class="math inline">\(u&#39;=\frac{f(u)-u}{x}\)</span></p><p>因此 最后得出的<span class="math inline">\(u(x)\)</span>后可以直接利用<span class="math inline">\(u(x)=\frac{y(x)}{x}\)</span>得到<span class="math inline">\(y\)</span>。</p><h3 id="高级的-homogeneous-differential-equation">高级的 Homogeneous Differential Equation</h3><p><span class="math display">\[y&#39;=f(\frac{ax+by+c}{\alpha x+\beta y+ \gamma})\]</span></p><p>这个的核心思想是转换成“普通的Homogeneous Differential Equation”。</p><p>首先分析行列式 <span class="math display">\[\left | \begin{matrix}a       &amp;b      \\\alpha &amp;\beta    \\\end{matrix} \right | \]</span></p><ol type="1"><li>行列式为零时，说明<span class="math inline">\(a=\lambda_a \alpha, b=\lambda_b \beta\)</span> 此时 可以直接转换成“普通的Homogeneous Differential Equation”</li><li>行列式不为零的时候，说明方程组有唯一解。</li></ol><p>首先解方程组 <span class="math display">\[\left\{\begin{align}  ax+by+c&amp;=0\\  \alpha x+\beta y+ \gamma&amp;=0\\\end{align}\right.\]</span> 可以解出一组<span class="math inline">\((x_0, y_0)\)</span> 利用这组解将“高级的 Homogeneous Differential Equation”转换成“普通的Homogeneous Differential Equation”。</p><p>原理是新建坐标系得<span class="math inline">\(\bar{x}:=x-x_0, \bar{y}:=y-y_0\)</span> 那么在这个坐标系下面原方程就变成了<span class="math inline">\(\bar{y}(\bar{x}):=y(\bar{x}+x_0)-y_0\)</span>。对这个方程求导可以将<span class="math inline">\(y\)</span>消掉，将原问题</p>]]></content>
+    
+    
+    <categories>
+      
+      <category>📝学习</category>
+      
+    </categories>
+    
+    
+    <tags>
+      
+      <tag>数学</tag>
+      
+    </tags>
+    
+  </entry>
+  
+  
+  
+  <entry>
     <title>Windows分应用跳过管理员弹窗</title>
     <link href="/2022/11/15/Windows%E5%88%86%E5%BA%94%E7%94%A8%E8%B7%B3%E8%BF%87%E7%AE%A1%E7%90%86%E5%91%98%E5%BC%B9%E7%AA%97/"/>
     <url>/2022/11/15/Windows%E5%88%86%E5%BA%94%E7%94%A8%E8%B7%B3%E8%BF%87%E7%AE%A1%E7%90%86%E5%91%98%E5%BC%B9%E7%AA%97/</url>

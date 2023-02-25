@@ -18,25 +18,24 @@
   <meta name="author" content="Java不加糖">
   <meta name="keywords" content="">
   
-    <meta name="description" content="下载链接：https:&#x2F;&#x2F;www.simulation.openfields.fr&#x2F;index.php&#x2F;download-binaries 官方教程：https:&#x2F;&#x2F;github.com&#x2F;CloudCompare&#x2F;CloudComPy&#x2F;blob&#x2F;master&#x2F;doc&#x2F;UseLinuxCondaBinary.md Installing, testing and using a CloudComPy">
+    <meta name="description" content="Explicit First Order Equations 这种形式的 \[ y&#39; &#x3D; f(x, y) \] 称为 &#39;Explicit First Order Equations&#39; 。 \(y&#39;&#x3D;f(x)\) Equations with Separated Variables \[ y&#39; &#x3D; f(x)g(y)  \] 这种可以直接变成 \(\frac{dy}{g(y)}">
 <meta property="og:type" content="article">
-<meta property="og:title" content="CloudComPy库安装">
-<meta property="og:url" content="http://blog.jimmyisme.top/2022/08/30/CloudComPy_install/index.html">
+<meta property="og:title" content="ODE常微分方程总结">
+<meta property="og:url" content="http://blog.jimmyisme.top/2023/02/24/ODE%E5%B8%B8%E5%BE%AE%E5%88%86%E6%96%B9%E7%A8%8B%E6%80%BB%E7%BB%93/index.html">
 <meta property="og:site_name" content="Java不加糖的Blog">
-<meta property="og:description" content="下载链接：https:&#x2F;&#x2F;www.simulation.openfields.fr&#x2F;index.php&#x2F;download-binaries 官方教程：https:&#x2F;&#x2F;github.com&#x2F;CloudCompare&#x2F;CloudComPy&#x2F;blob&#x2F;master&#x2F;doc&#x2F;UseLinuxCondaBinary.md Installing, testing and using a CloudComPy">
+<meta property="og:description" content="Explicit First Order Equations 这种形式的 \[ y&#39; &#x3D; f(x, y) \] 称为 &#39;Explicit First Order Equations&#39; 。 \(y&#39;&#x3D;f(x)\) Equations with Separated Variables \[ y&#39; &#x3D; f(x)g(y)  \] 这种可以直接变成 \(\frac{dy}{g(y)}">
 <meta property="og:locale" content="zh_CN">
-<meta property="article:published_time" content="2022-08-30T03:16:22.000Z">
+<meta property="article:published_time" content="2023-02-24T10:54:11.000Z">
 <meta property="article:modified_time" content="2023-02-25T03:18:14.881Z">
 <meta property="article:author" content="Java不加糖">
-<meta property="article:tag" content="cv">
-<meta property="article:tag" content="点云配准">
+<meta property="article:tag" content="数学">
 <meta name="twitter:card" content="summary_large_image">
   
   
     <meta name="referrer" content="no-referrer-when-downgrade">
   
   
-  <title>CloudComPy库安装 | Java不加糖的Blog</title>
+  <title>ODE常微分方程总结 | Java不加糖的Blog</title>
 
   <link  rel="stylesheet" href="https://lib.baomitu.com/twitter-bootstrap/4.6.1/css/bootstrap.min.css" />
 
@@ -216,7 +215,7 @@
       <div class="banner-text text-center fade-in-up">
         <div class="h2">
           
-            <span id="subtitle" data-typed-text="CloudComPy库安装"></span>
+            <span id="subtitle" data-typed-text="ODE常微分方程总结"></span>
           
         </div>
 
@@ -227,8 +226,8 @@
     
       <span class="post-meta">
         <i class="iconfont icon-date-fill" aria-hidden="true"></i>
-        <time datetime="2022-08-30 11:16" pubdate>
-          2022年8月30日 上午
+        <time datetime="2023-02-24 18:54" pubdate>
+          2023年2月24日 晚上
         </time>
       </span>
     
@@ -239,7 +238,7 @@
       <span class="post-meta mr-2">
         <i class="iconfont icon-chart"></i>
         
-          1.8k 字
+          1.4k 字
         
       </span>
     
@@ -250,7 +249,7 @@
         
         
         
-          20 分钟
+          16 分钟
         
       </span>
     
@@ -302,46 +301,60 @@
         <div id="board">
           <article class="post-content mx-auto">
             <!-- SEO header -->
-            <h1 style="display: none">CloudComPy库安装</h1>
+            <h1 style="display: none">ODE常微分方程总结</h1>
             
             
               <div class="markdown-body">
                 
-                <p>下载链接：<a target="_blank" rel="noopener" href="https://www.simulation.openfields.fr/index.php/download-binaries">https://www.simulation.openfields.fr/index.php/download-binaries</a></p>
-<p>官方教程：<a target="_blank" rel="noopener" href="https://github.com/CloudCompare/CloudComPy/blob/master/doc/UseLinuxCondaBinary.md">https://github.com/CloudCompare/CloudComPy/blob/master/doc/UseLinuxCondaBinary.md</a></p>
-<h2 id="installing-testing-and-using-a-cloudcompy-binary-on-linux-with-conda">Installing, testing and using a CloudComPy binary on Linux, with conda</h2>
-<div class="note note-danger">
-            <p>🚫 建议切换SHELL为bash 🚫 我在zsh上安装失败，切换bash成功</p>
-          </div>
-<p>先下载 <em>CloudComPy_Conda39_Linux64_-date-.tgz</em> <a target="_blank" rel="noopener" href="https://www.simulation.openfields.fr/index.php/download-binaries">here</a></p>
-<p>GLIBC版本需要<code>2.29</code>以上。</p>
-<p>检查GLIBC版本: <figure class="highlight ada"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><code class="hljs ada">ldd <span class="hljs-comment">--version</span><br></code></pre></td></tr></table></figure></p>
-<p>必须先更新conda <figure class="highlight excel"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><code class="hljs excel">conda update -y -<span class="hljs-built_in">n</span> <span class="hljs-built_in">base</span> -c defaults conda<br></code></pre></td></tr></table></figure></p>
-<p>新建一个conda环境 <figure class="highlight apache"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><code class="hljs apache"><span class="hljs-attribute">conda</span> create --name CloudComPy39 python=<span class="hljs-number">3</span>.<span class="hljs-number">9</span><br></code></pre></td></tr></table></figure></p>
-<p>安装需要的包 <figure class="highlight mipsasm"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><code class="hljs mipsasm">conda activate <span class="hljs-keyword">CloudComPy39</span><br><span class="hljs-keyword"></span>conda <span class="hljs-built_in">config</span> --<span class="hljs-keyword">add </span>channels conda-forge<br>conda <span class="hljs-built_in">config</span> --set channel_priority strict<br>conda <span class="hljs-keyword">install </span><span class="hljs-string">&quot;boost=1.72&quot;</span> <span class="hljs-string">&quot;cgal=5.0&quot;</span> cmake ffmpeg <span class="hljs-string">&quot;gdal=3.3&quot;</span> <span class="hljs-keyword">jupyterlab </span><span class="hljs-string">&quot;matplotlib=3.5&quot;</span> <span class="hljs-string">&quot;mysql=8.0&quot;</span> <span class="hljs-string">&quot;numpy=1.22&quot;</span> <span class="hljs-string">&quot;opencv=4.5.3&quot;</span> <span class="hljs-string">&quot;openmp=8.0&quot;</span> <span class="hljs-string">&quot;pcl=1.11&quot;</span> <span class="hljs-string">&quot;pdal=2.3&quot;</span> <span class="hljs-string">&quot;psutil=5.9&quot;</span> <span class="hljs-string">&quot;qhull=2019.1&quot;</span> <span class="hljs-string">&quot;qt=5.12&quot;</span> <span class="hljs-string">&quot;scipy=1.8&quot;</span> sphinx_rtd_theme spyder tbb tbb-devel <span class="hljs-string">&quot;xerces-c=3.2&quot;</span><br></code></pre></td></tr></table></figure></p>
-<div class="note note-info">
-            <p>如果遇到<code>Solving environment: failed with initial frozen solve. Retrying with flexible solve.</code> 可以尝试重新新建一个conda环境</p>
-          </div>
-<h3 id="如何使用">如何使用:</h3>
-<p>不能用<code>conda activate &lt;env&gt;</code>需要使用 <code>CloudComPy39/bin/condaCloud.sh</code> 替代</p>
-<p>将<code>&lt;path install&gt;</code>替换成你的CloudComPy39的目录 <figure class="highlight arcade"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><code class="hljs arcade">. &lt;path install&gt;<span class="hljs-regexp">/bin/</span>condaCloud.sh activate CloudComPy39<br></code></pre></td></tr></table></figure></p>
-<p><strong>Remark</strong>: 可能需要安装 libomp.so.5: <figure class="highlight routeros"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><code class="hljs routeros">sudo apt-<span class="hljs-built_in">get</span> install libomp5<br><br></code></pre></td></tr></table></figure></p>
-<p>测试所有项目（大约需要2分钟）: <figure class="highlight arcade"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><code class="hljs arcade">. &lt;path install&gt;<span class="hljs-regexp">/bin/</span>condaCloud.sh activate CloudComPy39<br>cd  &lt;path install&gt;<span class="hljs-regexp">/doc/</span>PythonAPI_test<br>ctest<br></code></pre></td></tr></table></figure></p>
-<p>测试会输出到这里: <code>$&#123;HOME&#125;/CloudComPy/Data</code></p>
-<h3 id="在vscode上编辑">在vscode上编辑</h3>
-<p>如果直接打开在vscode的话就无法<code>import cloudComPy</code></p>
-<p><strong>正确的做法是</strong> <figure class="highlight vim"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><code class="hljs vim">. &lt;path install&gt;/bin/condaCloud.<span class="hljs-keyword">sh</span> activate CloudComPy39<br>code -g &lt;folder <span class="hljs-keyword">to</span> <span class="hljs-keyword">edit</span>&gt;<br></code></pre></td></tr></table></figure></p>
-<h3 id="官方文档">官方文档</h3>
-<p><a target="_blank" rel="noopener" href="https://www.simulation.openfields.fr/documentation/CloudComPy/html/index.html">https://www.simulation.openfields.fr/documentation/CloudComPy/html/index.html</a></p>
-<h1 id="一些小细节">一些小细节</h1>
-<h2 id="读取cloudcompy的点云数据">读取CloudComPy的点云数据</h2>
-<p>和open3d不太一样，读取点云数据有两种选择</p>
+                <h2 id="explicit-first-order-equations">Explicit First Order Equations</h2>
+<p>这种形式的 <span class="math display">\[
+y&#39; = f(x, y)
+\]</span> 称为 'Explicit First Order Equations' 。</p>
+<h3 id="yfx"><span class="math inline">\(y&#39;=f(x)\)</span></h3>
+<h3 id="equations-with-separated-variables">Equations with Separated Variables</h3>
+<p><span class="math display">\[
+y&#39; = f(x)g(y) 
+\]</span></p>
+<p>这种可以直接变成 <span class="math inline">\(\frac{dy}{g(y)}=f(x)dx\)</span></p>
+<p>积分完后 <span class="math display">\[
+\int\frac{dy}{g(y)}=\int f(x)dx
+\]</span> IVP: <span class="math inline">\(y(\xi)=\eta\)</span> <span class="math display">\[
+\int^y_{\eta}\frac{dy}{g(y)}=\int^x_{\xi} f(x)dx
+\]</span> 这里需要注意的是如果<span class="math inline">\(g(y(\xi))=g(\eta)=0\)</span> 那么，直接就有 <span class="math inline">\(y&#39;=0\)</span> 因此<span class="math inline">\(y=\eta\)</span> ;</p>
+<h3 id="普通的替换">普通的替换</h3>
+<p><span class="math display">\[
+y&#39;=f(ax+by+c)
+\]</span></p>
+<p>这种情况用<span class="math inline">\(u(x) = ax+by+c\)</span> 去替换掉变量<span class="math inline">\(x\)</span> 。原理是<span class="math inline">\(u&#39;=a+by&#39;(x)=a+bf(u)\)</span>。很关键的一点是，<span class="math inline">\(u\)</span> 和<span class="math inline">\(y\)</span> 都是一次的。求导后刚好是线性关系。</p>
+<p>因此 最后得出的<span class="math inline">\(u(x)\)</span>后可以直接利用<span class="math inline">\(u(x)=ax+by+c\)</span>得到<span class="math inline">\(y\)</span>。</p>
+<h3 id="普通的homogeneous-differential-equation">普通的Homogeneous Differential Equation</h3>
+<p><span class="math display">\[
+y&#39;=f(\frac{y}{x})
+\]</span></p>
+<p>同样的道理用<span class="math inline">\(u(x) = \frac{y(x)}{x}, (x\neq0)\)</span>替换掉变量<span class="math inline">\(y\)</span>。有<span class="math inline">\(y&#39;=u+xu&#39;=f(\frac{y}{x})\)</span> ，可得<span class="math inline">\(u&#39;=\frac{f(u)-u}{x}\)</span></p>
+<p>因此 最后得出的<span class="math inline">\(u(x)\)</span>后可以直接利用<span class="math inline">\(u(x)=\frac{y(x)}{x}\)</span>得到<span class="math inline">\(y\)</span>。</p>
+<h3 id="高级的-homogeneous-differential-equation">高级的 Homogeneous Differential Equation</h3>
+<p><span class="math display">\[
+y&#39;=f(\frac{ax+by+c}{\alpha x+\beta y+ \gamma})
+\]</span></p>
+<p>这个的核心思想是转换成“普通的Homogeneous Differential Equation”。</p>
+<p>首先分析行列式 <span class="math display">\[
+\left | \begin{matrix}
+a       &amp;b      \\
+\alpha &amp;\beta    \\
+\end{matrix} \right | 
+\]</span></p>
 <ol type="1">
-<li><p>需要去修改点云的位置时用<code>toNpArray()</code></p></li>
-<li><p>复制出点云的点时用<code>toNpArrayCopy()</code></p></li>
+<li>行列式为零时，说明<span class="math inline">\(a=\lambda_a \alpha, b=\lambda_b \beta\)</span> 此时 可以直接转换成“普通的Homogeneous Differential Equation”</li>
+<li>行列式不为零的时候，说明方程组有唯一解。</li>
 </ol>
-<h2 id="给cloudcompy点云上色">给CloudComPy点云上色</h2>
-<p>当前版本(2.12)好像存在一些问题，建议转成open3d的数据类型后再添加颜色🤨</p>
+<p>首先解方程组 <span class="math display">\[
+\left\{\begin{align}
+  ax+by+c&amp;=0\\
+  \alpha x+\beta y+ \gamma&amp;=0\\
+\end{align}\right.
+\]</span> 可以解出一组<span class="math inline">\((x_0, y_0)\)</span> 利用这组解将“高级的 Homogeneous Differential Equation”转换成“普通的Homogeneous Differential Equation”。</p>
+<p>原理是新建坐标系得<span class="math inline">\(\bar{x}:=x-x_0, \bar{y}:=y-y_0\)</span> 那么在这个坐标系下面原方程就变成了<span class="math inline">\(\bar{y}(\bar{x}):=y(\bar{x}+x_0)-y_0\)</span>。对这个方程求导可以将<span class="math inline">\(y\)</span>消掉，将原问题</p>
 
                 
               </div>
@@ -360,7 +373,7 @@
     
       <span class="category-chain">
         
-  <a href="/categories/%F0%9F%96%A5%EF%B8%8FPython/" class="category-chain-item">🖥️Python</a>
+  <a href="/categories/%F0%9F%93%9D%E5%AD%A6%E4%B9%A0/" class="category-chain-item">📝学习</a>
   
   
 
@@ -375,9 +388,7 @@
     <div class="post-meta">
       <i class="iconfont icon-tags"></i>
       
-        <a href="/tags/cv/">#cv</a>
-      
-        <a href="/tags/%E7%82%B9%E4%BA%91%E9%85%8D%E5%87%86/">#点云配准</a>
+        <a href="/tags/%E6%95%B0%E5%AD%A6/">#数学</a>
       
     </div>
   
@@ -391,18 +402,12 @@
                   <article class="post-prev col-6">
                     
                     
-                      <a href="/2022/09/01/Kaggle_RSNA/" title="Kaggle比赛RSNA-2022骨折检测">
-                        <i class="iconfont icon-arrowleft"></i>
-                        <span class="hidden-mobile">Kaggle比赛RSNA-2022骨折检测</span>
-                        <span class="visible-mobile">上一篇</span>
-                      </a>
-                    
                   </article>
                   <article class="post-next col-6">
                     
                     
-                      <a href="/2022/08/30/pandas%E7%94%A8%E6%B3%95/" title="Pandas的数据操作">
-                        <span class="hidden-mobile">Pandas的数据操作</span>
+                      <a href="/2022/11/15/Windows%E5%88%86%E5%BA%94%E7%94%A8%E8%B7%B3%E8%BF%87%E7%AE%A1%E7%90%86%E5%91%98%E5%BC%B9%E7%AA%97/" title="Windows分应用跳过管理员弹窗">
+                        <span class="hidden-mobile">Windows分应用跳过管理员弹窗</span>
                         <span class="visible-mobile">下一篇</span>
                         <i class="iconfont icon-arrowright"></i>
                       </a>
