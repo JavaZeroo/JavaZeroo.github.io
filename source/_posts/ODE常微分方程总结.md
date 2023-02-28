@@ -194,6 +194,9 @@ Integrating Factors是用来让非 Exact 变成Exact differential equations。
 对于一个not excat differential equation我们需要找到一个Factor $U(x,y)$ 使得$U(x,y)\cdot M(x,y)dx+U(x,y)\cdot N(x,y)dy=0$变成一个Exact differential equations。
 
 现在的问题就是，如何去找？首先令$M' = U\cdot M,N'=U\cdot N$如果$F_x=M',F_y=N'$则有$M'_y=N'_x$。利用这个关系可以知道
+{% note info %}
+事实上就是$F_xy=F_yx$ (Jacobian Matrix)
+{% endnote %}
 $$
 \begin{align}
 &(U\cdot M)_y=(U\cdot N)_x\\
