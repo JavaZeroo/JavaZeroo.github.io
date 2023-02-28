@@ -152,3 +152,81 @@ $$
 >$$
 
 这里面$z(x)$就是刚刚的$y=C\cdot e^{-\int g(x)dx}$，$\bar{y}$就是$C(x)=\int h(x)\cdot e^{\int g(x)dx} + C_0$和$y=C\cdot e^{-\int g(x)dx}$的结合中的$y$，也就是$\bar{y}=\left(\int h(x)\cdot e^{\int g(x)dx}dx + C_0\right)\cdot e^{-\int g(x)dx}$
+
+### Bernoulli's Equation
+
+这种形式的
+$$
+y'+g(x)y+h(x)y^{\alpha}=0.\alpha \neq 1
+$$
+非常的简单，只需要把$y^{\alpha}$解决了就可以了。等式去除$y^{\alpha}$有
+$$
+y'y^{-\alpha}+g(x)y^{(1-\alpha)}+h(x)=0
+$$
+利用$z=y^{(1-\alpha)} \implies z'=(1-\alpha)y^{-\alpha}\cdot y'$替换原式得
+$$
+\frac{1}{1-\alpha}z'+g(x)z+h(x)=0
+$$
+现在，就变成了nonhomogeneous的"The Linear Differential Equation"。最后解出$z$，别忘了替换回$y$。
+
+### Exact differential equations
+
+这种形式的
+$$
+M(x,y)dx+N(x,y)dy=0,\\ \exist\ U(x, y)\ s.t.\ U_x(x,y)=M(x,y),U_y(x,y)=N(x,y)
+$$
+
+> $xdx+ydy=0$ is an exact equation, and $U(x,y)=1/2 (x^2+y^2 )$is a potential function.
+
+### Integrating Factors
+
+Integrating Factors是用来让非 Exact 变成Exact differential equations。
+
+> **E.g**. $ydx + 2xdy = 0$ is not exact. However, it can easily be made an exact differential equation (in the domain $x > 0$) by multiplying the equation by $1/\sqrt{x}$. The resulting differential equation
+> $$
+> \frac{y}{\sqrt{x}}dx+2\sqrt{x}dy=0
+> $$
+> is exact, and a potential function is given by
+> $$
+> F(x,y)=2y\sqrt{x}=0\ (x>0)
+> $$
+
+对于一个not excat differential equation我们需要找到一个Factor $U(x,y)$ 使得$U(x,y)\cdot M(x,y)dx+U(x,y)\cdot N(x,y)dy=0$变成一个Exact differential equations。
+
+现在的问题就是，如何去找？首先令$M' = U\cdot M,N'=U\cdot N$如果$F_x=M',F_y=N'$则有$M'_y=N'_x$。利用这个关系可以知道
+$$
+\begin{align}
+&(U\cdot M)_y=(U\cdot N)_x\\
+\implies &U_y\cdot M+U\cdot M_y=U_x\cdot N+U\cdot N_x \\
+\end{align}
+$$
+此时需要考虑，Integrating Factors是只与$x$有关还是只与$y$有关（只需要选一个）
+
+1. 假如只与$x$有关则$M_y=0$则有
+
+$$
+\begin{align}
+U_y\cdot M+U\cdot M_y&=U_x\cdot N+U\cdot h_x \\
+U\cdot M_y &= U' \cdot N+U \cdot N_x \\
+\frac{1}{U}U'&=\frac{M_y-N_x}{h} \\
+(\ln U)'&=\frac{M_y-N_x}{h} \\
+U&=e^{\int \frac{M_y-N_x}{N}dx}
+\end{align}
+$$
+
+> 这里的答案不是$U=C\cdot e^{\int \frac{g_y-h_x}{h}dx}$的原因是，我们只需要找到一个$U$，因此你可以认为我们选择$C=1$作为答案。下面的情况同理。
+
+2. 假如只与$y$有关则$M_x=0$则有
+
+$$
+\begin{align}
+U_y\cdot M+U\cdot M_y&=U_x\cdot N+U\cdot N_x \\
+U'\cdot M+U\cdot M_y &= U \cdot N_x \\
+\frac{1}{U}U'&=\frac{N_x-M_y}{M} \\
+(\ln U)'&=\frac{N_x-M_y}{M} \\
+U &=e^{\int \frac{N_x-M_y}{M}}
+\end{align}
+$$
+
+
+
