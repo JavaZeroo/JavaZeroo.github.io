@@ -213,10 +213,11 @@ U\cdot M_y &= U' \cdot N+U \cdot N_x \\
 U&=e^{\int \frac{M_y-N_x}{N}dx}
 \end{align}
 $$
+{% note info %}
+ 这里的答案不是$U=C\cdot e^{\int \frac{g_y-h_x}{h}dx}$的原因是，我们只需要找到一个$U$，因此你可以认为我们选择$C=1$作为答案。下面的情况同理。
+{% endnote %}
 
-> 这里的答案不是$U=C\cdot e^{\int \frac{g_y-h_x}{h}dx}$的原因是，我们只需要找到一个$U$，因此你可以认为我们选择$C=1$作为答案。下面的情况同理。
-
-2. 假如只与$y$有关则$M_x=0$则有
+1. 假如只与$y$有关则$M_x=0$则有
 
 $$
 \begin{align}
