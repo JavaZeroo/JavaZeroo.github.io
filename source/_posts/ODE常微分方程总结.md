@@ -195,7 +195,7 @@ Integrating Factors是用来让非 Exact 变成Exact differential equations。
 
 现在的问题就是，如何去找？首先令$M' = U\cdot M,N'=U\cdot N$如果$F_x=M',F_y=N'$则有$M'_y=N'_x$。利用这个关系可以知道
 {% note info %}
-事实上就是$F_xy=F_yx$ (Jacobian Matrix)
+事实上就是$F_{xy}=F_{yx}$ (Jacobian Matrix)
 {% endnote %}
 $$
 \begin{align}
