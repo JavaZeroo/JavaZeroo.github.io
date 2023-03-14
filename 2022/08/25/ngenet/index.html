@@ -21,24 +21,24 @@
     <meta name="description" content="由于点云传统配准（ICP：迭代最近点算法）效果不佳，于是考虑使用深度学习的方法。 这里采用NgeNet。  Neighborhood-aware Geometric Encoding Network 邻域感知几何编码网络 论文链接：https:&#x2F;&#x2F;arxiv.org&#x2F;abs&#x2F;2201.12094  Introduction 点云配准深度学习方法的分类 作者将其分为了两种  end-to-end：">
 <meta property="og:type" content="article">
 <meta property="og:title" content="NgeNet论文理解">
-<meta property="og:url" content="http://blog.jimmyisme.top/2022/08/25/ngenet/index.html">
+<meta property="og:url" content="http://blog.javazero.top/2022/08/25/ngenet/index.html">
 <meta property="og:site_name" content="Java不加糖的Blog">
 <meta property="og:description" content="由于点云传统配准（ICP：迭代最近点算法）效果不佳，于是考虑使用深度学习的方法。 这里采用NgeNet。  Neighborhood-aware Geometric Encoding Network 邻域感知几何编码网络 论文链接：https:&#x2F;&#x2F;arxiv.org&#x2F;abs&#x2F;2201.12094  Introduction 点云配准深度学习方法的分类 作者将其分为了两种  end-to-end：">
 <meta property="og:locale" content="zh_CN">
-<meta property="og:image" content="http://blog.jimmyisme.top/images/ngenet/Architecture-of-NgeNet.png">
-<meta property="og:image" content="http://blog.jimmyisme.top/images/ngenet/Architecture-of-GGE.png">
-<meta property="og:image" content="http://blog.jimmyisme.top/images/ngenet/PPF.png">
-<meta property="og:image" content="http://blog.jimmyisme.top/images/ngenet/vote.png">
-<meta property="og:image" content="http://blog.jimmyisme.top/images/ngenet/voting_algorithm.png">
+<meta property="og:image" content="http://blog.javazero.top/images/ngenet/Architecture-of-NgeNet.png">
+<meta property="og:image" content="http://blog.javazero.top/images/ngenet/Architecture-of-GGE.png">
+<meta property="og:image" content="http://blog.javazero.top/images/ngenet/PPF.png">
+<meta property="og:image" content="http://blog.javazero.top/images/ngenet/vote.png">
+<meta property="og:image" content="http://blog.javazero.top/images/ngenet/voting_algorithm.png">
 <meta property="article:published_time" content="2022-08-25T09:09:16.000Z">
-<meta property="article:modified_time" content="2023-03-14T07:02:58.690Z">
+<meta property="article:modified_time" content="2023-03-14T07:28:16.794Z">
 <meta property="article:author" content="Java不加糖">
 <meta property="article:tag" content="cv">
 <meta property="article:tag" content="点云配准">
 <meta property="article:tag" content="深度学习">
 <meta property="article:tag" content="NgeNet">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:image" content="http://blog.jimmyisme.top/images/ngenet/Architecture-of-NgeNet.png">
+<meta name="twitter:image" content="http://blog.javazero.top/images/ngenet/Architecture-of-NgeNet.png">
   
   
     <meta name="referrer" content="no-referrer-when-downgrade">
@@ -82,7 +82,7 @@
   <script id="fluid-configs">
     var Fluid = window.Fluid || {};
     Fluid.ctx = Object.assign({}, Fluid.ctx)
-    var CONFIG = {"hostname":"blog.jimmyisme.top","root":"/","version":"1.9.2","typing":{"enable":true,"typeSpeed":70,"cursorChar":"_","loop":false,"scope":[]},"anchorjs":{"enable":true,"element":"h1,h2,h3,h4,h5,h6","placement":"right","visible":"hover","icon":"¶"},"progressbar":{"enable":true,"height_px":3,"color":"#29d","options":{"showSpinner":true,"trickleSpeed":100}},"code_language":{"enable":true,"default":"TEXT"},"copy_btn":true,"image_caption":{"enable":true},"image_zoom":{"enable":true,"img_url_replace":["",""]},"toc":{"enable":true,"placement":"left","headingSelector":"h1,h2,h3,h4,h5,h6","collapseDepth":2},"lazyload":{"enable":true,"loading_img":"/img/loading.gif","onlypost":false,"offset_factor":2},"web_analytics":{"enable":true,"follow_dnt":true,"baidu":null,"google":"G-NDVPJNZY7Q","gtag":null,"tencent":{"sid":null,"cid":null},"woyaola":null,"cnzz":null,"leancloud":{"app_id":null,"app_key":null,"server_url":null,"path":"window.location.pathname","ignore_local":false}},"search_path":"/local-search.xml"};
+    var CONFIG = {"hostname":"blog.javazero.top","root":"/","version":"1.9.2","typing":{"enable":true,"typeSpeed":70,"cursorChar":"_","loop":false,"scope":[]},"anchorjs":{"enable":true,"element":"h1,h2,h3,h4,h5,h6","placement":"right","visible":"hover","icon":"¶"},"progressbar":{"enable":true,"height_px":3,"color":"#29d","options":{"showSpinner":true,"trickleSpeed":100}},"code_language":{"enable":true,"default":"TEXT"},"copy_btn":true,"image_caption":{"enable":true},"image_zoom":{"enable":true,"img_url_replace":["",""]},"toc":{"enable":true,"placement":"left","headingSelector":"h1,h2,h3,h4,h5,h6","collapseDepth":2},"lazyload":{"enable":true,"loading_img":"/img/loading.gif","onlypost":false,"offset_factor":2},"web_analytics":{"enable":true,"follow_dnt":true,"baidu":null,"google":"G-NDVPJNZY7Q","gtag":null,"tencent":{"sid":null,"cid":null},"woyaola":null,"cnzz":null,"leancloud":{"app_id":null,"app_key":null,"server_url":null,"path":"window.location.pathname","ignore_local":false}},"search_path":"/local-search.xml"};
 
     if (CONFIG.web_analytics.follow_dnt) {
       var dntVal = navigator.doNotTrack || window.doNotTrack || navigator.msDoNotTrack;
@@ -122,7 +122,8 @@
 
 
   
-<meta name="generator" content="Hexo 6.2.0"></head>
+<meta name="generator" content="Hexo 6.2.0"><link rel="alternate" href="/atom.xml" title="Java不加糖的Blog" type="application/atom+xml">
+</head>
 
 
 <body>
