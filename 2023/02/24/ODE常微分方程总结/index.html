@@ -26,7 +26,7 @@
 <meta property="og:description" content="教材：DLI-BSc-Mathematics-Documents&#x2F;Ordinary Differential Equatrions.pdf at main · JavaZeroo&#x2F;DLI-BSc-Mathematics-Documents (github.com)  Explicit First Order Equations 这种形式的 \[ y&#39; &#x3D; f(x, y) \] 称为">
 <meta property="og:locale" content="zh_CN">
 <meta property="article:published_time" content="2023-02-24T10:54:11.000Z">
-<meta property="article:modified_time" content="2023-03-01T02:48:03.247Z">
+<meta property="article:modified_time" content="2023-03-14T07:01:46.964Z">
 <meta property="article:author" content="Java不加糖">
 <meta property="article:tag" content="数学">
 <meta name="twitter:card" content="summary_large_image">
@@ -238,7 +238,7 @@
       <span class="post-meta mr-2">
         <i class="iconfont icon-chart"></i>
         
-          5.9k 字
+          7.8k 字
         
       </span>
     
@@ -249,7 +249,7 @@
         
         
         
-          66 分钟
+          87 分钟
         
       </span>
     
@@ -449,7 +449,7 @@ U&amp;=e^{\int \frac{M_y-N_x}{N}dx}
 \]</span> <div class="note note-info">
             <p>这里的答案不是<span class="math inline">\(U=C\cdot e^{\int \frac{M_y-N_x}{N}dx}\)</span>的原因是，我们只需要找到一个<span class="math inline">\(U\)</span>，因此你可以认为我们选择<span class="math inline">\(C=1\)</span>作为答案。下面的情况同理。</p>
           </div></p>
-<ol type="1">
+<ol start="2" type="1">
 <li>假如只与<span class="math inline">\(y\)</span>有关则<span class="math inline">\(M_x=0\)</span>则有</li>
 </ol>
 <p><span class="math display">\[
@@ -461,6 +461,37 @@ U&#39;\cdot M+U\cdot M_y &amp;= U \cdot N_x \\
 U &amp;=e^{\int \frac{N_x-M_y}{M}}
 \end{align}
 \]</span></p>
+<h2 id="an-existence-and-uniqueness-theorem">An Existence and Uniqueness Theorem</h2>
+<p>中文名是<strong>存在唯一性定理</strong>。首先我们介绍<em>Lipschitz condition</em>:</p>
+<blockquote>
+<p>We consider the following initial value problem <span class="math display">\[
+y&#39; = f(x,y),\ \text{for}\ \xi \leq x\leq \xi+a,\ y(\xi)=\eta
+\]</span> The main assumptions in the following theorem are that <span class="math inline">\(f\)</span> is continuous in the strip <span class="math inline">\(S=J\times\mathbb{R}\)</span> with <span class="math inline">\(J=[\xi,\xi+a]\)</span> and satisfies a <em>Lipschitz condition with respect to <span class="math inline">\(y\)</span></em> in <span class="math inline">\(S\)</span> <span class="math display">\[
+|f(x,y)-f(x, \bar{y})|\leq L|y-\bar{y}|
+\]</span> No restrictions are placed on the value of the <em>Lipschitz constant</em> <span class="math inline">\(L\geq 0\)</span></p>
+</blockquote>
+<p>然后引出存在唯一性定理：</p>
+<blockquote>
+<p>Let <span class="math inline">\(f \in C(S)\)</span> satisfy the <em>Lipschitz condition</em>. Then the IVP has exactly one solution <span class="math inline">\(y(x)\)</span>. The solution exists in the interval <span class="math inline">\(J: \xi\leq x \leq\xi +a\)</span></p>
+</blockquote>
+<h2 id="the-extension-of-solutions."><strong>The extension of solutions.</strong></h2>
+<p>以下三个定理是用于 <strong>The extension of solutions.</strong></p>
+<blockquote>
+<p>1️⃣<strong>Local Lipschitz condition.</strong> The function <span class="math inline">\(f(x,y)\)</span> is said to satisfy a local Lipschitz condition with respect to <span class="math inline">\(y\)</span> in <span class="math inline">\(D\subset R^2\)</span> if for every <span class="math inline">\((x_0,y_0 )\in D\)</span> there exists a neighborhood <span class="math inline">\(U=U(x_0,y_0 )\)</span> and an <span class="math inline">\(L=L(x_0,y_0 )\)</span> such that in <span class="math inline">\(U\cup D\)</span> the function <span class="math inline">\(f\)</span> satisfies the Lipschitz condition <span class="math inline">\(|f(x,y)-f(x,\bar{y})|\leq L|y-\bar{y}|\)</span>.</p>
+</blockquote>
+<div class="note note-info">
+            <p>注意！我们一般通过连续性来判断Local Lipschitz condition</p><blockquote><p>If <span class="math inline">\(D\)</span> is open and if <span class="math inline">\(f \in C(D)\)</span> has a continuous derivative <span class="math inline">\(f_y\)</span> in <span class="math inline">\(D\)</span>, then f satisfies a <strong>local Lipschitz condition</strong> in this set.</p></blockquote>
+          </div>
+<blockquote>
+<p>2️⃣<strong>Theorem on local solvability</strong> If <span class="math inline">\(D\)</span> is open and <span class="math inline">\(f\in C(D)\)</span> satisfies a local Lipschitz condition in <span class="math inline">\(D\)</span>, then the IVP is locally uniquely solvable for$ (x_0,y_0 )∈D$; i.e., there is a neighborhood <span class="math inline">\(I\)</span> of$ x_0$ such that exactly one solution exists in <span class="math inline">\(I\)</span>.</p>
+</blockquote>
+<blockquote>
+<p>3️⃣<strong>Theorem on the extension of solutions</strong> Let <span class="math inline">\(f \in C (D)\)</span> satisfy a local Lipschitz condition with respect to <span class="math inline">\(y\)</span> in <span class="math inline">\(D\)</span>. Then for every <span class="math inline">\((x_0, y_0)\in D\)</span> the initial value problem <span class="math inline">\(y&#39; = f (x, y), y(x_0) = y_0\)</span> has a solution that can be extended to the left and to the right comes arbitrarily close to the boundary of <span class="math inline">\(D\)</span>.</p>
+</blockquote>
+<p>最后我们有：</p>
+<blockquote>
+<p><strong>The Peano existence theorem.</strong> If <span class="math inline">\(f(x,y)\)</span> is continuous in a domain <span class="math inline">\(D\)</span> and <span class="math inline">\((\xi,\eta)\)</span> is a point in <span class="math inline">\(D\)</span>, then at least one solution of the differential equation <span class="math inline">\(y′=f(x,y)\)</span> goes through <span class="math inline">\((\xi,\eta)\)</span>. Every solution can be extended to the left and to the right up to the boundary of <span class="math inline">\(D\)</span>.</p>
+</blockquote>
 
                 
               </div>
