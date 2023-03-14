@@ -17,7 +17,7 @@ timezone: 'Asia/Shanghai'
 
 # URL
 ## Set your site url here. For example, if you use GitHub Page, set url as 'https://username.github.io/project'
-url: http://blog.jimmyisme.top
+url: http://blog.javazero.top
 permalink: :year/:month/:day/:title/
 permalink_defaults:
 pretty_urls:
@@ -123,3 +123,14 @@ deploy:
   message: Update Hexo Static Content
 
 
+# Extensions
+## Plugins: http://hexo.io/plugins/
+#RSS订阅
+plugin:
+- hexo-generator-feed
+#Feed Atom
+feed:
+type: atom
+path: atom.xml
+content: true
+limit: 0
