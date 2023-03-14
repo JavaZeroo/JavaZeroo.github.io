@@ -220,7 +220,7 @@ $$
  这里的答案不是$U=C\cdot e^{\int \frac{M_y-N_x}{N}dx}$的原因是，我们只需要找到一个$U$，因此你可以认为我们选择$C=1$作为答案。下面的情况同理。
 {% endnote %}
 
-1. 假如只与$y$有关则$M_x=0$则有
+2. 假如只与$y$有关则$M_x=0$则有
 
 $$
 \begin{align}
@@ -232,5 +232,44 @@ U &=e^{\int \frac{N_x-M_y}{M}}
 \end{align}
 $$
 
+## An Existence and Uniqueness Theorem
+
+中文名是**存在唯一性定理**。首先我们介绍*Lipschitz condition*:
+
+> We consider the following initial value problem
+> $$
+> y' = f(x,y),\ \text{for}\ \xi \leq x\leq \xi+a,\ y(\xi)=\eta
+> $$
+> The main assumptions in the following theorem are that $f$ is continuous in the strip $S=J\times\mathbb{R}$ with $J=[\xi,\xi+a]$ and satisfies a *Lipschitz condition with respect to $y$* in $S$
+> $$
+> |f(x,y)-f(x, \bar{y})|\leq L|y-\bar{y}|
+> $$
+> No restrictions are placed on the value of the *Lipschitz constant* $L\geq 0$
+
+然后引出存在唯一性定理：
+
+> Let $f \in C(S)$ satisfy the *Lipschitz condition*. Then the IVP has exactly one solution $y(x)$. The solution exists in the interval $J: \xi\leq x \leq\xi +a$
+
+## **The extension of solutions.**
+
+以下三个定理是用于 **The extension of solutions.**
+
+> 1️⃣**Local Lipschitz condition.** The function $f(x,y)$ is said to satisfy a local Lipschitz condition with respect to $y$ in $D\subset R^2$ if for every $(x_0,y_0 )\in D$ there exists a neighborhood $U=U(x_0,y_0 )$ and an $L=L(x_0,y_0 )$ such that in $U\cup D$ the function $f$ satisfies the Lipschitz condition $|f(x,y)-f(x,\bar{y})|\leq L|y-\bar{y}|$.
+
+{% note info %}
+
+注意！我们一般通过连续性来判断Local Lipschitz condition
+
+>If $D$ is open and if $f \in C(D)$ has a continuous derivative $f_y$ in $D$, then f satisfies a **local Lipschitz condition** in this set.
+
+{% endnote %}
+
+> 2️⃣**Theorem on local solvability** If $D$ is open and $f\in C(D)$ satisfies a local Lipschitz condition in $D$, then the IVP is locally uniquely solvable for$ (x_0,y_0 )∈D$; i.e., there is a neighborhood $I$ of$ x_0$ such that exactly one solution exists in $I$.
 
 
+
+> 3️⃣**Theorem on the extension of solutions** Let $f \in C (D)$ satisfy a local Lipschitz condition with respect to $y$ in $D$. Then for every $(x_0, y_0)\in D$ the initial value problem $y' = f (x, y), y(x_0) = y_0$ has a solution that can be extended to the left and to the right comes arbitrarily close to the boundary of $D$.
+
+最后我们有：
+
+>  **The Peano existence theorem.**  If $f(x,y)$ is continuous in a domain $D$ and $(\xi,\eta)$ is a point in $D$, then at least one solution of the differential equation $y′=f(x,y)$ goes through $(\xi,\eta)$. Every solution can be extended to the left and to the right up to the boundary of $D$.
