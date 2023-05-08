@@ -273,3 +273,67 @@ $$
 最后我们有：
 
 >  **The Peano existence theorem.**  If $f(x,y)$ is continuous in a domain $D$ and $(\xi,\eta)$ is a point in $D$, then at least one solution of the differential equation $y′=f(x,y)$ goes through $(\xi,\eta)$. Every solution can be extended to the left and to the right up to the boundary of $D$.
+
+## Linear System
+
+这里开始就是在讨论，常微分方程组。
+
+### Systems of n Linear Differential Equations
+
+给出常微分方程组的形式：
+$$
+\begin{align}
+y_1' &= a_{11}(t)y_1+\cdots+ a_{1n}(t)y_n+b_1(t) \\
+&\ \ \vdots \\
+y_1' &= a_{11}(t)y_1+\cdots+a_{1n}(t)y_n+b_1(t) \\
+
+\end{align}
+$$
+或者：
+$$
+\mathbf{y}'=A(t)\mathbf{y}+\mathbf{b}(t)\\
+\text{where} \hfill \\
+A(t)=(a_{ij}(t)),\ \mathbf{b}(t)=(b_1(t), \dots, b_n(t))^\top
+$$
+值得一提的是，存在唯一性定理在常微分方程组也同样适用。
+
+### Homogeneous Linear Systems
+
+对于齐次的形式，常微分方程组就变成了：
+$$
+\mathbf{y}'=A(x)\mathbf{y}
+$$
+此时，根据存在唯一性定理有：
+$$
+\exist \text{ exactly one solution } \mathbf{y}=\mathbf{y}(t;\tau,\boldsymbol{\eta})\ \forall \tau \in J, \boldsymbol{\eta}\in \R^n\text{ or }\C^n
+$$
+当然，齐次常微分方程组有一些重要的性质：
+
+1. $ \mathbf{y} \equiv 0$ in $ J$ is a solution of the **homogeneous linear systems**.
+2. There exist $n$ linearly independent solutions $_1,\dots,\mathbf{y}_n$. Every such set of $n$ linearly independent solutions is called a **fundamental system of solutions**. If $\mathbf{y}_1,\dots,\mathbf{y}_n$ is a fundamental system, then every solution $\mathbf{y}$ can be written in a unique way as a linear combination $\mathbf{y}=C_1 \mathbf{y}_1+\dots+C_n \mathbf{y}_n$.
+3. A system of $n$ solutions $\mathbf{y}_1,…,\mathbf{y}_n$ can be assembled into an $n\times n$ solution matrix $\Phi(x)=(\mathbf{y}_1,\dots,\mathbf{y}_n )$. If $n$ solutions $\mathbf{y}_1,\dots,\mathbf{y}_n$  are linearly independent, then $\Phi(x)$ is a system of $n$ solutions $\mathbf{y}_1,\dots,\mathbf{y}_n$ can be assembled into an $n\times n$ solution matrix $\Phi(x)=(\mathbf{y}_1,\dots,\mathbf{y}_n )$. If $n$ solutions $\mathbf{y}_1,\dots,\mathbf{y}_n$  are linearly independent, then $\Phi(x)$is a **Fundamental Matrix.**
+
+#### **The Wronskian**
+
+现在讨论一下，齐次常微分方程的解，是线性无关还是线性相关。
+
+- **The Wronskian.** If $\Phi(x)=(\mathbf{y}_1,\dots,\mathbf{y}_n )$ is a solution matrix of $\mathbf{y}^′=A(x)\mathbf{y}$, then its determinant $W(x)=|\Phi(x)|$is called the Wronskian determinant.  
+
+- **Theorem** If $\mathbf{y}_1,\dots,\mathbf{y}_n$ are linearly dependent in $J$, then the Wronskian $W(x)\equiv0$.
+
+- **Theorem** If $\mathbf{y}_1,…,\mathbf{y}_n$ is a fundamental system of equation $\mathbf{y}'=A(x)\mathbf{y}$, then the Wronskian $W(x)\neq0$ in $J$.
+
+- **Theorem.** There exists a fundamental system of solutions for equation $\mathbf{y}'=A(x)\mathbf{y}$.
+
+
+因此，我们先求出$n$个解，然后再去判断这$n$个解的**Fundamental Matrix**的行列式，也就是**The Wronskian**，是否为零。
+
+### **Inhomogeneous Systems**
+
+对于非齐次的常微分方程组，就是最开始样子：
+$$
+\mathbf{y}'=A(t)\mathbf{y}+\mathbf{b}(t)
+$$
+下面这个定理类似线性代数，非齐次方程组的通解是，齐次方程组的通解+非齐次方程组的特解：
+
+- **Theorem.** Let $\tilde{\mathbf{y}}(x)$be a fixed solution of the inhomogeneous equation (1). If $\mathbf{y}_0 (x)$ is an arbitrary solution of the homogeneous equation, then $\mathbf{y}(x)=\tilde{\mathbf{y}}(x)+\mathbf{y}_0 (x)$is a solution of the inhomogeneous equation, and all solutions of the inhomogeneous equation are obtained in this way.
