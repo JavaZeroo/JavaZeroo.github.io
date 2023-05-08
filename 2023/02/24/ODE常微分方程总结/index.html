@@ -26,7 +26,7 @@
 <meta property="og:description" content="教材：DLI-BSc-Mathematics-Documents&#x2F;Ordinary Differential Equatrions.pdf at main · JavaZeroo&#x2F;DLI-BSc-Mathematics-Documents (github.com)  Explicit First Order Equations 这种形式的 \[ y&#39; &#x3D; f(x, y) \] 称为">
 <meta property="og:locale" content="zh_CN">
 <meta property="article:published_time" content="2023-02-24T10:54:11.000Z">
-<meta property="article:modified_time" content="2023-03-14T07:28:16.794Z">
+<meta property="article:modified_time" content="2023-05-08T09:42:48.964Z">
 <meta property="article:author" content="Java不加糖">
 <meta property="article:tag" content="数学">
 <meta name="twitter:card" content="summary_large_image">
@@ -239,7 +239,7 @@
       <span class="post-meta mr-2">
         <i class="iconfont icon-chart"></i>
         
-          7.8k 字
+          10k 字
         
       </span>
     
@@ -250,7 +250,7 @@
         
         
         
-          87 分钟
+          115 分钟
         
       </span>
     
@@ -493,6 +493,44 @@ y&#39; = f(x,y),\ \text{for}\ \xi \leq x\leq \xi+a,\ y(\xi)=\eta
 <blockquote>
 <p><strong>The Peano existence theorem.</strong> If <span class="math inline">\(f(x,y)\)</span> is continuous in a domain <span class="math inline">\(D\)</span> and <span class="math inline">\((\xi,\eta)\)</span> is a point in <span class="math inline">\(D\)</span>, then at least one solution of the differential equation <span class="math inline">\(y′=f(x,y)\)</span> goes through <span class="math inline">\((\xi,\eta)\)</span>. Every solution can be extended to the left and to the right up to the boundary of <span class="math inline">\(D\)</span>.</p>
 </blockquote>
+<h2 id="linear-system">Linear System</h2>
+<p>这里开始就是在讨论，常微分方程组。</p>
+<h3 id="systems-of-n-linear-differential-equations">Systems of n Linear Differential Equations</h3>
+<p>给出常微分方程组的形式： $$ <span class="math display">\[\begin{align}
+y_1&#39; &amp;= a_{11}(t)y_1+\cdots+ a_{1n}(t)y_n+b_1(t) \\
+&amp;\ \ \vdots \\
+y_1&#39; &amp;= a_{11}(t)y_1+\cdots+a_{1n}(t)y_n+b_1(t) \\
+
+\end{align}\]</span> <span class="math display">\[
+或者：
+\]</span> '=A(t)+(t)\  \ A(t)=(a_{ij}(t)), (t)=(b_1(t), , b_n(t))^ $$ 值得一提的是，存在唯一性定理在常微分方程组也同样适用。</p>
+<h3 id="homogeneous-linear-systems">Homogeneous Linear Systems</h3>
+<p>对于齐次的形式，常微分方程组就变成了： <span class="math display">\[
+\mathbf{y}&#39;=A(x)\mathbf{y}
+\]</span> 此时，根据存在唯一性定理有： <span class="math display">\[
+\exist \text{ exactly one solution } \mathbf{y}=\mathbf{y}(t;\tau,\boldsymbol{\eta})\ \forall \tau \in J, \boldsymbol{\eta}\in \R^n\text{ or }\C^n
+\]</span> 当然，齐次常微分方程组有一些重要的性质：</p>
+<ol type="1">
+<li>$  $ in $ J$ is a solution of the <strong>homogeneous linear systems</strong>.</li>
+<li>There exist <span class="math inline">\(n\)</span> linearly independent solutions <span class="math inline">\(_1,\dots,\mathbf{y}_n\)</span>. Every such set of <span class="math inline">\(n\)</span> linearly independent solutions is called a <strong>fundamental system of solutions</strong>. If <span class="math inline">\(\mathbf{y}_1,\dots,\mathbf{y}_n\)</span> is a fundamental system, then every solution <span class="math inline">\(\mathbf{y}\)</span> can be written in a unique way as a linear combination <span class="math inline">\(\mathbf{y}=C_1 \mathbf{y}_1+\dots+C_n \mathbf{y}_n\)</span>.</li>
+<li>A system of <span class="math inline">\(n\)</span> solutions <span class="math inline">\(\mathbf{y}_1,…,\mathbf{y}_n\)</span> can be assembled into an <span class="math inline">\(n\times n\)</span> solution matrix <span class="math inline">\(\Phi(x)=(\mathbf{y}_1,\dots,\mathbf{y}_n )\)</span>. If <span class="math inline">\(n\)</span> solutions <span class="math inline">\(\mathbf{y}_1,\dots,\mathbf{y}_n\)</span> are linearly independent, then <span class="math inline">\(\Phi(x)\)</span> is a system of <span class="math inline">\(n\)</span> solutions <span class="math inline">\(\mathbf{y}_1,\dots,\mathbf{y}_n\)</span> can be assembled into an <span class="math inline">\(n\times n\)</span> solution matrix <span class="math inline">\(\Phi(x)=(\mathbf{y}_1,\dots,\mathbf{y}_n )\)</span>. If <span class="math inline">\(n\)</span> solutions <span class="math inline">\(\mathbf{y}_1,\dots,\mathbf{y}_n\)</span> are linearly independent, then <span class="math inline">\(\Phi(x)\)</span>is a <strong>Fundamental Matrix.</strong></li>
+</ol>
+<h4 id="the-wronskian"><strong>The Wronskian</strong></h4>
+<p>现在讨论一下，齐次常微分方程的解，是线性无关还是线性相关。</p>
+<ul>
+<li><p><strong>The Wronskian.</strong> If <span class="math inline">\(\Phi(x)=(\mathbf{y}_1,\dots,\mathbf{y}_n )\)</span> is a solution matrix of <span class="math inline">\(\mathbf{y}^′=A(x)\mathbf{y}\)</span>, then its determinant <span class="math inline">\(W(x)=|\Phi(x)|\)</span>is called the Wronskian determinant.</p></li>
+<li><p><strong>Theorem</strong> If <span class="math inline">\(\mathbf{y}_1,\dots,\mathbf{y}_n\)</span> are linearly dependent in <span class="math inline">\(J\)</span>, then the Wronskian <span class="math inline">\(W(x)\equiv0\)</span>.</p></li>
+<li><p><strong>Theorem</strong> If <span class="math inline">\(\mathbf{y}_1,…,\mathbf{y}_n\)</span> is a fundamental system of equation <span class="math inline">\(\mathbf{y}&#39;=A(x)\mathbf{y}\)</span>, then the Wronskian <span class="math inline">\(W(x)\neq0\)</span> in <span class="math inline">\(J\)</span>.</p></li>
+<li><p><strong>Theorem.</strong> There exists a fundamental system of solutions for equation <span class="math inline">\(\mathbf{y}&#39;=A(x)\mathbf{y}\)</span>.</p></li>
+</ul>
+<p>因此，我们先求出<span class="math inline">\(n\)</span>个解，然后再去判断这<span class="math inline">\(n\)</span>个解的<strong>Fundamental Matrix</strong>的行列式，也就是<strong>The Wronskian</strong>，是否为零。</p>
+<h3 id="inhomogeneous-systems"><strong>Inhomogeneous Systems</strong></h3>
+<p>对于非齐次的常微分方程组，就是最开始样子： <span class="math display">\[
+\mathbf{y}&#39;=A(t)\mathbf{y}+\mathbf{b}(t)
+\]</span> 下面这个定理类似线性代数，非齐次方程组的通解是，齐次方程组的通解+非齐次方程组的特解：</p>
+<ul>
+<li><strong>Theorem.</strong> Let <span class="math inline">\(\tilde{\mathbf{y}}(x)\)</span>be a fixed solution of the inhomogeneous equation (1). If <span class="math inline">\(\mathbf{y}_0 (x)\)</span> is an arbitrary solution of the homogeneous equation, then <span class="math inline">\(\mathbf{y}(x)=\tilde{\mathbf{y}}(x)+\mathbf{y}_0 (x)\)</span>is a solution of the inhomogeneous equation, and all solutions of the inhomogeneous equation are obtained in this way.</li>
+</ul>
 
                 
               </div>
