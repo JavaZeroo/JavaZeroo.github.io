@@ -11,6 +11,8 @@ tags:
 
 > 教材：[DLI-BSc-Mathematics-Documents/Ordinary Differential Equatrions.pdf at main · JavaZeroo/DLI-BSc-Mathematics-Documents (github.com)](https://github.com/JavaZeroo/DLI-BSc-Mathematics-Documents/blob/main/y3s2/常微分方程/Ordinary Differential Equatrions.pdf)
 
+# 第一章
+
 ## Explicit First Order Equations
 
 这种形式的
@@ -21,10 +23,10 @@ $$
 
 ### $y'=f(x)$
 
-### Equations with Separated Variables 
+### 1. Equations with Separated Variables 
 
 $$
-y' = f(x)g(y) 
+y' = f(x)g(y)
 $$
 
  这种可以直接变成 $\frac{dy}{g(y)}=f(x)dx$
@@ -39,7 +41,7 @@ $$
 $$
 这里需要注意的是如果$g(y(\xi))=g(\eta)=0$ 那么，直接就有 $y'=0$ 因此$y=\eta$ ;
 
-### 普通的替换
+### 2. 普通的替换
 
 $$
 y'=f(ax+by+c)
@@ -49,7 +51,7 @@ $$
 
 因此 最后得出的$u(x)$后可以直接利用$u(x)=ax+by+c$得到$y$。
 
-### 普通的Homogeneous Differential Equation 
+### 3. 普通的Homogeneous Differential Equation 
 
 $$
 y'=f\left(\frac{y}{x}\right)
@@ -59,7 +61,7 @@ $$
 
 因此 最后得出的$u(x)$后可以直接利用$u(x)=\frac{y(x)}{x}$得到$y$。
 
-### 高级的 Homogeneous Differential Equation 
+### 4. 高级的 Homogeneous Differential Equation 
 
 $$
 y'=f\left(\frac{ax+by+c}{\alpha x+\beta y+ \gamma}\right)
@@ -107,11 +109,11 @@ y' + g(x)y=h(x)
 $$
 称为 'The Linear Differential Equation' 。
 
-这时有两种情况：$h(x)=0$和$h(x)\neq0$， 分别称为"homogeneous" 和"nonhomogeneous"
+这时有**两种**情况：$h(x)=0$和$h(x)\neq0$， 分别称为"homogeneous" 和"nonhomogeneous"
 
 事实上当$h(x)=0$也就是"homogeneous"时，就是上面的"Explicit First Order Equations"，这里就不在赘述了。
 
-对于$h(x)\neq0$的情况，也就是"nonhomogeneous"时，我们需要用到"Method of variation of constants"。
+对于$h(x)\neq0$的情况，也就是"**nonhomogeneous**"时，我们需要用到"Method of variation of constants"。
 
 **Method of variation of constants：**这个方法首先计算出齐次的时候的通解。对于方程$y'+g(x)y=h(x)$他的齐次方程的通解是通过解$y'+g(x)y=0$，可得
 $$
@@ -193,6 +195,10 @@ Integrating Factors是用来让非 Exact 变成Exact differential equations。
 
 对于一个not excat differential equation我们需要找到一个Factor $U(x,y)$ 使得$U(x,y)\cdot M(x,y)dx+U(x,y)\cdot N(x,y)dy=0$变成一个Exact differential equations。
 
+{% note info %}
+这里有一个"**Theorem on potential functions**"保证可以找到$U(x,y)$
+{% endnote %}
+
 现在的问题就是，如何去找？首先令$M' = U\cdot M,N'=U\cdot N$如果$F_x=M',F_y=N'$则有$M'_y=N'_x$。利用这个关系可以知道
 {% note info %}
 事实上就是$F_{xy}=F_{yx}$ (Jacobian Matrix)
@@ -205,7 +211,7 @@ $$
 $$
 此时需要考虑，Integrating Factors是只与$x$有关还是只与$y$有关（只需要选一个）
 
-1. 假如只与$x$有关则$M_y=0$则有
+1. 假如只与$x$有关则$U_y=0$则有
 
 $$
 \begin{align}
@@ -220,7 +226,7 @@ $$
  这里的答案不是$U=C\cdot e^{\int \frac{M_y-N_x}{N}dx}$的原因是，我们只需要找到一个$U$，因此你可以认为我们选择$C=1$作为答案。下面的情况同理。
 {% endnote %}
 
-2. 假如只与$y$有关则$M_x=0$则有
+2. 假如只与$y$有关则$U_x=0$则有
 
 $$
 \begin{align}
@@ -231,6 +237,68 @@ U'\cdot M+U\cdot M_y &= U \cdot N_x \\
 U &=e^{\int \frac{N_x-M_y}{M}}
 \end{align}
 $$
+
+### Implicit First Order Differential Equations
+
+这种形式的
+$$
+F(x, y, y')=0
+$$
+一般来说有两种解决办法。要么通过一些方法获得explicit differential equation，要么就用参数化。
+
+在这里我们只讨论两种情况：
+
+1. $F(x, y')=0 $, $F(y, y')=0$
+2. $y=f(x,y')$, $x=f(y,y')$
+
+#### 第一种情况
+
+对于$F(x, y')=0 $我们使用参数化：
+$$
+\left\{\begin{array}{l}
+x=\phi(t) \\
+y'=\psi(t)
+\end{array}\right.
+$$
+此时方程变为$F(\phi(t), \psi(t))=0$，同时我们有
+$$
+\begin{align}
+y'&=\frac{dy}{dx} \ \text{and} \ \phi'(t)=\frac{d\phi(t)}{dt} \\
+dy&=y'dx \ \ \text{and} \ d\phi(t)=\phi'(t)dt\\ 
+y&=\int y'dx + C\\
+y&=\int \psi(t)d\phi(t) + C \\
+y&=\int \psi(t)\phi'(t)dt +C
+
+\end{align}
+$$
+最后得到：
+$$
+\left\{\begin{array}{l}
+x=\phi(t) \\
+y=\int \psi(t)\phi'(t)dt +C
+\end{array}\right.
+$$
+
+#### 第一种情况2
+
+对于$F(y,y')=0$我们仍然参数化：
+$$
+\left\{\begin{array}{l}
+y=\phi(t) \\
+y'=\psi(t)
+\end{array}\right.
+$$
+此时有$F(\phi(t),\psi(t)=0$，同时有：
+$$
+\begin{align}
+y'&=\frac{dy}{dx} \ \text{and} \ \phi'(t)=\frac{dy}{dt} \\
+dx&=\frac{dy}{\psi(t)} \ \text{and} \ dy=\phi'(t)dt \\
+dx&=\frac{\phi'(t)dt}{\psi(t)} \\
+\int dx&= \int \frac{\phi'(t)dt}{\psi(t)} \\
+x&=\int \frac{\phi'(t)dt}{\psi(t)}
+\end{align}
+$$
+
 
 ## An Existence and Uniqueness Theorem
 
