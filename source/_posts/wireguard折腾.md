@@ -1,6 +1,6 @@
 ---
 title: wireguard折腾记录
-date: 2022-09-21 11:16:22
+date: 2023-08-05 23:12:33
 mathjax: false
 mermaid: true
 categories:
