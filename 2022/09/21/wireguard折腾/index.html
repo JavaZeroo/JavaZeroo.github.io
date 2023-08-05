@@ -18,14 +18,13 @@
   <meta name="author" content="Java不加糖">
   <meta name="keywords" content="">
   
-    <meta name="description" content="最近在网上看到了使用微信测试公众号给女朋友弄的每日推送。不过还是有很多问题的，主要是不能更改头像和名字，非常的不优雅。于是找到了企业微信的api，非常满足我的需要求。 于是打算自己重新写一个。直达链接 (目前还没有施工完🛠️) 主要思路 首先我们需要明确需求：需要一个固定的公网ip来访问企业微信的api。 那第一反应当然就是租用云服务器，然后同时购买固定的公网ip，然后再把云服务器作为代理服务器">
+    <meta name="description" content="wireguard折腾记录  条件： 有一个动态公网ip的服务器(openwrt)，NameSilo域名+DDNS 需求：有两个局域网需要打通and有一个无公网ip的机器需要内网传统。  尝试两个wireguard服务器互联 两个服务器都安装wireguard，然后配置好服务器端和客户端，然后两个服务器互联，可以互相ping通。 用ipv6链接，盲猜校园网可以免流。 等等先 解决动态公网ip变更后">
 <meta property="og:type" content="article">
-<meta property="og:title" content="使用socket代理解决企业微信可信ip问题">
-<meta property="og:url" content="http://blog.javazero.top/2022/09/21/%E4%BD%BF%E7%94%A8%E4%BB%A3%E7%90%86%E8%A7%A3%E5%86%B3%E4%BC%81%E4%B8%9A%E5%BE%AE%E4%BF%A1%E5%8F%AF%E4%BF%A1ip%E9%97%AE%E9%A2%98/index.html">
+<meta property="og:title" content="wireguard折腾记录">
+<meta property="og:url" content="http://blog.javazero.top/2022/09/21/wireguard%E6%8A%98%E8%85%BE/index.html">
 <meta property="og:site_name" content="Java不加糖的Blog">
-<meta property="og:description" content="最近在网上看到了使用微信测试公众号给女朋友弄的每日推送。不过还是有很多问题的，主要是不能更改头像和名字，非常的不优雅。于是找到了企业微信的api，非常满足我的需要求。 于是打算自己重新写一个。直达链接 (目前还没有施工完🛠️) 主要思路 首先我们需要明确需求：需要一个固定的公网ip来访问企业微信的api。 那第一反应当然就是租用云服务器，然后同时购买固定的公网ip，然后再把云服务器作为代理服务器">
+<meta property="og:description" content="wireguard折腾记录  条件： 有一个动态公网ip的服务器(openwrt)，NameSilo域名+DDNS 需求：有两个局域网需要打通and有一个无公网ip的机器需要内网传统。  尝试两个wireguard服务器互联 两个服务器都安装wireguard，然后配置好服务器端和客户端，然后两个服务器互联，可以互相ping通。 用ipv6链接，盲猜校园网可以免流。 等等先 解决动态公网ip变更后">
 <meta property="og:locale" content="zh_CN">
-<meta property="og:image" content="http://blog.javazero.top/images/socks/安装完成.png">
 <meta property="article:published_time" content="2022-09-21T03:16:22.000Z">
 <meta property="article:modified_time" content="2023-08-05T15:10:47.065Z">
 <meta property="article:author" content="Java不加糖">
@@ -33,13 +32,12 @@
 <meta property="article:tag" content="折腾">
 <meta property="article:tag" content="网络">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:image" content="http://blog.javazero.top/images/socks/安装完成.png">
   
   
     <meta name="referrer" content="no-referrer-when-downgrade">
   
   
-  <title>使用socket代理解决企业微信可信ip问题 | Java不加糖的Blog</title>
+  <title>wireguard折腾记录 | Java不加糖的Blog</title>
 
   <link  rel="stylesheet" href="https://lib.baomitu.com/twitter-bootstrap/4.6.1/css/bootstrap.min.css" />
 
@@ -220,7 +218,7 @@
       <div class="banner-text text-center fade-in-up">
         <div class="h2">
           
-            <span id="subtitle" data-typed-text="使用socket代理解决企业微信可信ip问题"></span>
+            <span id="subtitle" data-typed-text="wireguard折腾记录"></span>
           
         </div>
 
@@ -243,7 +241,7 @@
       <span class="post-meta mr-2">
         <i class="iconfont icon-chart"></i>
         
-          893 字
+          1.9k 字
         
       </span>
     
@@ -254,7 +252,7 @@
         
         
         
-          10 分钟
+          22 分钟
         
       </span>
     
@@ -306,44 +304,34 @@
         <div id="board">
           <article class="post-content mx-auto">
             <!-- SEO header -->
-            <h1 style="display: none">使用socket代理解决企业微信可信ip问题</h1>
+            <h1 style="display: none">wireguard折腾记录</h1>
             
             
               <div class="markdown-body">
                 
-                <p>最近在网上看到了使用微信测试公众号给女朋友弄的每日推送。不过还是有很多问题的，主要是不能更改头像和名字，非常的不优雅。于是找到了企业微信的api，非常满足我的需要求。</p>
-<p>于是打算自己重新写一个。<a target="_blank" rel="noopener" href="https://github.com/JavaZeroo/wechat-bot">直达链接</a> (目前还没有施工完🛠️)</p>
-<h2 id="主要思路">主要思路</h2>
-<p>首先我们需要明确需求：需要一个<strong>固定的公网ip来访问企业微信的api</strong>。</p>
-<p>那第一反应当然就是租用云服务器，然后同时购买固定的公网ip，然后再把云服务器作为代理服务器，帮助我们去访问企业微信api。</p>
-<pre><code class=" mermaid">flowchart LR
-    A[本地服务器] ---&gt;|Socks代理| B[云服务器] ---&gt; C[企业微信api]
-    C -.-&gt; B -.-&gt;|Socks代理| A
-</code></pre>
-<div class="note note-info">
-            <p><strong>为什么用Socks代理而不用http？</strong></p><ul><li><p>主要是因为http代理无法代理https的流量，比较麻烦。</p></li><li><p>Socks代理性能更好，因为他只负责转发流量，简单理解为Socks代理更纯粹。</p></li></ul>
-          </div>
-<h2 id="实际操作">实际操作</h2>
-<div class="note note-info">
-            <p>我的内核：</p><p>CentOS Linux release 7.6.1810 (Core)</p>
-          </div>
-<h3 id="安装socks5服务端">安装socks5服务端</h3>
-<p>项目地址：<a target="_blank" rel="noopener" href="https://github.com/Lozy/danted">https://github.com/Lozy/danted</a></p>
-<p>项目给出了两种安装方式，我这里使用的是脚本安装，直接安装在服务器上。(主要是腾讯云上貌似没有自带docker，懒得折腾了)</p>
-<p>首先下载脚本 <figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><code class="hljs bash">wget --no-check-certificate https://raw.github.com/Lozy/danted/master/install.sh -O install.sh <br></code></pre></td></tr></table></figure></p>
-<p>安装脚本 <figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><code class="hljs bash"><span class="hljs-built_in">chmod</span> +x install.sh &amp;&amp; ./install.sh<br></code></pre></td></tr></table></figure> <div class="note note-info">
-            <p><strong>默认配置的端口是2016，且没有账号密码！！！！</strong></p><p>如果需要自定义参数可以加上：</p><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><code class="hljs bash">--port=端口 \<br>--user=账号 \<br>--passwd=密码<br></code></pre></td></tr></table></figure>
-          </div></p>
-<figure>
-<img src="/images/socks/安装完成.png" srcset="/img/loading.gif" lazyload alt="安装完成界面" /><figcaption aria-hidden="true">安装完成界面</figcaption>
-</figure>
-<h3 id="后续配置">后续配置</h3>
-<div class="note note-warning">
-            
-          </div>
-<h2 id="参考">参考</h2>
-<p>Socks：https://cloud.tencent.com/developer/article/1682604?from=15425</p>
-<p>安装：https://blog.csdn.net/weixin_44471270/article/details/121343578</p>
+                <h1 id="wireguard折腾记录">wireguard折腾记录</h1>
+<ul>
+<li><p>条件： 有一个动态公网ip的服务器(openwrt)，NameSilo域名+DDNS</p></li>
+<li><p>需求：有两个局域网需要打通and有一个无公网ip的机器需要内网传统。</p></li>
+</ul>
+<h2 id="尝试两个wireguard服务器互联">尝试两个wireguard服务器互联</h2>
+<p>两个服务器都安装wireguard，然后配置好服务器端和客户端，然后两个服务器互联，可以互相ping通。 用ipv6链接，盲猜校园网可以免流。</p>
+<p>等等先</p>
+<h2 id="解决动态公网ip变更后wireguard无法连接的问题">解决动态公网ip变更后wireguard无法连接的问题</h2>
+<blockquote>
+<p>自动重连、自动更新配置文件、自动更新域名解析</p>
+</blockquote>
+<blockquote>
+<p>From: <a target="_blank" rel="noopener" href="https://v2ex.com/t/863087">https://v2ex.com/t/863087</a></p>
+</blockquote>
+<p>官网上说是不会自动解析域名，所以配置里面EndPoint填的是域名也没有用。</p>
+<blockquote>
+<p>Endpoint with changing IP After resolving a server's domain, <strong>WireGuard will not check for changes in DNS again.</strong> If the WireGuard server is frequently changing its IP-address due DHCP, Dyndns, IPv6, etc., any WireGuard client is going to lose its connection, until its endpoint is updated via something like wg set "<span class="math inline">\(INTERFACE&quot; peer &quot;\)</span>PUBLIC_KEY" endpoint "$ENDPOINT". Also be aware, if the endpoint is ever going to change its address (for example when moving to a new provider/datacenter), just updating DNS will not be enough, so periodically running reresolve-dns might make sense on any DNS-based setup. Luckily, wireguard-tools provides an example script /usr/share/wireguard-tools/examples/reresolve-dns/reresolve-dns.sh, that parses WG configuration files and automatically resets the endpoint address. One needs to run the /usr/share/wireguard-tools/examples/reresolve-dns/reresolve-dns.sh /etc/wireguard/wg.conf periodically to recover from an endpoint that has changed its IP. One way of doing so is by updating all WireGuard endpoints once every thirty seconds[6] via a systemd timer:</p>
+</blockquote>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><code class="hljs bash">git <span class="hljs-built_in">clone</span> https://git.zx2c4.com/wireguard-tools /usr/share/wireguard-tools<br></code></pre></td></tr></table></figure>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><code class="hljs bash"><span class="hljs-comment"># sudo vim /etc/systemd/system/wireguard_reresolve-dns.timer</span><br>[Unit]<br>Description=Periodically reresolve DNS of all WireGuard endpoints<br><br>[Timer]<br>OnCalendar=*:*:0/30<br><br>[Install]<br>WantedBy=timers.target<br></code></pre></td></tr></table></figure>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><code class="hljs bash"><span class="hljs-comment"># sudo vim /etc/systemd/system/wireguard_reresolve-dns.service</span><br>[Unit]<br>Description=Reresolve DNS of all WireGuard endpoints<br>Wants=network-online.target<br>After=network-online.target<br><br>[Service]<br>Type=oneshot<br>ExecStart=/bin/sh -c <span class="hljs-string">&#x27;for i in /etc/wireguard/*.conf; do /usr/share/wireguard-tools/contrib/reresolve-dns/reresolve-dns.sh &quot;$i&quot;; done&#x27;</span><br></code></pre></td></tr></table></figure>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><code class="hljs bash">sudo systemctl <span class="hljs-built_in">enable</span> wireguard_reresolve-dns.service wireguard_reresolve-dns.timer --now<br></code></pre></td></tr></table></figure>
 
                 
               </div>
@@ -395,9 +383,9 @@
                   <article class="post-prev col-6">
                     
                     
-                      <a href="/2022/09/21/wireguard%E6%8A%98%E8%85%BE/" title="wireguard折腾记录">
+                      <a href="/2022/11/06/docker%E9%85%8D%E7%BD%AEwikijs/" title="docker配置wikijs">
                         <i class="iconfont icon-arrowleft"></i>
-                        <span class="hidden-mobile">wireguard折腾记录</span>
+                        <span class="hidden-mobile">docker配置wikijs</span>
                         <span class="visible-mobile">上一篇</span>
                       </a>
                     
@@ -405,8 +393,8 @@
                   <article class="post-next col-6">
                     
                     
-                      <a href="/2022/09/03/PowerShell%E7%BE%8E%E5%8C%96/" title="PowerShell美化">
-                        <span class="hidden-mobile">PowerShell美化</span>
+                      <a href="/2022/09/21/%E4%BD%BF%E7%94%A8%E4%BB%A3%E7%90%86%E8%A7%A3%E5%86%B3%E4%BC%81%E4%B8%9A%E5%BE%AE%E4%BF%A1%E5%8F%AF%E4%BF%A1ip%E9%97%AE%E9%A2%98/" title="使用socket代理解决企业微信可信ip问题">
+                        <span class="hidden-mobile">使用socket代理解决企业微信可信ip问题</span>
                         <span class="visible-mobile">下一篇</span>
                         <i class="iconfont icon-arrowright"></i>
                       </a>

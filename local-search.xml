@@ -4,6 +4,19 @@
   
   
   <entry>
+    <title>DSB in SBG</title>
+    <link href="/2023/06/25/DSB-in-SBG/"/>
+    <url>/2023/06/25/DSB-in-SBG/</url>
+    
+    <content type="html"><![CDATA[<h1 id="diffusion-schrödinger-bridge-with-applications-to-score-based-generative-modeling-论文理解">《Diffusion Schrödinger Bridge with Applications to Score-Based Generative Modeling 》论文理解</h1><blockquote><p>Abstract翻译</p><p>逐步应用高斯噪声将复杂的数据分布转变为近似高斯的分布。逆转这一动态定义了一个生成模型。当正向噪声过程由随机微分方程（SDE）给出时，演示如何使用分数匹配来估计相关反向时间SDE的时间不均匀漂移。这种方法的局限性在于，正向时间SDE必须运行足够长的时间，以使最终分布近似于高斯，同时确保相应的时间微分误差得到控制。 相比之下，解决Bridge（SB）问题，即路径空间上的熵规整的最优传输问题，会产生扩散，在有限时间内从数据分布中产生样本。我们提出了扩散SB(DSB)，一个解决SB问题的迭代比例拟合(IPF)程序的原始近似，并提供了理论分析和生成模型的实验。第一个DSB迭代恢复了由WWDC提出的方法，并且可以灵活地使用较短的时间间隔，因为随后的DSB迭代减少了前向（或后向）SDE的最终时间边际与高斯先验（或数据）分布之间的差异。 除了生成模型，DSB还提供了一个计算上的最优传输工具，作为流行的Sinkhorn算法的连续状态空间类似物。</p></blockquote>]]></content>
+    
+    
+    
+  </entry>
+  
+  
+  
+  <entry>
     <title>ODE常微分方程总结</title>
     <link href="/2023/02/24/ODE%E5%B8%B8%E5%BE%AE%E5%88%86%E6%96%B9%E7%A8%8B%E6%80%BB%E7%BB%93/"/>
     <url>/2023/02/24/ODE%E5%B8%B8%E5%BE%AE%E5%88%86%E6%96%B9%E7%A8%8B%E6%80%BB%E7%BB%93/</url>
@@ -71,6 +84,35 @@
     <tags>
       
       <tag>折腾</tag>
+      
+    </tags>
+    
+  </entry>
+  
+  
+  
+  <entry>
+    <title>wireguard折腾记录</title>
+    <link href="/2022/09/21/wireguard%E6%8A%98%E8%85%BE/"/>
+    <url>/2022/09/21/wireguard%E6%8A%98%E8%85%BE/</url>
+    
+    <content type="html"><![CDATA[<h1 id="wireguard折腾记录">wireguard折腾记录</h1><ul><li><p>条件： 有一个动态公网ip的服务器(openwrt)，NameSilo域名+DDNS</p></li><li><p>需求：有两个局域网需要打通and有一个无公网ip的机器需要内网传统。</p></li></ul><h2 id="尝试两个wireguard服务器互联">尝试两个wireguard服务器互联</h2><p>两个服务器都安装wireguard，然后配置好服务器端和客户端，然后两个服务器互联，可以互相ping通。 用ipv6链接，盲猜校园网可以免流。</p><p>等等先</p><h2 id="解决动态公网ip变更后wireguard无法连接的问题">解决动态公网ip变更后wireguard无法连接的问题</h2><blockquote><p>自动重连、自动更新配置文件、自动更新域名解析</p></blockquote><blockquote><p>From: <a href="https://v2ex.com/t/863087">https://v2ex.com/t/863087</a></p></blockquote><p>官网上说是不会自动解析域名，所以配置里面EndPoint填的是域名也没有用。</p><blockquote><p>Endpoint with changing IP After resolving a server's domain, <strong>WireGuard will not check for changes in DNS again.</strong> If the WireGuard server is frequently changing its IP-address due DHCP, Dyndns, IPv6, etc., any WireGuard client is going to lose its connection, until its endpoint is updated via something like wg set "<span class="math inline">\(INTERFACE&quot; peer &quot;\)</span>PUBLIC_KEY" endpoint "$ENDPOINT". Also be aware, if the endpoint is ever going to change its address (for example when moving to a new provider/datacenter), just updating DNS will not be enough, so periodically running reresolve-dns might make sense on any DNS-based setup. Luckily, wireguard-tools provides an example script /usr/share/wireguard-tools/examples/reresolve-dns/reresolve-dns.sh, that parses WG configuration files and automatically resets the endpoint address. One needs to run the /usr/share/wireguard-tools/examples/reresolve-dns/reresolve-dns.sh /etc/wireguard/wg.conf periodically to recover from an endpoint that has changed its IP. One way of doing so is by updating all WireGuard endpoints once every thirty seconds[6] via a systemd timer:</p></blockquote><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><code class="hljs bash">git <span class="hljs-built_in">clone</span> https://git.zx2c4.com/wireguard-tools /usr/share/wireguard-tools<br></code></pre></td></tr></table></figure><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><code class="hljs bash"><span class="hljs-comment"># sudo vim /etc/systemd/system/wireguard_reresolve-dns.timer</span><br>[Unit]<br>Description=Periodically reresolve DNS of all WireGuard endpoints<br><br>[Timer]<br>OnCalendar=*:*:0/30<br><br>[Install]<br>WantedBy=timers.target<br></code></pre></td></tr></table></figure><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><code class="hljs bash"><span class="hljs-comment"># sudo vim /etc/systemd/system/wireguard_reresolve-dns.service</span><br>[Unit]<br>Description=Reresolve DNS of all WireGuard endpoints<br>Wants=network-online.target<br>After=network-online.target<br><br>[Service]<br>Type=oneshot<br>ExecStart=/bin/sh -c <span class="hljs-string">&#x27;for i in /etc/wireguard/*.conf; do /usr/share/wireguard-tools/contrib/reresolve-dns/reresolve-dns.sh &quot;$i&quot;; done&#x27;</span><br></code></pre></td></tr></table></figure><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><code class="hljs bash">sudo systemctl <span class="hljs-built_in">enable</span> wireguard_reresolve-dns.service wireguard_reresolve-dns.timer --now<br></code></pre></td></tr></table></figure>]]></content>
+    
+    
+    <categories>
+      
+      <category>💾服务器</category>
+      
+    </categories>
+    
+    
+    <tags>
+      
+      <tag>分享</tag>
+      
+      <tag>折腾</tag>
+      
+      <tag>网络</tag>
       
     </tags>
     
