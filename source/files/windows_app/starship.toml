@@ -12,20 +12,20 @@ disabled = false # Disabled by default
 
 [os.symbols]
 Ubuntu = " "
-Windows = " "
+Windows = " "
 
 
 
 [conda]
 format = '[$symbol$environment](green) '
-symbol = " "
+symbol = " "
 ignore_base = false
 
 
 [directory]
 truncation_length = 20
 truncation_symbol = '…/'
-read_only = " "
+read_only = " 󰌾"
 
 
 [docker_context]
@@ -50,7 +50,7 @@ format = '🕙[\[ $time \]]($style) '
 symbol = " "
 
 [package]
-symbol = " "
+symbol = ""
 
 [python]
 symbol = " "
