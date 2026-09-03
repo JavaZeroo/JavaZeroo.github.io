@@ -1,0 +1,16 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import { getPosts, countBy } from '../../utils/posts';
+
+const categories = countBy(await getPosts(), 'categories');
+---
+<BaseLayout title="分类" description="按分类浏览文章。">
+  <h1 class="page-title">分类</h1>
+  <div class="taxonomy-cloud">
+    {[...categories].map(([name, posts]) => (
+      <a class="chip" href={`/categories/${encodeURIComponent(name)}/`}>
+        {name} <span class="count">{posts.length}</span>
+      </a>
+    ))}
+  </div>
+</BaseLayout>

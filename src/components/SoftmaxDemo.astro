@@ -1,0 +1,76 @@
+---
+/**
+ * Reference interactive island. Plain Astro + <script>: Astro bundles and
+ * minifies it, TypeScript and npm imports both work, and no UI framework is
+ * pulled in. Reach for `astro add react` only when a widget really needs one.
+ */
+interface Props {
+  tokens?: string[];
+  logits?: number[];
+}
+const {
+  tokens = ['猫', '狗', '鸟', '鱼', '马'],
+  logits = [3.2, 2.8, 1.5, 0.9, 0.3],
+} = Astro.props;
+---
+
+<div class="softmax-demo" data-logits={JSON.stringify(logits)}>
+  <label>
+    Temperature <output data-temp-out>1.00</output>
+    <input type="range" min="1" max="200" value="100" data-temp />
+  </label>
+  <ul>
+    {tokens.map((token, i) => (
+      <li>
+        <span class="tok">{token}</span>
+        <span class="bar"><span class="fill" data-bar={i}></span></span>
+        <span class="pct" data-pct={i}>0%</span>
+      </li>
+    ))}
+  </ul>
+</div>
+
+<style>
+  .softmax-demo {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1rem 1.1rem;
+    background: var(--surface);
+    margin: 1.5rem 0;
+  }
+  .softmax-demo label { display: block; font-size: 0.9rem; color: var(--text-dim); }
+  .softmax-demo output { font-variant-numeric: tabular-nums; color: var(--text); font-weight: 600; }
+  .softmax-demo input[type='range'] { width: 100%; margin-top: 0.4rem; accent-color: var(--accent); }
+  .softmax-demo ul { list-style: none; margin: 1rem 0 0; padding: 0; display: grid; gap: 0.45rem; }
+  .softmax-demo li { display: grid; grid-template-columns: 2.5rem 1fr 3.5rem; align-items: center; gap: 0.6rem; }
+  .softmax-demo .bar { background: var(--code-bg); border-radius: 4px; height: 1.1rem; overflow: hidden; }
+  .softmax-demo .fill { display: block; height: 100%; width: 0; background: var(--accent); transition: width 0.12s ease-out; }
+  .softmax-demo .pct { text-align: right; font-variant-numeric: tabular-nums; color: var(--text-dim); font-size: 0.85rem; }
+</style>
+
+<script>
+  // Every instance on the page wires itself up independently.
+  document.querySelectorAll<HTMLElement>('.softmax-demo').forEach((root) => {
+    const logits: number[] = JSON.parse(root.dataset.logits ?? '[]');
+    const slider = root.querySelector<HTMLInputElement>('[data-temp]')!;
+    const out = root.querySelector<HTMLOutputElement>('[data-temp-out]')!;
+
+    const render = () => {
+      const t = Math.max(Number(slider.value) / 100, 0.01);
+      out.textContent = t.toFixed(2);
+      // Subtract the max before exponentiating, or large logits overflow.
+      const scaled = logits.map((l) => l / t);
+      const max = Math.max(...scaled);
+      const exps = scaled.map((s) => Math.exp(s - max));
+      const sum = exps.reduce((a, b) => a + b, 0);
+      exps.forEach((e, i) => {
+        const p = e / sum;
+        root.querySelector<HTMLElement>(`[data-bar="${i}"]`)!.style.width = `${p * 100}%`;
+        root.querySelector<HTMLElement>(`[data-pct="${i}"]`)!.textContent = `${(p * 100).toFixed(1)}%`;
+      });
+    };
+
+    slider.addEventListener('input', render);
+    render();
+  });
+</script>

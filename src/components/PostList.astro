@@ -1,0 +1,23 @@
+---
+import FormattedDate from './FormattedDate.astro';
+import type { Post } from '../utils/posts';
+import { urlOf } from '../utils/posts';
+
+interface Props { posts: Post[] }
+const { posts } = Astro.props;
+---
+<ul class="post-list">
+  {posts.map((post) => (
+    <li class="post-item">
+      <h2><a href={urlOf(post)}>{post.data.title}</a></h2>
+      {post.data.description && <p>{post.data.description}</p>}
+      <div class="meta">
+        {post.data.sticky > 0 && <span class="pin">置顶</span>}
+        <FormattedDate date={post.data.pubDate} />
+        {post.data.categories.map((c) => (
+          <a class="chip" href={`/categories/${encodeURIComponent(c)}/`}>{c}</a>
+        ))}
+      </div>
+    </li>
+  ))}
+</ul>

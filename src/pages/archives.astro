@@ -1,0 +1,24 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import FormattedDate from '../components/FormattedDate.astro';
+import { getPostsByDate, groupByYear, urlOf } from '../utils/posts';
+
+const groups = groupByYear(await getPostsByDate());
+const total = groups.reduce((n, [, posts]) => n + posts.length, 0);
+---
+<BaseLayout title="归档" description="全部文章归档。">
+  <h1 class="page-title">归档 <span class="count">共 {total} 篇</span></h1>
+  {groups.map(([year, posts]) => (
+    <section class="year-group">
+      <h2>{year}</h2>
+      <ul class="archive-list">
+        {posts.map((post) => (
+          <li>
+            <FormattedDate date={post.data.pubDate} short />
+            <a href={urlOf(post)}>{post.data.title}</a>
+          </li>
+        ))}
+      </ul>
+    </section>
+  ))}
+</BaseLayout>
