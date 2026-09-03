@@ -1,8 +1,22 @@
+# build output
+dist/
+.astro/
+
+# dependencies
+node_modules/
+
+# generated types
+.vercel/
+.netlify/
+
+# environment
+.env
+.env.production
+
+# macOS / Windows
 .DS_Store
 Thumbs.db
-db.json
+
+# logs
 *.log
-node_modules/
-public/
-.deploy*/
-_multiconfig.yml
+npm-debug.log*
