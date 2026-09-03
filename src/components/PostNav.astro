@@ -1,0 +1,17 @@
+---
+import type { Post } from '../utils/posts';
+import { urlOf } from '../utils/posts';
+
+interface Props { prev?: Post; next?: Post }
+const { prev, next } = Astro.props;
+---
+{(prev || next) && (
+  <nav class="post-nav">
+    {prev ? (
+      <a href={urlOf(prev)}><span class="dir">← 上一篇</span><span class="t">{prev.data.title}</span></a>
+    ) : <span />}
+    {next ? (
+      <a class="next" href={urlOf(next)}><span class="dir">下一篇 →</span><span class="t">{next.data.title}</span></a>
+    ) : <span />}
+  </nav>
+)}

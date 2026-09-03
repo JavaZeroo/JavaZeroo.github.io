@@ -4,10 +4,12 @@ import sitemap from '@astrojs/sitemap';
 import { unified } from '@astrojs/markdown-remark';
 import { defineConfig } from 'astro/config';
 import rehypeKatex from 'rehype-katex';
+import { rehypeHeadingMath } from './src/plugins/rehype-heading-math.mjs';
 import rehypeMermaid from 'rehype-mermaid';
 import remarkDirective from 'remark-directive';
 import remarkMath from 'remark-math';
 import { remarkNote } from './src/plugins/remark-note.mjs';
+import { shikiCodeBlock } from './src/plugins/shiki-code-block.mjs';
 import { SITE_URL } from './src/consts.ts';
 
 export default defineConfig({
@@ -23,6 +25,8 @@ export default defineConfig({
       remarkPlugins: [remarkMath, remarkDirective, remarkNote],
       rehypePlugins: [
         rehypeKatex,
+        // Must follow rehypeKatex and precede Astro's heading collection.
+        rehypeHeadingMath,
         // Diagrams render to SVG at build time: no client JS, and no pinned CDN
         // that can rot the way the old MathJax one did.
         [rehypeMermaid, { strategy: 'inline-svg', mermaidConfig: { theme: 'neutral' } }],
@@ -38,6 +42,7 @@ export default defineConfig({
       themes: { light: 'github-light', dark: 'github-dark' },
       defaultColor: false,
       wrap: false,
+      transformers: [shikiCodeBlock()],
     },
   },
 });

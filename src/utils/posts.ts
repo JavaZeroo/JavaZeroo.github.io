@@ -67,3 +67,23 @@ export function groupByYear(posts: Post[]): [string, Post[]][] {
 }
 
 export const describe = (post: Post) => post.data.description || post.data.title;
+
+/**
+ * Rough reading time. CJK is counted per character and Latin per word, since
+ * one Chinese character carries far more than one English letter's worth.
+ */
+export function readingTime(post: Post): number {
+  const body = post.body ?? '';
+  const cjk = (body.match(/[\u4e00-\u9fff\u3400-\u4dbf]/g) ?? []).length;
+  const words = (body.replace(/[\u4e00-\u9fff\u3400-\u4dbf]/g, ' ').match(/[A-Za-z0-9]+/g) ?? []).length;
+  return Math.max(1, Math.round(cjk / 400 + words / 220));
+}
+
+/** Chronological neighbours, for the prev/next links on a post. */
+export async function neighboursOf(post: Post): Promise<{ prev?: Post; next?: Post }> {
+  const posts = await getPostsByDate();
+  const i = posts.findIndex((p) => p.id === post.id);
+  if (i === -1) return {};
+  // The list runs newest-first, so the *older* post is the one after it.
+  return { prev: posts[i + 1], next: posts[i - 1] };
+}

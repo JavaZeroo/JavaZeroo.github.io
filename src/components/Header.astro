@@ -1,5 +1,6 @@
 ---
-import { SITE_TITLE } from '../consts';
+import Icon from './Icon.astro';
+import { SITE_TITLE, AVATAR } from '../consts';
 const path = Astro.url.pathname;
 const links = [
   { href: '/archives/', label: '归档' },
@@ -8,23 +9,38 @@ const links = [
   { href: '/about/', label: '关于' },
 ];
 ---
-<header class="site-header">
+<header class="site-header" data-header>
   <div class="wrap">
-    <a class="brand" href="/">{SITE_TITLE}</a>
+    <a class="brand" href="/">
+      <img class="brand-mark" src={AVATAR} alt="" width="30" height="30" />
+      <span>{SITE_TITLE}</span>
+    </a>
     <nav class="site-nav">
       {links.map(({ href, label }) => (
         <a href={href} aria-current={path.startsWith(href) ? 'page' : undefined}>{label}</a>
       ))}
-      <button class="theme-toggle" type="button" aria-label="切换深浅色主题" data-theme-toggle>◐</button>
+      <button class="icon-btn" type="button" aria-label="切换深浅色主题" data-theme-toggle>
+        <Icon name="sun" class="icon-sun" />
+        <Icon name="moon" class="icon-moon" />
+      </button>
     </nav>
   </div>
 </header>
 
 <script>
   const root = document.documentElement;
+
   document.querySelector('[data-theme-toggle]')?.addEventListener('click', () => {
     const next = root.dataset.theme === 'dark' ? 'light' : 'dark';
     root.dataset.theme = next;
     try { localStorage.setItem('theme', next); } catch {}
   });
+
+  // The header only grows its border and blur once the page has moved.
+  const header = document.querySelector('[data-header]');
+  if (header) {
+    const sync = () => header.classList.toggle('scrolled', window.scrollY > 8);
+    sync();
+    addEventListener('scroll', sync, { passive: true });
+  }
 </script>

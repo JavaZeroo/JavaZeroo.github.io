@@ -1,0 +1,42 @@
+---
+import type { MarkdownHeading } from 'astro';
+
+interface Props { headings: MarkdownHeading[] }
+// h1 is the post title; h5/h6 are too fine-grained to be useful here.
+const items = Astro.props.headings.filter((h) => h.depth >= 2 && h.depth <= 4);
+---
+{items.length > 2 && (
+  <nav class="toc" aria-label="目录">
+    <h2>目录</h2>
+    <ul>
+      {items.map((h) => (
+        <li><a href={`#${h.slug}`} class={`d${h.depth}`} data-toc-link={h.slug}>{h.text}</a></li>
+      ))}
+    </ul>
+  </nav>
+)}
+
+<script>
+  const links = document.querySelectorAll<HTMLAnchorElement>('[data-toc-link]');
+  if (links.length) {
+    const byId = new Map([...links].map((a) => [a.dataset.tocLink!, a]));
+    const targets = [...byId.keys()]
+      .map((id) => document.getElementById(id))
+      .filter((el): el is HTMLElement => el !== null);
+
+    // Highlight the last heading scrolled past, so the marker still moves when
+    // a short trailing section can never reach the top of the viewport.
+    const sync = () => {
+      const line = window.scrollY + 120;
+      let current = targets[0];
+      for (const t of targets) {
+        if (t.offsetTop <= line) current = t;
+        else break;
+      }
+      for (const [, a] of byId) a.classList.remove('active');
+      if (current) byId.get(current.id)?.classList.add('active');
+    };
+    sync();
+    addEventListener('scroll', sync, { passive: true });
+  }
+</script>

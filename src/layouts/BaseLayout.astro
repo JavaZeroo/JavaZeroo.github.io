@@ -8,15 +8,17 @@ interface Props {
   description?: string;
   type?: 'website' | 'article';
   publishedAt?: Date;
+  /** Posts opt out of the centred column so the TOC can sit in the margin. */
+  wide?: boolean;
 }
-const props = Astro.props;
+const { wide = false, ...head } = Astro.props;
 ---
 <!doctype html>
 <html lang="zh-CN">
-  <head><BaseHead {...props} /></head>
+  <head><BaseHead {...head} /></head>
   <body>
     <Header />
-    <main class="wrap"><slot /></main>
+    <main class={wide ? undefined : 'wrap'}><slot /></main>
     <Footer />
   </body>
 </html>

@@ -6,6 +6,7 @@ const categories = countBy(await getPosts(), 'categories');
 ---
 <BaseLayout title="分类" description="按分类浏览文章。">
   <h1 class="page-title">分类</h1>
+  <p class="page-sub">共 {categories.size} 个分类</p>
   <div class="taxonomy-cloud">
     {[...categories].map(([name, posts]) => (
       <a class="chip" href={`/categories/${encodeURIComponent(name)}/`}>

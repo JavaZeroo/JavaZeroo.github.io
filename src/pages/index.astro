@@ -1,5 +1,6 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
+import Hero from '../components/Hero.astro';
 import PostList from '../components/PostList.astro';
 import { getPosts } from '../utils/posts';
 import { SITE_TITLE, POSTS_PER_PAGE } from '../consts';
@@ -9,6 +10,7 @@ const page = posts.slice(0, POSTS_PER_PAGE);
 const hasNext = posts.length > POSTS_PER_PAGE;
 ---
 <BaseLayout title={SITE_TITLE}>
+  <Hero />
   <PostList posts={page} />
   {hasNext && (
     <nav class="pagination"><span /><a href="/page/2/">下一页 →</a></nav>

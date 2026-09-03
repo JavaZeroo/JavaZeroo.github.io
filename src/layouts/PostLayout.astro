@@ -1,28 +1,81 @@
 ---
+import type { MarkdownHeading } from 'astro';
 import BaseLayout from './BaseLayout.astro';
 import FormattedDate from '../components/FormattedDate.astro';
+import TableOfContents from '../components/TableOfContents.astro';
+import PostNav from '../components/PostNav.astro';
 import type { Post } from '../utils/posts';
-import { describe } from '../utils/posts';
+import { describe, readingTime, neighboursOf } from '../utils/posts';
 
-interface Props { post: Post }
-const { post } = Astro.props;
+interface Props { post: Post; headings: MarkdownHeading[] }
+const { post, headings } = Astro.props;
 const { title, pubDate, updatedDate, categories, tags } = post.data;
+const { prev, next } = await neighboursOf(post);
 ---
-<BaseLayout title={title} description={describe(post)} type="article" publishedAt={pubDate}>
-  <article>
-    <header class="post-header">
-      <h1>{title}</h1>
-      <div class="meta">
-        <FormattedDate date={pubDate} />
-        {updatedDate && <span>更新于 <FormattedDate date={updatedDate} /></span>}
-        {categories.map((c) => <a class="chip" href={`/categories/${encodeURIComponent(c)}/`}>{c}</a>)}
-      </div>
-    </header>
-    <div class="prose"><slot /></div>
-    {tags.length > 0 && (
-      <footer class="meta" style="margin-top:2.5rem">
-        {tags.map((t) => <a class="chip" href={`/tags/${encodeURIComponent(t)}/`}>#{t}</a>)}
-      </footer>
-    )}
-  </article>
+<BaseLayout title={title} description={describe(post)} type="article" publishedAt={pubDate} wide>
+  <div class="read-progress" data-progress></div>
+
+  <div class="post-shell">
+    <article class="post-main wrap" data-article>
+      <header class="post-header">
+        <h1>{title}</h1>
+        <div class="meta">
+          <FormattedDate date={pubDate} />
+          <span class="dot">·</span>
+          <span>约 {readingTime(post)} 分钟</span>
+          {updatedDate && (<><span class="dot">·</span><span>更新于 <FormattedDate date={updatedDate} /></span></>)}
+          {categories.map((c) => <a class="chip" href={`/categories/${encodeURIComponent(c)}/`}>{c}</a>)}
+        </div>
+      </header>
+
+      <div class="prose"><slot /></div>
+
+      {tags.length > 0 && (
+        <footer class="meta" style="margin-top:2.5rem">
+          {tags.map((t) => <a class="chip" href={`/tags/${encodeURIComponent(t)}/`}>#{t}</a>)}
+        </footer>
+      )}
+
+      <PostNav prev={prev} next={next} />
+    </article>
+
+    <TableOfContents headings={headings} />
+  </div>
 </BaseLayout>
+
+<script>
+  // --- reading progress, measured against the article rather than the page,
+  // so the footer and nav do not count as unread content.
+  const bar = document.querySelector<HTMLElement>('[data-progress]');
+  const article = document.querySelector<HTMLElement>('[data-article]');
+  if (bar && article) {
+    const sync = () => {
+      const total = article.offsetTop + article.offsetHeight - innerHeight;
+      const done = total <= 0 ? 1 : Math.min(Math.max(scrollY / total, 0), 1);
+      bar.style.width = `${done * 100}%`;
+    };
+    sync();
+    addEventListener('scroll', sync, { passive: true });
+    addEventListener('resize', sync);
+  }
+
+  // --- copy buttons
+  document.querySelectorAll<HTMLButtonElement>('[data-copy]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const code = btn.closest('.code-block')?.querySelector('code');
+      if (!code) return;
+      const label = btn.querySelector<HTMLElement>('[data-copy-label]');
+      try {
+        await navigator.clipboard.writeText(code.textContent ?? '');
+        btn.classList.add('copied');
+        if (label) label.textContent = '已复制';
+      } catch {
+        if (label) label.textContent = '复制失败';
+      }
+      setTimeout(() => {
+        btn.classList.remove('copied');
+        if (label) label.textContent = '复制';
+      }, 1600);
+    });
+  });
+</script>

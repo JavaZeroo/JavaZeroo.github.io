@@ -1,12 +1,13 @@
 ---
 import Icon from './Icon.astro';
-import { AUTHOR, SOCIALS } from '../consts';
-const year = new Date().getFullYear();
+import { SITE_TITLE, TAGLINE, AVATAR, SOCIALS } from '../consts';
 ---
-<footer class="site-footer">
-  <div class="wrap">
-    <span>© {year} {AUTHOR} · 由 <a href="https://astro.build" rel="noopener" target="_blank">Astro</a> 构建</span>
-    <span class="hero-socials">
+<section class="hero">
+  <img class="hero-avatar" src={AVATAR} alt="" width="84" height="84" loading="eager" />
+  <div>
+    <h1>{SITE_TITLE}</h1>
+    <p>{TAGLINE}</p>
+    <div class="hero-socials">
       {SOCIALS.map(({ name, href, icon }) => (
         <a href={href} title={name} aria-label={name}
            rel={href.startsWith('http') ? 'me noopener' : undefined}
@@ -14,6 +15,6 @@ const year = new Date().getFullYear();
           <Icon name={icon} />
         </a>
       ))}
-    </span>
+    </div>
   </div>
-</footer>
+</section>
