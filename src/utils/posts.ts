@@ -22,9 +22,15 @@ export function permalinkOf(post: Post): string {
 
 export const urlOf = (post: Post) => `/${permalinkOf(post)}/`;
 
-/** Published posts, newest first, sticky ones pinned to the top. */
+/**
+ * Drafts are visible while running `astro dev` so they can be previewed, and
+ * dropped from every production build.
+ */
+const isVisible = ({ data }: Post) => import.meta.env.DEV || !data.draft;
+
+/** Visible posts, newest first, sticky ones pinned to the top. */
 export async function getPosts(): Promise<Post[]> {
-  const posts = await getCollection('posts', ({ data }) => !data.draft);
+  const posts = await getCollection('posts', isVisible);
   return posts.sort((a, b) => {
     if (a.data.sticky !== b.data.sticky) return b.data.sticky - a.data.sticky;
     return b.data.pubDate.valueOf() - a.data.pubDate.valueOf();
@@ -33,7 +39,7 @@ export async function getPosts(): Promise<Post[]> {
 
 /** Strictly chronological, ignoring sticky. Used by archives and feeds. */
 export async function getPostsByDate(): Promise<Post[]> {
-  const posts = await getCollection('posts', ({ data }) => !data.draft);
+  const posts = await getCollection('posts', isVisible);
   return posts.sort((a, b) => b.data.pubDate.valueOf() - a.data.pubDate.valueOf());
 }
 
