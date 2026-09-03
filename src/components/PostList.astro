@@ -3,22 +3,26 @@ import FormattedDate from './FormattedDate.astro';
 import type { Post } from '../utils/posts';
 import { urlOf, readingTime } from '../utils/posts';
 
-interface Props { posts: Post[] }
-const { posts } = Astro.props;
+interface Props { posts: Post[]; heading?: string; total?: number }
+const { posts, heading, total = posts.length } = Astro.props;
 ---
+{heading && <div class="section-head"><h2>{heading}</h2><span class="label">共 {total} 篇</span></div>}
 <ul class="post-list">
-  {posts.map((post) => (
-    <li class="post-card">
-      <h2><a href={urlOf(post)}>{post.data.title}</a></h2>
-      {post.data.description && <p class="excerpt">{post.data.description}</p>}
-      <div class="meta">
-        {post.data.sticky > 0 && <span class="pin">置顶</span>}
+  {posts.map((post, i) => (
+    <li class="post-row" style={`--i:${i}`}>
+      <div class="when label">
         <FormattedDate date={post.data.pubDate} />
-        <span class="dot">·</span>
-        <span>约 {readingTime(post)} 分钟</span>
-        {post.data.categories.map((c) => (
-          <a class="chip" href={`/categories/${encodeURIComponent(c)}/`}>{c}</a>
-        ))}
+        <span>{readingTime(post)} min</span>
+        {post.data.sticky > 0 && <span class="pin">置顶</span>}
+      </div>
+      <div>
+        <h2><a href={urlOf(post)}>{post.data.title}</a></h2>
+        {post.data.description && <p class="excerpt">{post.data.description}</p>}
+        {post.data.categories.length > 0 && (
+          <div class="cats label">
+            {post.data.categories.map((c) => <a href={`/categories/${encodeURIComponent(c)}/`}>{c}</a>)}
+          </div>
+        )}
       </div>
     </li>
   ))}

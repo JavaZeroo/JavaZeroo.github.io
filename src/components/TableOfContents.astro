@@ -7,7 +7,7 @@ const items = Astro.props.headings.filter((h) => h.depth >= 2 && h.depth <= 4);
 ---
 {items.length > 2 && (
   <nav class="toc" aria-label="目录">
-    <h2>目录</h2>
+    <span class="label">目录</span>
     <ul>
       {items.map((h) => (
         <li><a href={`#${h.slug}`} class={`d${h.depth}`} data-toc-link={h.slug}>{h.text}</a></li>
@@ -17,15 +17,16 @@ const items = Astro.props.headings.filter((h) => h.depth >= 2 && h.depth <= 4);
 )}
 
 <script>
-  const links = document.querySelectorAll<HTMLAnchorElement>('[data-toc-link]');
-  if (links.length) {
+  const init = () => {
+    const links = document.querySelectorAll<HTMLAnchorElement>('[data-toc-link]');
+    if (!links.length) return;
     const byId = new Map([...links].map((a) => [a.dataset.tocLink!, a]));
     const targets = [...byId.keys()]
       .map((id) => document.getElementById(id))
       .filter((el): el is HTMLElement => el !== null);
 
-    // Highlight the last heading scrolled past, so the marker still moves when
-    // a short trailing section can never reach the top of the viewport.
+    // Highlight the last heading scrolled past, so the marker still moves
+    // through a short trailing section that can never reach the top.
     const sync = () => {
       const line = window.scrollY + 120;
       let current = targets[0];
@@ -38,5 +39,6 @@ const items = Astro.props.headings.filter((h) => h.depth >= 2 && h.depth <= 4);
     };
     sync();
     addEventListener('scroll', sync, { passive: true });
-  }
+  };
+  document.addEventListener('astro:page-load', init);
 </script>

@@ -1,6 +1,6 @@
 ---
 import Icon from './Icon.astro';
-import { SITE_TITLE, AVATAR } from '../consts';
+import { AUTHOR } from '../consts';
 const path = Astro.url.pathname;
 const links = [
   { href: '/archives/', label: '归档' },
@@ -9,17 +9,14 @@ const links = [
   { href: '/about/', label: '关于' },
 ];
 ---
-<header class="site-header" data-header>
+<header class="site-header">
   <div class="wrap">
-    <a class="brand" href="/">
-      <img class="brand-mark" src={AVATAR} alt="" width="30" height="30" />
-      <span>{SITE_TITLE}</span>
-    </a>
+    <a class="brand" href="/">{AUTHOR}</a>
     <nav class="site-nav">
       {links.map(({ href, label }) => (
-        <a href={href} aria-current={path.startsWith(href) ? 'page' : undefined}>{label}</a>
+        <a class="u" href={href} aria-current={path.startsWith(href) ? 'page' : undefined}>{label}</a>
       ))}
-      <button class="icon-btn" type="button" aria-label="切换深浅色主题" data-theme-toggle>
+      <button class="theme-btn" type="button" aria-label="切换深浅色主题" data-theme-toggle>
         <Icon name="sun" class="icon-sun" />
         <Icon name="moon" class="icon-moon" />
       </button>
@@ -28,19 +25,15 @@ const links = [
 </header>
 
 <script>
-  const root = document.documentElement;
-
-  document.querySelector('[data-theme-toggle]')?.addEventListener('click', () => {
-    const next = root.dataset.theme === 'dark' ? 'light' : 'dark';
-    root.dataset.theme = next;
-    try { localStorage.setItem('theme', next); } catch {}
-  });
-
-  // The header only grows its border and blur once the page has moved.
-  const header = document.querySelector('[data-header]');
-  if (header) {
-    const sync = () => header.classList.toggle('scrolled', window.scrollY > 8);
-    sync();
-    addEventListener('scroll', sync, { passive: true });
-  }
+  // With the client router, module scripts run once per session; everything
+  // that touches the DOM must re-run on astro:page-load.
+  const init = () => {
+    const root = document.documentElement;
+    document.querySelector('[data-theme-toggle]')?.addEventListener('click', () => {
+      const next = root.dataset.theme === 'dark' ? 'light' : 'dark';
+      root.dataset.theme = next;
+      try { localStorage.setItem('theme', next); } catch {}
+    });
+  };
+  document.addEventListener('astro:page-load', init);
 </script>

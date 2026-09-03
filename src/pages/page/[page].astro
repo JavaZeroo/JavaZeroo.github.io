@@ -12,11 +12,7 @@ export async function getStaticPaths() {
     const num = i + 2;
     return {
       params: { page: String(num) },
-      props: {
-        posts: posts.slice((num - 1) * POSTS_PER_PAGE, num * POSTS_PER_PAGE),
-        num,
-        total,
-      },
+      props: { posts: posts.slice((num - 1) * POSTS_PER_PAGE, num * POSTS_PER_PAGE), num, total },
     };
   });
 }
@@ -25,9 +21,10 @@ const { posts, num, total } = Astro.props as { posts: Post[]; num: number; total
 const prev = num === 2 ? '/' : `/page/${num - 1}/`;
 ---
 <BaseLayout title={`第 ${num} 页`}>
+  <header class="page-head"><h1>文章</h1><span class="label">第 {num} / {total} 页</span></header>
   <PostList posts={posts} />
   <nav class="pagination">
-    <a href={prev}>← 上一页</a>
-    {num < total ? <a href={`/page/${num + 1}/`}>下一页 →</a> : <span />}
+    <a class="u" href={prev}>← 更新的文章</a>
+    {num < total ? <a class="u" href={`/page/${num + 1}/`}>更早的文章 →</a> : <span />}
   </nav>
 </BaseLayout>

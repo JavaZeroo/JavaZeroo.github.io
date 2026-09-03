@@ -2,16 +2,19 @@
 import BaseLayout from '../../layouts/BaseLayout.astro';
 import { getPosts, countBy } from '../../utils/posts';
 
-const tags = countBy(await getPosts(), 'tags');
+const items = countBy(await getPosts(), 'tags');
 ---
 <BaseLayout title="标签" description="按标签浏览文章。">
-  <h1 class="page-title">标签</h1>
-  <p class="page-sub">共 {tags.size} 个标签</p>
-  <div class="taxonomy-cloud">
-    {[...tags].map(([name, posts]) => (
-      <a class="chip" href={`/tags/${encodeURIComponent(name)}/`}>
-        #{name} <span class="count">{posts.length}</span>
-      </a>
+  <header class="page-head">
+    <h1>标签</h1>
+    <span class="label">共 {items.size} 个</span>
+  </header>
+  <ul class="taxonomy">
+    {[...items].map(([name, posts]) => (
+      <li>
+        <a href={`/tags/${encodeURIComponent(name)}/`}>{name}</a>
+        <span class="label">{posts.length} 篇</span>
+      </li>
     ))}
-  </div>
+  </ul>
 </BaseLayout>

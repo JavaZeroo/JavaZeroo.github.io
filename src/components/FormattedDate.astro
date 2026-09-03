@@ -1,8 +1,10 @@
 ---
-interface Props { date: Date; short?: boolean }
-const { date, short = false } = Astro.props;
+interface Props { date: Date; format?: 'full' | 'month' | 'day' }
+const { date, format = 'full' } = Astro.props;
 const pad = (n: number) => String(n).padStart(2, '0');
-// UTC getters here too, so the shown date always matches the permalink.
-const iso = `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())}`;
+// UTC getters, so the shown date always matches the permalink.
+const y = date.getUTCFullYear(), m = pad(date.getUTCMonth() + 1), d = pad(date.getUTCDate());
+const iso = `${y}-${m}-${d}`;
+const shown = format === 'month' ? `${y}.${m}` : format === 'day' ? `${m}.${d}` : `${y}.${m}.${d}`;
 ---
-<time datetime={iso}>{short ? iso.slice(5) : iso}</time>
+<time datetime={iso}>{shown}</time>

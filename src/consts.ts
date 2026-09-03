@@ -3,8 +3,13 @@ export const SITE_DESCRIPTION = '学习笔记、项目经验，以及一些折�
 export const SITE_URL = 'https://blog.javazero.top';
 export const AUTHOR = 'Java不加糖';
 export const AVATAR = '/images/avatar.jpg';
-export const TAGLINE = '记录深度学习、点云与各种折腾。偶尔写点数学。';
 export const POSTS_PER_PAGE = 10;
+
+/** The homepage statement. `em` becomes the italic accent span. */
+export const INTRO = {
+  lines: ['记录深度学习、点云，', '以及各种折腾。'],
+  em: '偶尔写点数学。',
+};
 
 export const SOCIALS = [
   { name: 'GitHub', href: 'https://github.com/JavaZeroo', icon: 'github' },
