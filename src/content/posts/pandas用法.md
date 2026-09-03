@@ -1,12 +1,12 @@
 ---
-title: Pandas的数据操作
-date: 2022-08-30 09:09:16
-mathjax: false
+title: "Pandas的数据操作"
+pubDate: 2022-08-30 09:09:16
+description: "最近在打Kaggle，遇到很夸张的数据预处理。"
 categories:
-- 🖥️Python
+  - "🖥️Python"
 tags:
-- Pandas
-- 数据处理
+  - "Pandas"
+  - "数据处理"
 ---
 最近在打Kaggle，遇到很夸张的数据预处理。
 平时每次要用pandas都是现翻文档，感觉太慢，以后用到什么pandas的函数就在这里记录一下😘

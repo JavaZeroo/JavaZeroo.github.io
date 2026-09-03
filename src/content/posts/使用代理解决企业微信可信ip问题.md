@@ -1,16 +1,14 @@
 ---
-title: 使用socket代理解决企业微信可信ip问题 
-date: 2022-09-21 11:16:22
-mathjax: false
-mermaid: true
+title: "使用socket代理解决企业微信可信ip问题"
+pubDate: 2022-09-21 11:16:22
+description: "最近在网上看到了使用微信测试公众号给女朋友弄的每日推送。不过还是有很多问题的，主要是不能更改头像和名字，非常的不优雅。于是找到了企业微信的api，非常满足我的需要求。"
 categories:
-- 💾服务器
+  - "💾服务器"
 tags:
-- 折腾
-- 网络
-- 分享
+  - "折腾"
+  - "网络"
+  - "分享"
 ---
-
 最近在网上看到了使用微信测试公众号给女朋友弄的每日推送。不过还是有很多问题的，主要是不能更改头像和名字，非常的不优雅。于是找到了企业微信的api，非常满足我的需要求。
 
 于是打算自己重新写一个。[直达链接](https://github.com/JavaZeroo/wechat-bot) (目前还没有施工完🛠️)
@@ -27,20 +25,20 @@ flowchart LR
     C -.-> B -.->|Socks代理| A
 ```
 
-{% note info %}
+:::note{type="info"}
 **为什么用Socks代理而不用http？**
 
 - 主要是因为http代理无法代理https的流量，比较麻烦。
 
 - Socks代理性能更好，因为他只负责转发流量，简单理解为Socks代理更纯粹。
-{% endnote %}
+:::
 
 ## 实际操作
-{% note info%}
+:::note{type="info"}
 我的内核：
 
 CentOS Linux release 7.6.1810 (Core)
-{% endnote %}
+:::
 
 ### 安装socks5服务端
 
@@ -57,7 +55,7 @@ wget --no-check-certificate https://raw.github.com/Lozy/danted/master/install.sh
 ```bash
 chmod +x install.sh && ./install.sh
 ```
-{% note info %}
+:::note{type="info"}
 **默认配置的端口是2016，且没有账号密码！！！！**
 
 如果需要自定义参数可以加上：
@@ -67,14 +65,14 @@ chmod +x install.sh && ./install.sh
 --user=账号 \
 --passwd=密码
 ```
-{% endnote %}
+:::
 
 ![安装完成界面](/images/socks/安装完成.png)
 
 ### 后续配置
-{% note warning %}
+:::note{type="info"}
 
-{% endnote %}
+:::
 
 
 ## 参考

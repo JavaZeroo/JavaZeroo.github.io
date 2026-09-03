@@ -1,16 +1,14 @@
 ---
-title: wireguard折腾记录
-date: 2023-08-05 23:12:33
-mathjax: false
-mermaid: true
+title: "wireguard折腾记录"
+pubDate: 2023-08-05 23:12:33
+description: "两个服务器都安装wireguard，然后配置好服务器端和客户端，然后两个服务器互联，可以互相ping通。"
 categories:
-- 💾服务器
+  - "💾服务器"
 tags:
-- 折腾
-- 网络
-- 分享
+  - "折腾"
+  - "网络"
+  - "分享"
 ---
-
 # wireguard折腾记录
 
 - 条件： 有一个动态公网ip的服务器(openwrt)，NameSilo域名+DDNS

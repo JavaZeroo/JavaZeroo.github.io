@@ -1,11 +1,12 @@
 ---
-title: PowerShell美化
-date: 2022-09-03 14:40:53
+title: "PowerShell美化"
+pubDate: 2022-09-03 14:40:53
+description: "最近刚刚重装了系统，记录一下美化的过程"
 categories:
-- 💻Windows
+  - "💻Windows"
 tags:
-- 软件
-- 分享
+  - "软件"
+  - "分享"
 ---
 最近刚刚重装了系统，记录一下美化的过程
 ## PowerShell 7 安装
@@ -16,9 +17,9 @@ https://docs.microsoft.com/en-us/powershell/scripting/install/installing-powersh
 ```
 下载完之后，一路下一步就行
 
-{% note info %}
+:::note{type="info"}
 ⚠️这里建议安装的时候，将PowerShell加入到Windows Terminal中。避免后面手动添加
-{% endnote %}
+:::
 
 ## ohmyposh安装
 
@@ -32,9 +33,9 @@ https://ohmyposh.dev/docs/installation/windows
 
 然后要安装Nerd类型的字体(就是一种将一部分字符变成好看的符号的字体🥰)
 
-{% note info %}
+:::note{type="info"}
 官方是用ohmyposh内置的安装方法。其实我更推荐下载字体文件下来双击安装。这样更熟悉一点。(拒绝离开舒适区🙅🏻)
-{% endnote %}
+:::
 
 当然，安装完字体后需要在Windows Terminal上设置一下
 [设置位置](/images/PowerShell美化/terminal.jpg)
@@ -73,9 +74,9 @@ Get-PoshThemes
 ```
 oh-my-posh init pwsh --config ~/.jandedobbeleer.omp.json | Invoke-Expression
 ```
-{% note info %}
+:::note{type="info"}
 其实可以看出来``~/.jandedobbeleer.omp.json`` 这个就是``jandedobbeleer``对应的json文件，所有主题都是以json文件储存的。
-{% endnote %}
+:::
 
 其实你可以自己创建一个主题，这里是[官方教程](https://ohmyposh.dev/docs/configuration/overview)，事实上他包括很多插件，eg. Spotiy；
 

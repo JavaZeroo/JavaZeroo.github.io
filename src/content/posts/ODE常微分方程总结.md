@@ -1,12 +1,12 @@
 ---
-title: ODE常微分方程总结
-date: 2023-02-24 18:54:11
+title: "ODE常微分方程总结"
+pubDate: 2023-02-24 18:54:11
+description: "一阶常微分方程解法总结：可分离变量、齐次方程、线性方程、伯努利方程、恰当方程与积分因子。"
 categories:
-- 📝学习
+  - "📝学习"
 tags:
-- 数学
+  - "数学"
 ---
-
 <iframe style="border-radius:12px" src="https://open.spotify.com/embed/track/0BRcn1RKWTKqF8OpdQmJXc?utm_source=generator" width="100%" height="352" frameBorder="0" allowfullscreen="" allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" loading="lazy"></iframe>
 
 > 教材：[DLI-BSc-Mathematics-Documents/Ordinary Differential Equatrions.pdf at main · JavaZeroo/DLI-BSc-Mathematics-Documents (github.com)](https://github.com/JavaZeroo/DLI-BSc-Mathematics-Documents/blob/main/y3s2/常微分方程/Ordinary Differential Equatrions.pdf)
@@ -195,14 +195,14 @@ Integrating Factors是用来让非 Exact 变成Exact differential equations。
 
 对于一个not excat differential equation我们需要找到一个Factor $U(x,y)$ 使得$U(x,y)\cdot M(x,y)dx+U(x,y)\cdot N(x,y)dy=0$变成一个Exact differential equations。
 
-{% note info %}
+:::note{type="info"}
 这里有一个"**Theorem on potential functions**"保证可以找到$U(x,y)$
-{% endnote %}
+:::
 
 现在的问题就是，如何去找？首先令$M' = U\cdot M,N'=U\cdot N$如果$F_x=M',F_y=N'$则有$M'_y=N'_x$。利用这个关系可以知道
-{% note info %}
+:::note{type="info"}
 事实上就是$F_{xy}=F_{yx}$ (Jacobian Matrix)
-{% endnote %}
+:::
 $$
 \begin{align}
 &(U\cdot M)_y=(U\cdot N)_x\\
@@ -222,9 +222,9 @@ U\cdot M_y &= U' \cdot N+U \cdot N_x \\
 U&=e^{\int \frac{M_y-N_x}{N}dx}
 \end{align}
 $$
-{% note info %}
+:::note{type="info"}
  这里的答案不是$U=C\cdot e^{\int \frac{M_y-N_x}{N}dx}$的原因是，我们只需要找到一个$U$，因此你可以认为我们选择$C=1$作为答案。下面的情况同理。
-{% endnote %}
+:::
 
 2. 假如只与$y$有关则$U_x=0$则有
 
@@ -324,13 +324,13 @@ $$
 
 > 1️⃣**Local Lipschitz condition.** The function $f(x,y)$ is said to satisfy a local Lipschitz condition with respect to $y$ in $D\subset R^2$ if for every $(x_0,y_0 )\in D$ there exists a neighborhood $U=U(x_0,y_0 )$ and an $L=L(x_0,y_0 )$ such that in $U\cup D$ the function $f$ satisfies the Lipschitz condition $|f(x,y)-f(x,\bar{y})|\leq L|y-\bar{y}|$.
 
-{% note info %}
+:::note{type="info"}
 
 注意！我们一般通过连续性来判断Local Lipschitz condition
 
 >If $D$ is open and if $f \in C(D)$ has a continuous derivative $f_y$ in $D$, then f satisfies a **local Lipschitz condition** in this set.
 
-{% endnote %}
+:::
 
 > 2️⃣**Theorem on local solvability** If $D$ is open and $f\in C(D)$ satisfies a local Lipschitz condition in $D$, then the IVP is locally uniquely solvable for$ (x_0,y_0 )∈D$; i.e., there is a neighborhood $I$ of$ x_0$ such that exactly one solution exists in $I$.
 

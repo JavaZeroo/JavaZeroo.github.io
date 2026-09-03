@@ -1,9 +1,10 @@
 ---
-title: DSB in SBG
-date: 2023-06-25 14:43:41
-tags:
+title: "DSB in SBG"
+pubDate: 2023-06-25 14:43:41
+description: "Diffusion Schrödinger Bridge 论文理解：用熵正则最优传输在有限时间内从数据分布采样。"
+categories: []
+tags: []
 ---
-
 # 《Diffusion Schrödinger Bridge with Applications to Score-Based Generative Modeling 》论文理解
 
 >  Abstract翻译

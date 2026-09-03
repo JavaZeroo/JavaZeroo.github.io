@@ -1,16 +1,14 @@
 ---
-title: 2023年必装的Windows软件
-date: 2022-08-25 14:49:00
-mathjax: false
+title: "2023年必装的Windows软件"
+pubDate: 2022-08-25 14:49:00
+description: "平时学习、Coding、内容生产必备工具"
 categories:
-- 💻Windows
-tags: 
-- 软件
-- 分享
-
+  - "💻Windows"
+tags:
+  - "软件"
+  - "分享"
 sticky: 100
 ---
-
 > 更新于 2023/02/15
 
 # ⚒️生产力
@@ -89,4 +87,4 @@ sticky: 100
 ## [Spotify](https://www.spotify.com/us/download/windows/)：国外音乐流媒体软件
 具体教程可看我b站视频  
 
-<iframe src="//player.bilibili.com/player.html?aid=847083862&bvid=BV1s54y1775x&cid=380562046&page=1" scrolling="no" border="0" frameborder="no" framespacing="0" allowfullscreen="true"> </iframe>
+<iframe src="https://player.bilibili.com/player.html?aid=847083862&bvid=BV1s54y1775x&cid=380562046&page=1" scrolling="no" border="0" frameborder="no" framespacing="0" allowfullscreen="true"> </iframe>

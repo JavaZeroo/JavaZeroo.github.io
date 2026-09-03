@@ -1,24 +1,23 @@
 ---
-title: CloudComPy库安装 
-date: 2022-08-30 11:16:22
-mathjax: false
+title: "CloudComPy库安装"
+pubDate: 2022-08-30 11:16:22
+description: "在 Linux + conda 环境下安装 CloudComPy 二进制包，以及读取和给点云上色的几个小细节。"
 categories:
-- 🖥️Python
+  - "🖥️Python"
 tags:
-- cv
-- 点云配准
+  - "cv"
+  - "点云配准"
 ---
-
 下载链接：[https://www.simulation.openfields.fr/index.php/download-binaries](https://www.simulation.openfields.fr/index.php/download-binaries)
 
 官方教程：[https://github.com/CloudCompare/CloudComPy/blob/master/doc/UseLinuxCondaBinary.md](https://github.com/CloudCompare/CloudComPy/blob/master/doc/UseLinuxCondaBinary.md)
 
 ## Installing, testing and using a CloudComPy binary on Linux, with conda
 
-{% note danger %}
+:::note{type="danger"}
 🚫 建议切换SHELL为bash
 🚫 我在zsh上安装失败，切换bash成功
-{% endnote %}
+:::
 
 先下载 *CloudComPy_Conda39_Linux64_-date-.tgz* [here](https://www.simulation.openfields.fr/index.php/download-binaries)
 
@@ -47,10 +46,10 @@ conda config --set channel_priority strict
 conda install "boost=1.72" "cgal=5.0" cmake ffmpeg "gdal=3.3" jupyterlab "matplotlib=3.5" "mysql=8.0" "numpy=1.22" "opencv=4.5.3" "openmp=8.0" "pcl=1.11" "pdal=2.3" "psutil=5.9" "qhull=2019.1" "qt=5.12" "scipy=1.8" sphinx_rtd_theme spyder tbb tbb-devel "xerces-c=3.2"
 ```
 
-{% note info %}
+:::note{type="info"}
 如果遇到``Solving environment: failed with initial frozen solve. Retrying with flexible solve.``
 可以尝试重新新建一个conda环境
-{% endnote %}
+:::
 
 
 ### 如何使用:
