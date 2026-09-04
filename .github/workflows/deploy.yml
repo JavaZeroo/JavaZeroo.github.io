@@ -12,7 +12,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -43,21 +43,15 @@ jobs:
       - name: Build
         run: npm run build
 
-      - uses: actions/upload-pages-artifact@v5
+      # Publish dist/ to the gh-pages branch, which Pages is already configured
+      # to serve (the Hexo site deployed the same way). This needs no change in
+      # the repository settings; switch to actions/deploy-pages later if the
+      # Pages source is ever moved to "GitHub Actions".
+      - name: Deploy
         if: github.event_name != 'pull_request'
+        uses: peaceiris/actions-gh-pages@v4
         with:
-          path: ./dist
-
-  deploy:
-    needs: build
-    if: github.event_name != 'pull_request'
-    runs-on: ubuntu-latest
-    permissions:
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@v5
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./dist
+          cname: blog.javazero.top
+          force_orphan: true

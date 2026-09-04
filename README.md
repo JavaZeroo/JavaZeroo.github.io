@@ -59,9 +59,7 @@ front-matter 由 `src/content.config.ts` 的 zod schema 校验，字段写错构
 
 ## 部署
 
-推送到 `main`（或 `hexo`）分支后由 `.github/workflows/deploy.yml` 自动构建并发布到 GitHub Pages。
-
-> 仓库 **Settings → Pages → Source** 需要设为 **GitHub Actions**。
+推送到 `hexo`（默认分支，或 `main`）后由 `.github/workflows/deploy.yml` 构建并把 `dist/` 推到 `gh-pages` 分支，GitHub Pages 从该分支提供服务（Settings → Pages → Source: Deploy from a branch → `gh-pages`）。
 
 ## 目录
 
