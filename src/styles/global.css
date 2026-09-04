@@ -106,7 +106,7 @@ body::before {
 a { color: inherit; text-decoration: none; }
 
 .wrap { width: 100%; max-width: var(--measure); margin: 0 auto; padding-inline: var(--gutter); }
-.wide { width: 100%; max-width: 72rem; margin: 0 auto; padding-inline: var(--gutter); }
+.wide { width: 100%; max-width: 76rem; margin: 0 auto; padding-inline: var(--gutter); }
 
 .label {
   font-family: var(--font-mono);
@@ -334,9 +334,9 @@ main { flex: 1; }
     display: grid;
     grid-template-columns: minmax(0, var(--measure)) var(--toc-w);
     column-gap: 3.5rem;
-    /* Same 72rem box as the header, left-aligned, so the article's left edge
+    /* Same 76rem box as the header, left-aligned, so the article's left edge
        lines up with the brand mark above it. */
-    max-width: 72rem;
+    max-width: 76rem;
     margin: 0 auto;
     justify-content: start;
     align-items: start;
