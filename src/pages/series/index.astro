@@ -1,0 +1,23 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import { getAllSeries, seriesPosts, seriesUrl } from '../../utils/series';
+
+const all = await getAllSeries();
+const rows = await Promise.all(all.map(async (s) => {
+  const posts = await seriesPosts(s);
+  return { s, published: posts.filter((p) => !p.data.draft).length, planned: posts.filter((p) => p.data.draft).length };
+}));
+---
+<BaseLayout title="专栏" description="按主题组织的系列文章。">
+  <header class="page-head"><span class="label">Series</span><h1>专栏</h1><p>按知识结构组织的系列文章，不按时间。</p></header>
+  <ul class="taxonomy">
+    {rows.map(({ s, published, planned }, i) => (
+      <li class="card reveal series-card" style={`--c:${s.data.color};--d:${i * 50}ms`}>
+        <span class="label cat">{s.data.parts.length} 个章节</span>
+        <h3><a href={seriesUrl(s.id)}>{s.data.title}</a></h3>
+        <p>{s.data.description}</p>
+        <span class="label meta">{published} 篇已发布{planned > 0 && ` · ${planned} 篇写作中`}</span>
+      </li>
+    ))}
+  </ul>
+</BaseLayout>

@@ -1,0 +1,58 @@
+---
+import { render } from 'astro:content';
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import FormattedDate from '../../components/FormattedDate.astro';
+import Icon from '../../components/Icon.astro';
+import { getAllSeries, seriesOutline, type Series } from '../../utils/series';
+import { urlOf, readingTime } from '../../utils/posts';
+
+export async function getStaticPaths() {
+  const all = await getAllSeries();
+  return all.map((s) => ({ params: { id: s.id }, props: { series: s } }));
+}
+
+const { series } = Astro.props as { series: Series };
+const { Content } = await render(series);
+const outline = await seriesOutline(series);
+const published = outline.flatMap(([, ps]) => ps).filter((p) => !p.data.draft);
+let n = 0;
+---
+<BaseLayout title={series.data.title} description={series.data.description}>
+  <header class="page-head series-head" style={`--c:${series.data.color}`}>
+    <span class="label"><a href="/series/">专栏</a> · {published.length} 篇</span>
+    <h1>{series.data.title}</h1>
+    <p>{series.data.description}</p>
+    <div class="prose series-intro"><Content /></div>
+  </header>
+
+  <ol class="outline">
+    {outline.map(([part, posts], pi) => (
+      <li class="outline-part reveal" style={`--d:${pi * 60}ms`}>
+        <div class="outline-part-head">
+          <span class="label">Part {String(pi + 1).padStart(2, '0')}</span>
+          <h2>{part}</h2>
+          {posts.length === 0 && <span class="label planned">计划中</span>}
+        </div>
+        {posts.length > 0 && (
+          <ul class="rows">
+            {posts.map((post) => {
+              const draft = post.data.draft;
+              if (!draft) n += 1;
+              return (
+                <li class:list={['row', { draft }]} style={`--c:${series.data.color}`}>
+                  <span class="label">{draft ? '写作中' : String(n).padStart(2, '0')}</span>
+                  <span class="t">{draft ? post.data.title : <a href={urlOf(post)}>{post.data.title}</a>}</span>
+                  <span class="tail label">{draft ? '' : <><FormattedDate date={post.data.pubDate} /> · {readingTime(post)} min</>}</span>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </li>
+    ))}
+  </ol>
+
+  {published[0] && (
+    <p class="series-start"><a class="btn primary" href={urlOf(published[0])}>从第一篇开始 <Icon name="arrow" /></a></p>
+  )}
+</BaseLayout>

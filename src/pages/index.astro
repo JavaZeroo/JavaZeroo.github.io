@@ -4,12 +4,26 @@ import Hero from '../components/Hero.astro';
 import Bento from '../components/Bento.astro';
 import Icon from '../components/Icon.astro';
 import { getPosts } from '../utils/posts';
+import { getAllSeries, seriesPosts, seriesUrl } from '../utils/series';
 import { SITE_TITLE, HOME_POSTS } from '../consts';
 
 const posts = await getPosts();
+const series = await Promise.all((await getAllSeries()).map(async (s) => ({ s, n: (await seriesPosts(s)).filter((p) => !p.data.draft).length })));
 ---
 <BaseLayout title={SITE_TITLE} wide>
   <Hero />
+  {series.length > 0 && (
+    <section class="wide series-strip reveal">
+      {series.map(({ s, n }) => (
+        <a class="series-tile" href={seriesUrl(s.id)} style={`--c:${s.data.color}`}>
+          <span class="label">专栏 · {s.data.parts.length} 个章节 · {n} 篇</span>
+          <b>{s.data.title}</b>
+          <p>{s.data.description}</p>
+          <span class="go"><Icon name="arrow" /></span>
+        </a>
+      ))}
+    </section>
+  )}
   <section class="section wide" id="posts">
     <div class="section-head reveal">
       <h2>最近文章</h2>

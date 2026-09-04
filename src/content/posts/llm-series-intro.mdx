@@ -1,0 +1,40 @@
+---
+title: "大模型笔记：这个专栏要写什么"
+pubDate: 2026-09-05 10:00:00
+description: "开篇。说明专栏的范围、章节安排，以及为什么按知识结构而不是按时间来组织。"
+categories:
+  - "📝学习"
+tags:
+  - "大模型"
+  - "训练系统"
+series: llm
+part: "架构"
+order: 0
+---
+
+这是专栏的开篇，也是一篇占位——正文由你来写。下面先把骨架立起来。
+
+## 范围
+
+这个专栏关心的是**把大模型训练起来并跑得快**这件事，大致四块：
+
+```mermaid
+flowchart LR
+  A[架构<br/>新开源模型结构拆解] --> B[并行<br/>DP / TP / PP / EP / SP]
+  B --> C[训练框架工程<br/>Megatron · DeepSpeed · 自研]
+  C --> D[性能优化<br/>算子 · 通信 · 显存 · 调度]
+```
+
+## 一个小例子：显存估算
+
+训练时每个参数大约要占多少字节？混合精度 + Adam 的经典估算是
+
+$$
+\text{Bytes}/\text{param} \approx \underbrace{2}_{\text{fp16 权重}} + \underbrace{2}_{\text{fp16 梯度}} + \underbrace{4 + 4 + 4}_{\text{fp32 主权重 + m + v}} = 16
+$$
+
+所以一个 7B 模型光是参数相关的静态显存就要 $7 \times 10^9 \times 16 \approx 112\ \text{GB}$，这还没算激活值。这正是后面「并行」一章要解决的问题。
+
+:::note{type="info"}
+这一篇是我（Claude）搭骨架时写的示例，请按你的想法重写。专栏的章节定义在 `src/content/series/llm.md`，把文章挂进专栏只需要在 front-matter 里加 `series` / `part` / `order` 三个字段。
+:::

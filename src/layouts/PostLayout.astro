@@ -7,11 +7,15 @@ import PostNav from '../components/PostNav.astro';
 import type { Post } from '../utils/posts';
 import { describe, readingTime, neighboursOf } from '../utils/posts';
 import { catLabel } from '../utils/taxonomy';
+import { seriesContext, seriesUrl } from '../utils/series';
+import Icon from '../components/Icon.astro';
 
 interface Props { post: Post; headings: MarkdownHeading[] }
 const { post, headings } = Astro.props;
 const { title, pubDate, updatedDate, description, categories, tags } = post.data;
-const { prev, next } = await neighboursOf(post);
+// Inside a series, prev/next follow the reading order, not the calendar.
+const ctx = await seriesContext(post);
+const { prev, next } = ctx ?? (await neighboursOf(post));
 // Migrated descriptions were cut from the opening paragraph; showing those as
 // a lede would print the same sentence twice. Hand-written ones still show.
 const showLede = !!description && !(post.body ?? '').includes(description.replace(/…$/, ''));
@@ -22,6 +26,15 @@ const showLede = !!description && !(post.body ?? '').includes(description.replac
   <div class="post-shell">
     <article class="post-main wrap" data-article data-pagefind-body>
       <header class="post-header">
+        {ctx && (
+          <a class="series-banner" href={seriesUrl(ctx.series.id)} style={`--c:${ctx.series.data.color}`} data-pagefind-ignore>
+            <span class="label">专栏</span>
+            <b>{ctx.series.data.title}</b>
+            <span class="sep">·</span><span>{post.data.part}</span>
+            <span class="count label">{ctx.index} / {ctx.total}</span>
+            <Icon name="arrow" />
+          </a>
+        )}
         <div class="label" data-pagefind-ignore>
           <FormattedDate date={pubDate} />
           <span>{readingTime(post)} min</span>
