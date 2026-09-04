@@ -1,16 +1,20 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
-import Intro from '../components/Intro.astro';
-import PostList from '../components/PostList.astro';
+import Hero from '../components/Hero.astro';
+import Bento from '../components/Bento.astro';
+import Icon from '../components/Icon.astro';
 import { getPosts } from '../utils/posts';
-import { SITE_TITLE, POSTS_PER_PAGE } from '../consts';
+import { SITE_TITLE, HOME_POSTS } from '../consts';
 
 const posts = await getPosts();
-const page = posts.slice(0, POSTS_PER_PAGE);
-const hasNext = posts.length > POSTS_PER_PAGE;
 ---
-<BaseLayout title={SITE_TITLE}>
-  <Intro />
-  <PostList posts={page} heading="文章" total={posts.length} />
-  {hasNext && <nav class="pagination"><span /><a class="u" href="/page/2/">更早的文章 →</a></nav>}
+<BaseLayout title={SITE_TITLE} wide>
+  <Hero />
+  <section class="section wide" id="posts">
+    <div class="section-head reveal">
+      <h2>最近文章</h2>
+      <a href="/archives/">全部 {posts.length} 篇 <Icon name="arrow" class="inline-icon" /></a>
+    </div>
+    <Bento posts={posts.slice(0, HOME_POSTS)} />
+  </section>
 </BaseLayout>

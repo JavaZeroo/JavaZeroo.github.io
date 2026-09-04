@@ -6,32 +6,36 @@ import TableOfContents from '../components/TableOfContents.astro';
 import PostNav from '../components/PostNav.astro';
 import type { Post } from '../utils/posts';
 import { describe, readingTime, neighboursOf } from '../utils/posts';
+import { catLabel } from '../utils/taxonomy';
 
 interface Props { post: Post; headings: MarkdownHeading[] }
 const { post, headings } = Astro.props;
 const { title, pubDate, updatedDate, description, categories, tags } = post.data;
 const { prev, next } = await neighboursOf(post);
+// Migrated descriptions were cut from the opening paragraph; showing those as
+// a lede would print the same sentence twice. Hand-written ones still show.
+const showLede = !!description && !(post.body ?? '').includes(description.replace(/…$/, ''));
 ---
 <BaseLayout title={title} description={describe(post)} type="article" publishedAt={pubDate} wide>
   <div class="read-progress" data-progress></div>
 
   <div class="post-shell">
-    <article class="post-main wrap" data-article>
+    <article class="post-main wrap" data-article data-pagefind-body>
       <header class="post-header">
-        <div class="label">
+        <div class="label" data-pagefind-ignore>
           <FormattedDate date={pubDate} />
           <span>{readingTime(post)} min</span>
           {updatedDate && <span>更新 <FormattedDate date={updatedDate} /></span>}
-          {categories.map((c) => <a href={`/categories/${encodeURIComponent(c)}/`}>{c}</a>)}
+          {categories.map((c) => <a href={`/categories/${encodeURIComponent(c)}/`}>{catLabel(c)}</a>)}
         </div>
-        <h1>{title}</h1>
-        {description && <p class="lede">{description}</p>}
+        <h1 data-pagefind-meta="title" data-pagefind-weight="10">{title}</h1>
+        {showLede && <p class="lede">{description}</p>}
       </header>
 
       <div class="prose"><slot /></div>
 
       {tags.length > 0 && (
-        <footer class="post-tags label">
+        <footer class="post-tags">
           {tags.map((t) => <a href={`/tags/${encodeURIComponent(t)}/`}>#{t}</a>)}
         </footer>
       )}

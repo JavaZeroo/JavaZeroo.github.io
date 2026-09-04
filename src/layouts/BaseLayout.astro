@@ -2,15 +2,9 @@
 import BaseHead from '../components/BaseHead.astro';
 import Header from '../components/Header.astro';
 import Footer from '../components/Footer.astro';
+import SearchModal from '../components/SearchModal.astro';
 
-interface Props {
-  title: string;
-  description?: string;
-  type?: 'website' | 'article';
-  publishedAt?: Date;
-  /** Posts opt out of the centred column so the TOC can sit in the margin. */
-  wide?: boolean;
-}
+interface Props { title: string; description?: string; type?: 'website' | 'article'; publishedAt?: Date; wide?: boolean }
 const { wide = false, ...head } = Astro.props;
 ---
 <!doctype html>
@@ -20,5 +14,6 @@ const { wide = false, ...head } = Astro.props;
     <Header />
     <main class={wide ? undefined : 'wrap'}><slot /></main>
     <Footer />
+    <SearchModal />
   </body>
 </html>

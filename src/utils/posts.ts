@@ -87,3 +87,11 @@ export async function neighboursOf(post: Post): Promise<{ prev?: Post; next?: Po
   // The list runs newest-first, so the *older* post is the one after it.
   return { prev: posts[i + 1], next: posts[i - 1] };
 }
+
+/** Headline numbers for the hero. */
+export async function siteStats() {
+  const posts = await getPostsByDate();
+  const categories = new Set(posts.flatMap((p) => p.data.categories));
+  const since = Math.min(...posts.map((p) => p.data.pubDate.getUTCFullYear()));
+  return { posts: posts.length, categories: categories.size, since };
+}

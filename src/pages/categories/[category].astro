@@ -2,6 +2,7 @@
 import BaseLayout from '../../layouts/BaseLayout.astro';
 import PostList from '../../components/PostList.astro';
 import { getPosts, countBy, type Post } from '../../utils/posts';
+import { catLabel } from '../../utils/taxonomy';
 
 export async function getStaticPaths() {
   const categories = countBy(await getPosts(), 'categories');
@@ -10,7 +11,7 @@ export async function getStaticPaths() {
 
 const { posts, category } = Astro.props as { posts: Post[]; category: string };
 ---
-<BaseLayout title={`分类：${category}`} description={`分类 ${category} 下的文章。`}>
-  <header class="page-head"><span class="label">分类</span><h1>{category}</h1></header>
+<BaseLayout title={`分类：${catLabel(category)}`} description={`分类 ${category} 下的文章。`}>
+  <header class="page-head"><span class="label">分类</span><h1>{catLabel(category)}</h1><p>{posts.length} 篇</p></header>
   <PostList posts={posts} />
 </BaseLayout>

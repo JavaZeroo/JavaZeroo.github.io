@@ -1,0 +1,28 @@
+---
+import FormattedDate from './FormattedDate.astro';
+import type { Post } from '../utils/posts';
+import { urlOf, readingTime } from '../utils/posts';
+import { catLabel, catColor } from '../utils/taxonomy';
+
+interface Props { posts: Post[] }
+const { posts } = Astro.props;
+---
+<div class="bento">
+  {posts.map((post, i) => {
+    const cat = post.data.categories[0];
+    return (
+      <article class:list={['card', 'reveal', { feature: i === 0 }]} style={`--c:${cat ? catColor(cat) : 'var(--accent)'};--d:${i * 60}ms`}>
+        <div class="label meta" style="margin-top:0">
+          {cat && <a class="cat" href={`/categories/${encodeURIComponent(cat)}/`}>{catLabel(cat)}</a>}
+          {post.data.sticky > 0 && <span class="pin">置顶</span>}
+        </div>
+        <h3><a href={urlOf(post)}>{post.data.title}</a></h3>
+        {post.data.description && <p>{post.data.description}</p>}
+        <div class="label meta">
+          <FormattedDate date={post.data.pubDate} />
+          <span>{readingTime(post)} min</span>
+        </div>
+      </article>
+    );
+  })}
+</div>

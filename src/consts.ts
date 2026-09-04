@@ -3,10 +3,11 @@ export const SITE_DESCRIPTION = '学习笔记、项目经验，以及一些折�
 export const SITE_URL = 'https://blog.javazero.top';
 export const AUTHOR = 'Java不加糖';
 export const AVATAR = '/images/avatar.jpg';
-export const POSTS_PER_PAGE = 10;
+export const HOME_POSTS = 7;
 
-/** The homepage statement. `em` becomes the italic accent span. */
+/** Hero copy. `em` is the emphasised clause. */
 export const INTRO = {
+  kicker: '深度学习 · 点云 · 折腾记录',
   lines: ['记录深度学习、点云，', '以及各种折腾。'],
   em: '偶尔写点数学。',
 };

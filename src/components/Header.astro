@@ -1,39 +1,50 @@
 ---
 import Icon from './Icon.astro';
-import { AUTHOR } from '../consts';
+import { AUTHOR, AVATAR } from '../consts';
 const path = Astro.url.pathname;
 const links = [
   { href: '/archives/', label: '归档' },
   { href: '/categories/', label: '分类' },
   { href: '/tags/', label: '标签' },
-  { href: '/about/', label: '关于' },
+  { href: '/about/', label: '关于', keep: true },
 ];
 ---
-<header class="site-header">
-  <div class="wrap">
-    <a class="brand" href="/">{AUTHOR}</a>
+<header class="site-header" data-header>
+  <div class="wide">
+    <a class="brand" href="/"><img src={AVATAR} alt="" width="28" height="28" />{AUTHOR}</a>
     <nav class="site-nav">
-      {links.map(({ href, label }) => (
-        <a class="u" href={href} aria-current={path.startsWith(href) ? 'page' : undefined}>{label}</a>
+      {links.map(({ href, label, keep }) => (
+        <a class={keep ? 'keep' : undefined} href={href} aria-current={path.startsWith(href) ? 'page' : undefined}>{label}</a>
       ))}
-      <button class="theme-btn" type="button" aria-label="切换深浅色主题" data-theme-toggle>
-        <Icon name="sun" class="icon-sun" />
-        <Icon name="moon" class="icon-moon" />
+      <button class="search-btn" type="button" data-search-open aria-label="搜索">
+        <Icon name="search" /><span>搜索</span><kbd>⌘K</kbd>
+      </button>
+      <button class="icon-btn" type="button" aria-label="切换深浅色主题" data-theme-toggle>
+        <Icon name="sun" class="icon-sun" /><Icon name="moon" class="icon-moon" />
       </button>
     </nav>
   </div>
 </header>
 
 <script>
-  // With the client router, module scripts run once per session; everything
-  // that touches the DOM must re-run on astro:page-load.
   const init = () => {
     const root = document.documentElement;
     document.querySelector('[data-theme-toggle]')?.addEventListener('click', () => {
-      const next = root.dataset.theme === 'dark' ? 'light' : 'dark';
+      const next = root.dataset.theme === 'light' ? 'dark' : 'light';
       root.dataset.theme = next;
       try { localStorage.setItem('theme', next); } catch {}
     });
+    const header = document.querySelector('[data-header]');
+    if (header) {
+      const sync = () => header.classList.toggle('scrolled', window.scrollY > 8);
+      sync();
+      addEventListener('scroll', sync, { passive: true });
+    }
+    // Scroll reveal for anything marked .reveal
+    const io = new IntersectionObserver((entries) => {
+      for (const e of entries) if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+    }, { rootMargin: '0px 0px -8% 0px' });
+    document.querySelectorAll('.reveal').forEach((el) => io.observe(el));
   };
   document.addEventListener('astro:page-load', init);
 </script>

@@ -1,0 +1,50 @@
+---
+import Icon from './Icon.astro';
+import { AUTHOR, INTRO, SOCIALS } from '../consts';
+import { siteStats } from '../utils/posts';
+const stats = await siteStats();
+---
+<section class="hero" data-hero>
+  <div class="aurora" aria-hidden="true"><span></span><span></span><span></span></div>
+  <div class="spot" data-spot aria-hidden="true"></div>
+
+  <div class="wide hero-inner">
+    <span class="kicker label">{INTRO.kicker}</span>
+    <h1><span class="grad-text">{AUTHOR}</span></h1>
+    <p class="tagline">
+      {INTRO.lines.map((l, i) => (<>{l}{i < INTRO.lines.length - 1 && <br />}</>))}
+      {' '}<em>{INTRO.em}</em>
+    </p>
+    <div class="hero-actions">
+      <a class="btn primary" href="#posts">看看文章 <Icon name="down" /></a>
+      {SOCIALS.map(({ name, href, icon }) => (
+        <a class="btn" href={href} aria-label={name} title={name}
+           rel={href.startsWith('http') ? 'me noopener' : undefined}
+           target={href.startsWith('http') ? '_blank' : undefined}><Icon name={icon} />{name}</a>
+      ))}
+    </div>
+    <div class="hero-stats">
+      <div><b>{stats.posts}</b><span>篇文章</span></div>
+      <div><b>{stats.categories}</b><span>个分类</span></div>
+      <div><b>{stats.since}</b><span>年至今</span></div>
+    </div>
+  </div>
+
+  <div class="scroll-cue" aria-hidden="true">SCROLL <Icon name="down" /></div>
+</section>
+
+<script>
+  // Spotlight follows the pointer; on touch devices it drifts on its own.
+  const init = () => {
+    const hero = document.querySelector<HTMLElement>('[data-hero]');
+    const spot = hero?.querySelector<HTMLElement>('[data-spot]');
+    if (!hero || !spot) return;
+    if (!matchMedia('(hover: hover) and (pointer: fine)').matches) { spot.classList.add('auto'); return; }
+    hero.addEventListener('pointermove', (e) => {
+      const r = hero.getBoundingClientRect();
+      spot.style.setProperty('--mx', `${((e.clientX - r.left) / r.width) * 100}%`);
+      spot.style.setProperty('--my', `${((e.clientY - r.top) / r.height) * 100}%`);
+    }, { passive: true });
+  };
+  document.addEventListener('astro:page-load', init);
+</script>

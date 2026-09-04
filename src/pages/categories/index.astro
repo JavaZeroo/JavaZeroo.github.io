@@ -1,18 +1,16 @@
 ---
 import BaseLayout from '../../layouts/BaseLayout.astro';
 import { getPosts, countBy } from '../../utils/posts';
+import { catLabel, catColor } from '../../utils/taxonomy';
 
 const items = countBy(await getPosts(), 'categories');
 ---
 <BaseLayout title="分类" description="按分类浏览文章。">
-  <header class="page-head">
-    <h1>分类</h1>
-    <span class="label">共 {items.size} 个</span>
-  </header>
+  <header class="page-head"><span class="label">Categories</span><h1>分类</h1><p>共 {items.size} 个</p></header>
   <ul class="taxonomy">
-    {[...items].map(([name, posts]) => (
-      <li>
-        <a href={`/categories/${encodeURIComponent(name)}/`}>{name}</a>
+    {[...items].map(([name, posts], i) => (
+      <li class="card reveal" style={`--c:${catColor(name)};--d:${i * 50}ms`}>
+        <h3><a href={`/categories/${encodeURIComponent(name)}/`}>{catLabel(name)}</a></h3>
         <span class="label">{posts.length} 篇</span>
       </li>
     ))}

@@ -1,0 +1,88 @@
+---
+import Icon from './Icon.astro';
+---
+<div class="search-root" data-search hidden>
+  <div class="search-panel glass" role="dialog" aria-modal="true" aria-label="站内搜索">
+    <label class="search-input">
+      <Icon name="search" />
+      <input type="search" placeholder="搜索文章…" autocomplete="off" data-search-input />
+      <kbd>ESC</kbd>
+    </label>
+    <ul class="search-results" data-search-results></ul>
+  </div>
+</div>
+
+<script>
+  type PF = { init(): Promise<void>; search(q: string): Promise<{ results: { data(): Promise<any> }[] }> };
+  let pf: PF | null | undefined;
+
+  async function load(): Promise<PF | null> {
+    if (pf !== undefined) return pf;
+    try {
+      // Built by astro-pagefind after `astro build`; served from dist in dev.
+      // Constructed so Vite never sees an import() expression: when it does,
+      // it rewrites it around a __VITE_PRELOAD__ placeholder that is not
+      // substituted in inlined scripts, and the call throws at runtime.
+      const load = new Function('p', 'return import(p)') as (p: string) => Promise<PF>;
+      pf = await load('/pagefind/pagefind.js');
+      await pf.init();
+    } catch (e) {
+      console.error('[search] pagefind failed to load', e);
+      pf = null;
+    }
+    return pf;
+  }
+
+  const init = () => {
+    const root = document.querySelector<HTMLElement>('[data-search]');
+    const input = root?.querySelector<HTMLInputElement>('[data-search-input]');
+    const list = root?.querySelector<HTMLUListElement>('[data-search-results]');
+    if (!root || !input || !list) return;
+
+    let active = 0;
+    const open = () => { root.hidden = false; input.value = ''; list.innerHTML = ''; input.focus(); load(); };
+    const close = () => { root.hidden = true; };
+
+    document.querySelectorAll('[data-search-open]').forEach((b) => b.addEventListener('click', open));
+    root.addEventListener('click', (e) => { if (e.target === root) close(); });
+    addEventListener('keydown', (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); root.hidden ? open() : close(); }
+      else if (e.key === 'Escape' && !root.hidden) close();
+    });
+
+    const render = (items: { url: string; meta: { title?: string }; excerpt: string }[]) => {
+      active = 0;
+      list.innerHTML = items.length
+        ? items.map((r, i) => `<li class="${i === 0 ? 'active' : ''}"><a href="${r.url}"><div class="st">${r.meta.title ?? r.url}</div><div class="sx">${r.excerpt}</div></a></li>`).join('')
+        : `<li class="search-empty">没有找到相关文章</li>`;
+    };
+
+    let t: number | undefined;
+    input.addEventListener('input', () => {
+      clearTimeout(t);
+      t = window.setTimeout(async () => {
+        const q = input.value.trim();
+        if (!q) { list.innerHTML = ''; return; }
+        const api = await load();
+        if (!api) { list.innerHTML = `<li class="search-empty">搜索索引尚未生成（需要先 build）</li>`; return; }
+        const res = await api.search(q);
+        render(await Promise.all(res.results.slice(0, 8).map((r) => r.data())));
+      }, 120);
+    });
+
+    input.addEventListener('keydown', (e) => {
+      const items = [...list.querySelectorAll('li')].filter((li) => !li.classList.contains('search-empty'));
+      if (!items.length) return;
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        items[active]?.classList.remove('active');
+        active = (active + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length;
+        items[active]?.classList.add('active');
+        items[active]?.scrollIntoView({ block: 'nearest' });
+      } else if (e.key === 'Enter') {
+        items[active]?.querySelector('a')?.click();
+      }
+    });
+  };
+  document.addEventListener('astro:page-load', init);
+</script>

@@ -6,7 +6,7 @@ interface Props { headings: MarkdownHeading[] }
 const items = Astro.props.headings.filter((h) => h.depth >= 2 && h.depth <= 4);
 ---
 {items.length > 2 && (
-  <nav class="toc" aria-label="目录">
+  <nav class="toc glass" aria-label="目录">
     <span class="label">目录</span>
     <ul>
       {items.map((h) => (

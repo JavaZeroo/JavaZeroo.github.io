@@ -3,14 +3,14 @@ import { AUTHOR, SOCIALS } from '../consts';
 const year = new Date().getFullYear();
 ---
 <footer class="site-footer">
-  <div class="wrap label">
+  <div class="wide">
     <span>© {year} {AUTHOR}</span>
     <span class="links">
       {SOCIALS.map(({ name, href }) => (
-        <a class="u" href={href}
-           rel={href.startsWith('http') ? 'me noopener' : undefined}
-           target={href.startsWith('http') ? '_blank' : undefined}>{name}</a>
+        <a href={href} rel={href.startsWith('http') ? 'me noopener' : undefined} target={href.startsWith('http') ? '_blank' : undefined}>{name}</a>
       ))}
     </span>
+    <!-- Required by the HarmonyOS Sans Fonts License Agreement ("prominent notice"). -->
+    <span class="credit">字体：HarmonyOS Sans © Huawei Device Co., Ltd. · Cascadia Code © Microsoft (OFL) · 由 <a href="https://astro.build" rel="noopener" target="_blank">Astro</a> 构建</span>
   </div>
 </footer>

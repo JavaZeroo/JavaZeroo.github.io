@@ -2,28 +2,20 @@
 import FormattedDate from './FormattedDate.astro';
 import type { Post } from '../utils/posts';
 import { urlOf, readingTime } from '../utils/posts';
+import { catLabel, catColor } from '../utils/taxonomy';
 
-interface Props { posts: Post[]; heading?: string; total?: number }
-const { posts, heading, total = posts.length } = Astro.props;
+interface Props { posts: Post[] }
+const { posts } = Astro.props;
 ---
-{heading && <div class="section-head"><h2>{heading}</h2><span class="label">共 {total} 篇</span></div>}
-<ul class="post-list">
-  {posts.map((post, i) => (
-    <li class="post-row" style={`--i:${i}`}>
-      <div class="when label">
-        <FormattedDate date={post.data.pubDate} />
-        <span>{readingTime(post)} min</span>
-        {post.data.sticky > 0 && <span class="pin">置顶</span>}
-      </div>
-      <div>
-        <h2><a href={urlOf(post)}>{post.data.title}</a></h2>
-        {post.data.description && <p class="excerpt">{post.data.description}</p>}
-        {post.data.categories.length > 0 && (
-          <div class="cats label">
-            {post.data.categories.map((c) => <a href={`/categories/${encodeURIComponent(c)}/`}>{c}</a>)}
-          </div>
-        )}
-      </div>
-    </li>
-  ))}
+<ul class="rows">
+  {posts.map((post, i) => {
+    const cat = post.data.categories[0];
+    return (
+      <li class="row reveal" style={`--c:${cat ? catColor(cat) : 'var(--accent)'};--d:${Math.min(i, 8) * 40}ms`}>
+        <span class="label"><FormattedDate date={post.data.pubDate} /></span>
+        <span class="t"><a href={urlOf(post)}>{post.data.title}</a></span>
+        <span class="tail label">{cat && <span class="cat">{catLabel(cat)}</span>} · {readingTime(post)} min</span>
+      </li>
+    );
+  })}
 </ul>

@@ -19,11 +19,11 @@ import SoftmaxDemo from '../../components/SoftmaxDemo.astro';
 
 $$\mathrm{softmax}(z_i)=\frac{e^{z_i/T}}{\sum_j e^{z_j/T}}$$
 
-公式在**构建期**用 KaTeX 渲染成 HTML，字体打包在本地，页面不加载任何外部脚本。
+公式在**构建期**用 KaTeX 渲染成 HTML，字体打包在本地，页面不加载任何外部脚本。全站字体是 HarmonyOS Sans SC，代码用 Cascadia Code。
 
 ## Mermaid 图
 
-写 ` ```mermaid ` 代码块即可，构建期渲染成内联 SVG，禁用 JS 也能看：
+写 ` ```mermaid ` 代码块即可，构建期渲染出浅色和深色两份 SVG，随站点主题切换，禁用 JS 也能看：
 
 ```mermaid
 flowchart LR
