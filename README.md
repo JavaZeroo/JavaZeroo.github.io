@@ -54,6 +54,7 @@ front-matter 由 `src/content.config.ts` 的 zod schema 校验，字段写错构
 
 - 正文/标题：**HarmonyOS Sans SC**（Regular / Medium / Bold），用 `cn-font-split` 切成 unicode-range 分片放在 `public/fonts/harmonyos-sans-sc/`，浏览器只拉页面用到的分片。协议见旁边的 `LICENSE.txt`，页脚有署名（协议要求）。重新切片：`node scripts/split-fonts.mjs <含 HarmonyOS_SansSC_*.ttf 的目录>`（需先 `npm i -D cn-font-split`；有意不进 CI）。
 - 代码：**Cascadia Code**（可变字体，fontsource 自托管），默认关闭连字，`global.css` 里 `--code-ligatures: normal` 可打开。
+- 站点图标 / 页头小头像 / 分享图（`public/og.png`）都由 `node scripts/gen-assets.mjs` 从 `public/images/avatar.jpg` 生成，换头像后重跑一次。
 - 搜索：Pagefind，`astro build` 后自动生成索引到 `dist/pagefind/`；`npm run dev` 时从上一次 build 的 `dist/` 读取，所以先 build 一次搜索才有结果。
 
 ## 部署

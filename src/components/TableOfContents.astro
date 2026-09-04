@@ -1,11 +1,18 @@
 ---
 import type { MarkdownHeading } from 'astro';
 
-interface Props { headings: MarkdownHeading[] }
+interface Props { headings: MarkdownHeading[]; mobile?: boolean }
 // h1 is the post title; h5/h6 are too fine-grained to be useful here.
+const { mobile = false } = Astro.props;
 const items = Astro.props.headings.filter((h) => h.depth >= 2 && h.depth <= 4);
 ---
-{items.length > 2 && (
+{mobile && items.length > 2 && (
+  <details class="toc-mobile">
+    <summary><span class="label">目录</span><span>{items.length} 节</span></summary>
+    <ul>{items.map((h) => <li><a href={`#${h.slug}`} class={`d${h.depth}`}>{h.text}</a></li>)}</ul>
+  </details>
+)}
+{!mobile && items.length > 2 && (
   <nav class="toc glass" aria-label="目录">
     <span class="label">目录</span>
     <ul>

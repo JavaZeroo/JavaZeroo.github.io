@@ -14,6 +14,8 @@ const fullTitle = title === SITE_TITLE ? title : `${title} · ${SITE_TITLE}`;
 <title>{fullTitle}</title>
 <meta name="description" content={description} />
 <link rel="canonical" href={canonical} />
+<link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
+<link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
 <link rel="sitemap" href="/sitemap-index.xml" />
 <link rel="alternate" type="application/rss+xml" title={SITE_TITLE} href={new URL('atom.xml', Astro.site)} />
 
@@ -29,7 +31,10 @@ const fullTitle = title === SITE_TITLE ? title : `${title} · ${SITE_TITLE}`;
 <meta property="og:url" content={canonical} />
 <meta property="og:site_name" content={SITE_TITLE} />
 {publishedAt && <meta property="article:published_time" content={publishedAt.toISOString()} />}
-<meta name="twitter:card" content="summary" />
+<meta property="og:image" content={new URL('og.png', Astro.site)} />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta name="twitter:card" content="summary_large_image" />
 <meta name="theme-color" content="#0b0f19" />
 
 <ClientRouter />

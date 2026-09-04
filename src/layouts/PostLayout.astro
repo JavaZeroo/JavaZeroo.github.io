@@ -45,6 +45,7 @@ const showLede = !!description && !(post.body ?? '').includes(description.replac
         {showLede && <p class="lede">{description}</p>}
       </header>
 
+      <TableOfContents headings={headings} mobile />
       <div class="prose"><slot /></div>
 
       {tags.length > 0 && (

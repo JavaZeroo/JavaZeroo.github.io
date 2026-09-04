@@ -3,6 +3,8 @@ export const SITE_DESCRIPTION = '学习笔记、项目经验，以及一些折�
 export const SITE_URL = 'https://blog.javazero.top';
 export const AUTHOR = 'Java不加糖';
 export const AVATAR = '/images/avatar.jpg';
+/** 64px WebP for the 28px header slot; the full avatar stays for the about page. */
+export const AVATAR_SMALL = '/images/avatar-64.webp';
 export const HOME_POSTS = 7;
 
 /** Hero copy. `em` is the emphasised clause. */

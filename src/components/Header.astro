@@ -1,6 +1,6 @@
 ---
 import Icon from './Icon.astro';
-import { AUTHOR, AVATAR } from '../consts';
+import { AUTHOR, AVATAR_SMALL } from '../consts';
 const path = Astro.url.pathname;
 const links = [
   { href: '/series/', label: '专栏', keep: true },
@@ -12,7 +12,7 @@ const links = [
 ---
 <header class="site-header" data-header>
   <div class="wide">
-    <a class="brand" href="/"><img src={AVATAR} alt="" width="28" height="28" />{AUTHOR}</a>
+    <a class="brand" href="/"><img src={AVATAR_SMALL} alt="" width="28" height="28" />{AUTHOR}</a>
     <nav class="site-nav">
       {links.map(({ href, label, keep }) => (
         <a class={keep ? 'keep' : undefined} href={href} aria-current={path.startsWith(href) ? 'page' : undefined}>{label}</a>
@@ -23,8 +23,17 @@ const links = [
       <button class="icon-btn" type="button" aria-label="切换深浅色主题" data-theme-toggle>
         <Icon name="sun" class="icon-sun" /><Icon name="moon" class="icon-moon" />
       </button>
+      <button class="icon-btn menu-btn" type="button" aria-label="菜单" aria-expanded="false" data-menu-toggle>
+        <Icon name="menu" class="icon-menu" /><Icon name="close" class="icon-close" />
+      </button>
     </nav>
   </div>
+  <!-- Small screens: the nav links live here instead. -->
+  <nav class="mobile-menu glass" data-mobile-menu hidden aria-label="移动端导航">
+    {links.map(({ href, label }) => (
+      <a href={href} aria-current={path.startsWith(href) ? 'page' : undefined}>{label}</a>
+    ))}
+  </nav>
 </header>
 
 <script>
@@ -35,6 +44,13 @@ const links = [
       root.dataset.theme = next;
       try { localStorage.setItem('theme', next); } catch {}
     });
+    const menuBtn = document.querySelector<HTMLButtonElement>('[data-menu-toggle]');
+    const menu = document.querySelector<HTMLElement>('[data-mobile-menu]');
+    if (menuBtn && menu) {
+      const set = (open: boolean) => { menu.hidden = !open; menuBtn.setAttribute('aria-expanded', String(open)); };
+      menuBtn.addEventListener('click', () => set(menu.hidden !== false));
+      addEventListener('keydown', (e) => { if (e.key === 'Escape') set(false); });
+    }
     const header = document.querySelector('[data-header]');
     if (header) {
       const sync = () => header.classList.toggle('scrolled', window.scrollY > 8);

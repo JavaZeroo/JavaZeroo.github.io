@@ -11,8 +11,9 @@ const { wide = false, ...head } = Astro.props;
 <html lang="zh-CN">
   <head><BaseHead {...head} /></head>
   <body>
+    <a class="skip" href="#main">跳到正文</a>
     <Header />
-    <main class={wide ? undefined : 'wrap'}><slot /></main>
+    <main id="main" class={wide ? undefined : 'wrap'}><slot /></main>
     <Footer />
     <SearchModal />
   </body>

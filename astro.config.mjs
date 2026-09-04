@@ -7,6 +7,7 @@ import { defineConfig } from 'astro/config';
 import rehypeKatex from 'rehype-katex';
 import { rehypeHeadingMath } from './src/plugins/rehype-heading-math.mjs';
 import { rehypeMermaidTheme } from './src/plugins/rehype-mermaid-theme.mjs';
+import { rehypePostPolish } from './src/plugins/rehype-post-polish.mjs';
 import rehypeMermaid from 'rehype-mermaid';
 import remarkDirective from 'remark-directive';
 import remarkMath from 'remark-math';
@@ -33,6 +34,7 @@ export default defineConfig({
         // that can rot the way the old MathJax one did.
         [rehypeMermaid, { strategy: 'img-svg', mermaidConfig: { theme: 'neutral' }, dark: { theme: 'dark' } }],
         rehypeMermaidTheme,
+        rehypePostPolish,
       ],
       // Off on purpose: this is technical writing full of bare `--flags`, which
       // SmartyPants would rewrite into en dashes.
