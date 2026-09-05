@@ -1,0 +1,74 @@
+---
+/**
+ * 交互：MoE 路由的打分函数 sigmoid(x) 与 sqrt(softplus(x))，以及它们的导数。
+ */
+import { texMix } from './tex';
+---
+
+<div class="demo score-demo">
+  <div class="ctl">
+    <label><input type="checkbox" data-deriv /> 看导数（对路由 logit 的梯度）</label>
+    <label><input type="checkbox" data-log /> 纵轴取对数（看负半轴的衰减）</label>
+  </div>
+  <svg viewBox="0 0 640 320" data-plot>
+    <g data-grid></g>
+    <path class="c-sig" data-sig d="" />
+    <path class="c-sqs" data-sqs d="" />
+    <text class="ax" x="620" y="312" text-anchor="end">路由 logit x = w_j · h</text>
+    <text class="ax" data-ylabel x="8" y="16">打分 s(x)</text>
+  </svg>
+  <div class="legend">
+    <span class="sig" set:html={texMix('DeepSeek-V3：$\\sigma(x)$，上界 1，两端饱和')} />
+    <span class="sqs" set:html={texMix('DeepSeek-V4：$\\sqrt{\\operatorname{softplus}(x)}$，负半轴 $\\approx e^{x/2}$，正半轴 $\\approx \\sqrt{x}$')} />
+  </div>
+</div>
+
+<style>
+  .score-demo { border: 1px solid var(--border); border-radius: var(--r); padding: 1rem 1.1rem; background: var(--surface); margin: 1.5rem 0; }
+  .score-demo .ctl { display: flex; flex-wrap: wrap; gap: 0.8rem 2rem; font-size: 0.9rem; color: var(--text-2); }
+  .score-demo svg { display: block; width: 100%; height: auto; margin-top: 0.8rem; font-family: var(--font-sans); }
+  .score-demo .c-sig { fill: none; stroke: var(--muted); stroke-width: 2; }
+  .score-demo .c-sqs { fill: none; stroke: var(--cat-emerald); stroke-width: 2.4; }
+  .score-demo .ax, .score-demo [data-grid] text { fill: var(--muted); font-size: 11px; }
+  .score-demo [data-grid] line { stroke: var(--border-2); stroke-width: 1; }
+  .score-demo .legend { display: flex; flex-wrap: wrap; gap: 0.4rem 1.4rem; margin-top: 0.6rem; font-size: 0.85rem; color: var(--text-2); }
+  .score-demo .legend span::before { content: ''; display: inline-block; width: 18px; height: 3px; margin-right: 6px; vertical-align: middle; border-radius: 2px; }
+  .score-demo .legend .sig::before { background: var(--muted); }
+  .score-demo .legend .sqs::before { background: var(--cat-emerald); }
+</style>
+
+<script>
+  document.querySelectorAll<HTMLElement>('.score-demo').forEach((root) => {
+    const q = <T extends Element>(s: string) => root.querySelector<T>(s)!;
+    const deriv = q<HTMLInputElement>('[data-deriv]'), logy = q<HTMLInputElement>('[data-log]');
+    const pS = q<SVGPathElement>('[data-sig]'), pQ = q<SVGPathElement>('[data-sqs]'), grid = q<SVGGElement>('[data-grid]'), yl = q<SVGTextElement>('[data-ylabel]');
+    const sig = (x: number) => 1 / (1 + Math.exp(-x));
+    const sp = (x: number) => (x > 30 ? x : Math.log1p(Math.exp(x)));
+    const sqs = (x: number) => Math.sqrt(sp(x));
+    const dsig = (x: number) => sig(x) * (1 - sig(x));
+    const dsqs = (x: number) => sig(x) / (2 * sqs(x));
+    const W = 640, H = 320, L = 48, R = 16, Tp = 24, B = 40, xMin = -8, xMax = 8;
+    const sx = (x: number) => L + ((x - xMin) / (xMax - xMin)) * (W - L - R);
+    const render = () => {
+      const d = deriv.checked, lg = logy.checked;
+      const f1 = d ? dsig : sig, f2 = d ? dsqs : sqs;
+      let yMin = lg ? -4 : 0, yMax = lg ? (d ? 0 : 0.6) : d ? 0.7 : 3;
+      const tr = (y: number) => (lg ? Math.log10(Math.max(y, 1e-9)) : y);
+      const sy = (y: number) => Tp + (1 - (Math.max(yMin, Math.min(yMax, tr(y))) - yMin) / (yMax - yMin)) * (H - Tp - B);
+      let d1 = '', d2 = '';
+      for (let i = 0; i <= 240; i++) {
+        const x = xMin + (i / 240) * (xMax - xMin);
+        d1 += `${i ? 'L' : 'M'}${sx(x).toFixed(1)} ${sy(f1(x)).toFixed(1)} `;
+        d2 += `${i ? 'L' : 'M'}${sx(x).toFixed(1)} ${sy(f2(x)).toFixed(1)} `;
+      }
+      pS.setAttribute('d', d1); pQ.setAttribute('d', d2);
+      yl.textContent = d ? "导数 s'(x)" : '打分 s(x)';
+      const ticksY = lg ? [-4, -3, -2, -1, 0] : d ? [0, 0.2, 0.4, 0.6] : [0, 1, 2, 3];
+      grid.innerHTML =
+        ticksY.map((t) => { const y = Tp + (1 - (t - yMin) / (yMax - yMin)) * (H - Tp - B); return `<line x1="${L}" x2="${W - R}" y1="${y}" y2="${y}"/><text x="${L - 6}" y="${y + 4}" text-anchor="end">${lg ? (t === 0 ? '1' : `10^${t}`) : t}</text>`; }).join('') +
+        [-8, -4, 0, 4, 8].map((x) => `<line x1="${sx(x)}" x2="${sx(x)}" y1="${Tp}" y2="${H - B}"/><text x="${sx(x)}" y="${H - B + 16}" text-anchor="middle">${x}</text>`).join('');
+    };
+    deriv.addEventListener('change', render); logy.addEventListener('change', render);
+    render();
+  });
+</script>

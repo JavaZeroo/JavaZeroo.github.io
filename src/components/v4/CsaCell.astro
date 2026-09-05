@@ -1,0 +1,61 @@
+---
+/**
+ * 一层 CSA 的内部（DeepSeek-V4-Pro 维度）：query 低秩、单条 512 维 KV（K = V）、滑窗 cache、重叠压缩、lightning indexer、
+ * 带 sink 的 MQA 核心注意力、输出反旋转、分组输出投影。以官方 inference/model.py 的 Attention.forward 为准。
+ */
+import FlowDiagram from '../k3/FlowDiagram.astro';
+const nodes = [
+  { id: 'in', x: 20, y: 150, w: 90, kind: 'in', lines: ['$x_t$', '7168'] },
+  // query
+  { id: 'qa', x: 160, y: 30, w: 150, kind: 'mla', lines: ['$W^{DQ}$', '7168 → 1536'] },
+  { id: 'qn', x: 340, y: 30, w: 110, kind: 'op', lines: ['RMSNorm', '1536'] },
+  { id: 'qb', x: 480, y: 30, w: 170, kind: 'mla', lines: ['$W^{UQ}$', '1536 → 128 × 512'] },
+  { id: 'qh', x: 680, y: 30, w: 190, kind: 'op', lines: ['逐头 RMSNorm', '+ 后 64 维 RoPE'] },
+  // kv
+  { id: 'kv', x: 160, y: 150, w: 150, kind: 'main', lines: ['$W^{KV}$', '7168 → 512（单头）'] },
+  { id: 'kvn', x: 340, y: 150, w: 170, kind: 'op', lines: ['RMSNorm + RoPE(64)', '非 rope 维存 FP8'] },
+  { id: 'win', x: 540, y: 150, w: 150, kind: 'cache', lines: ['滑窗 cache', '最近 128 条 × 512'] },
+  // compression
+  { id: 'cmp', x: 160, y: 270, w: 220, kind: 'main', lines: ['重叠压缩 4 → 1', '$W^{aKV},W^{bKV},W^{aZ},W^{bZ}$：7168 → 2 × 512'] },
+  { id: 'cmpn', x: 410, y: 270, w: 200, kind: 'op', lines: ['RMSNorm + RoPE(块首位置)', 'θ = 160000，YaRN ×16'] },
+  { id: 'ccache', x: 640, y: 270, w: 150, kind: 'cache', lines: ['压缩 cache', '$n/4$ 条 × 512'] },
+  // indexer
+  { id: 'iq', x: 160, y: 390, w: 220, kind: 'idx', lines: ['indexer query $W^{IUQ}$', '1536 → 64 头 × 128，RoPE，FP4'] },
+  { id: 'ic', x: 410, y: 390, w: 200, kind: 'idx', lines: ['indexer 压缩 $K^{\\text{IComp}}$', '每 4 token 一条 × 128，FP4'] },
+  { id: 'score', x: 640, y: 390, w: 150, kind: 'idx', lines: ['$\\sum_h w_h \\operatorname{ReLU}(q_h k)$', 'top-1024 个块'] },
+  // core
+  { id: 'attn', x: 900, y: 150, w: 230, h: 60, kind: 'mla', strong: true, lines: ['MQA 核心注意力', '128 头 × (128 + 1024) 条', 'K = V，每头一个 sink'] },
+  { id: 'derot', x: 900, y: 270, w: 230, kind: 'op', lines: ['输出后 64 维反旋转 RoPE(−t)', '让贡献只依赖相对距离'] },
+  { id: 'oa', x: 900, y: 370, w: 230, kind: 'out', lines: ['分组投影 $W^{OA}$', '16 组，每组 4096 → 1024'] },
+  { id: 'ob', x: 900, y: 460, w: 230, kind: 'out', lines: ['$W^{OB}$', '16384 → 7168'] },
+];
+const edges = [
+  { from: 'in', to: 'qa', orient: 'h' as const }, { from: 'in', to: 'kv', orient: 'h' as const },
+  { from: 'in', to: 'cmp', orient: 'h' as const },
+  { from: 'in', to: 'ic', path: 'M65 194 V 412 H 408', label: '', lx: 0, ly: 0 },
+  { from: 'qa', to: 'qn' }, { from: 'qn', to: 'qb' }, { from: 'qb', to: 'qh' },
+  { from: 'qn', to: 'iq', path: 'M395 74 V 110 H 130 V 412 H 158', label: '同一个 $c^Q_t$', lx: 92, ly: 100 },
+  { from: 'kv', to: 'kvn' }, { from: 'kvn', to: 'win' },
+  { from: 'cmp', to: 'cmpn' }, { from: 'cmpn', to: 'ccache' },
+  { from: 'iq', to: 'ic' }, { from: 'ic', to: 'score' },
+  { from: 'qh', to: 'attn', path: 'M870 52 H 1015 V 148', label: '$q$：128 头 × 512', lx: 880, ly: 40 },
+  { from: 'win', to: 'attn', orient: 'h' as const, label: '128 条', lx: 700, ly: 168 },
+  { from: 'ccache', to: 'attn', path: 'M790 292 H 830 V 190 H 898', label: '被选中的 1024 条', lx: 820, ly: 240 },
+  { from: 'score', to: 'ccache', label: '块编号', lx: 700, ly: 348 },
+  { from: 'attn', to: 'derot' }, { from: 'derot', to: 'oa' }, { from: 'oa', to: 'ob' },
+];
+const groups = [
+  { x: 150, y: 250, w: 660, h: 90, label: '压缩分支（写入一次，所有 query 共用）' },
+  { x: 150, y: 370, w: 660, h: 90, label: 'lightning indexer（只决定看哪 1024 个块）' },
+];
+---
+
+<FlowDiagram id="csa-cell" viewBox="0 0 1150 520" minWidth={860} nodes={nodes} edges={edges} groups={groups}
+  label="一层 CSA 的内部结构"
+  caption="一层 CSA（Pro 维度）。只有一条 512 维的 KV 向量，既当 K 又当 V，所有 128 个 query 头共用；推理时真正缓存的是右侧两个 cache 框加 indexer 自己的压缩键。核心注意力的每个 query 看 128 条滑窗 + 1024 条被选中的压缩条目。" />
+
+<style is:global>
+  .fd .node.cache { --c: var(--cat-amber); }
+  .fd .node.cache rect { stroke-dasharray: 4 3; }
+  .fd .node.idx { --c: var(--cat-rose); }
+</style>

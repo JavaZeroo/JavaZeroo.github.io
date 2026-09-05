@@ -1,0 +1,19 @@
+---
+/** Anticipatory Routing（论文 §4.2.3）：路由索引用 Δt 步之前的参数提前算好并缓存。 */
+import FlowDiagram from '../k3/FlowDiagram.astro';
+const nodes = [
+  { id: 'pre', x: 20, y: 60, w: 250, h: 56, kind: 'moe', lines: ['步 $t - \\Delta t$：多做一次前向', '预取步 $t$ 的数据，用 $\\theta_{t-\\Delta t}$ 算出路由索引'] },
+  { id: 'cache', x: 330, y: 60, w: 170, h: 56, kind: 'in', lines: ['缓存索引', '每个 token 选哪 6 个 expert'] },
+  { id: 'now', x: 560, y: 60, w: 250, h: 56, kind: 'moe', lines: ['步 $t$：正常训练', '特征用 $\\theta_t$ 算，路由按缓存的索引走'] },
+  { id: 'spike', x: 20, y: 170, w: 250, h: 56, kind: 'attnres', lines: ['检测到 loss spike', '短回滚，自动开启这个模式'] },
+  { id: 'off', x: 560, y: 170, w: 250, h: 56, kind: 'attnres', lines: ['运行一段时间后', '自动关闭，回到标准训练'] },
+];
+const edges = [
+  { from: 'pre', to: 'cache', label: '多出的一次前向约 20% 额外时间，和 EP 通信重叠', lx: 20, ly: 40 }, { from: 'cache', to: 'now' },
+  { from: 'spike', to: 'pre', label: '' }, { from: 'now', to: 'off', label: '' },
+];
+---
+
+<FlowDiagram id="routing-timeline" viewBox="0 0 840 250" minWidth={700} nodes={nodes} edges={edges}
+  label="Anticipatory Routing"
+  caption="Anticipatory Routing。路由决定和特征计算被拆到两个时刻：路由索引来自 Δt 步之前的参数，特征来自当前参数。只在 spike 之后临时开启，所以整体开销可以忽略。" />

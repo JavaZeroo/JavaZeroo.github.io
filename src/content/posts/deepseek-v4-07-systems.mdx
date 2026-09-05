@@ -1,0 +1,107 @@
+---
+title: "DeepSeek-V4 模型结构（7）：结构决定系统"
+pubDate: 2026-09-05 20:20:00
+description: "连载收尾。前六篇的结构选择各自逼着系统做了一件事：两种压缩率和滑窗让 KV cache 分成「状态」和「分页」两类，块大小必须是 lcm(4, 128)；压缩窗口会跨过上下文并行的边界，要一次点对点加一次 all-gather；磁盘前缀缓存里压缩条目好存、滑窗 KV 难存，三种策略换取不同的重算量；mHC 的 4 倍访存靠融合 kernel、重算和 DualPipe 压到 6.7%。"
+categories:
+  - "📝学习"
+tags:
+  - "大模型"
+  - "DeepSeek-V4"
+  - "模型结构"
+  - "训练系统"
+series: deepseek-v4
+part: "系统"
+order: 7
+draft: false
+---
+
+import V4ArchDiagram from '../../components/v4/V4ArchDiagram.astro';
+import KvLayout from '../../components/v4/KvLayout.astro';
+import CpStages from '../../components/v4/CpStages.astro';
+
+对应论文 §3.4.2、§3.4.3、§3.5，以及 §3.4.1 和 §3.1 的一句话。这一篇不讲新的结构，讲结构的后果：一个模块换掉之后，训练和推理系统里哪些东西跟着变。只挑和结构直接相关的部分，EP 通信重叠、TileLang、确定性内核、RL 基础设施不在范围内。
+
+<V4ArchDiagram highlight={['csa', 'hca', 'swa', 'mhc']} caption="这一篇覆盖注意力和 mHC 各自逼出来的系统工作。" />
+
+## 混合注意力的 KV cache：两类条目，两种管理
+
+PagedAttention 的假设是所有层的 KV cache 长得一样：每个 token 每层一条，按固定大小的页分配，页表随序列增长。V4 的注意力把这个假设破坏了三次：
+
+1. **不同层的条目粒度不同。** CSA 每 4 个 token 一条，HCA 每 128 个一条，滑窗层（Flash 的前两层、MTP）没有压缩条目。
+2. **同一层里有两种条目。** 滑窗的 128 条未压缩 KV，和压缩条目。indexer 还有自己的 128 维索引键。
+3. **有些东西不是「缓存」而是「状态」。** 还没凑满 $m$ 个的尾 token 和它们的压缩权重，要留在缓冲区里等下一批。滑窗 KV 是环形覆盖的，也有自己的淘汰规则。
+
+论文的解法是把 KV cache 拆成两部分：
+
+<KvLayout />
+
+**状态 cache。** 滑窗段和未满块的尾 token 只依赖「当前位置」，大小固定，不随长度增长，行为像一个状态空间模型的状态。于是预分配一个固定大小的池，每个序列分一块，用完归还。它不进 PagedAttention 的页表。
+
+**经典 cache。** 压缩条目随长度增长，按块分页。块大小的约束来自内核：高性能注意力内核假设每个块有固定数量的条目 $B$，对应 CSA 的 $B \cdot m$ 个原 token、HCA 的 $B \cdot m'$ 个。要让两种层共用一套页表，一块覆盖的原 token 数必须同时是 4 和 128 的倍数，即 $\operatorname{lcm}(m, m') = 128$ 的整数倍。一块 128 个原 token 在 CSA 层是 32 条、在 HCA 层是 1 条。稀疏注意力内核和 cache 布局一起设计，不同层每块条目数不同也不掉性能。
+
+## 上下文并行：压缩窗口会跨过 rank 边界
+
+训练时上下文并行（CP）把一条长序列切到多个 rank，每个 rank 拿连续的 $s$ 个 token。压缩注意力给它添了两个麻烦：
+
+- **压缩边界和 rank 边界不对齐。** 一个压缩窗口的 $m$ 个 token 可能一半在 rank $i$、一半在 rank $i+1$。CSA 的重叠窗口宽 $2m$，跨得更多。
+- **各 rank 的压缩条目数不同。** 训练样本是多条序列打包的，每条序列独立压缩、不足 $m$ 的尾巴丢弃，所以一个 rank 压出来的条目通常少于 $s/m$，而且各 rank 不等。
+
+<CpStages />
+
+两阶段通信：先点对点，rank $i$ 把最后 $m$ 条未压缩 KV 发给 rank $i+1$，后者把收到的和自己的 $s$ 条一起压，固定产出 $s/m + 1$ 条（多的是 padding）；再 all-gather 收齐所有 rank 的条目，一个融合的 select-and-pad 算子把有效条目排在前面、padding 放尾部，得到总长 $\text{cp\_size} \cdot s/m$ 的完整压缩序列。之后 HCA 和 indexer 的可见范围可以按规则预先算出，CSA 的核心注意力由 top-$k$ 索引显式指定。
+
+对照 Kimi K3 的 [KDA 上下文并行](/2026/09/05/kimi-k3-07-systems/)：那边传的是固定大小的状态矩阵，难点在 delta rule 让状态不能直接相加；这边传的是 $m$ 条 KV 和压缩后的条目，难点在窗口对齐。两者都比 softmax 注意力的 CP 传整段 KV 便宜得多。
+
+## 磁盘前缀缓存：压缩条目好存，滑窗 KV 难存
+
+共享前缀的请求（同一个 system prompt、同一份文档）不想重复 prefill，做法是把 KV cache 落盘。V4 的两类条目要分开处理。
+
+**压缩条目。** 直接全存。命中前缀时读回压缩条目，用到最后一个完整的压缩块为止；尾部不满一块的 token 要重算，因为未压缩的 KV 没有存。每 4 个 token 才 704 字节（CSA 含索引键），存储便宜。
+
+**滑窗 KV。** 每个 token 每层一条 576 字节，不压缩，体积约是压缩条目的 8 倍。论文给了三种策略：
+
+| 策略 | 存什么 | 命中时 | 代价 |
+|---|---|---|---|
+| 全存 | 所有 token 的滑窗 KV | 只读最后 128 个 token 的 | 零重算，但写多读少，SSD 不友好 |
+| 周期 checkpoint | 每 $p$ 个 token 存一次最近 128 条 | 读最近的 checkpoint，重算之后的尾 token | $p$ 可调，在存储和计算之间连续折中 |
+| 不存 | 什么都不存 | 重算最后 $128 \cdot L$ 个 token | 零存储 |
+
+第三种为什么只要重算 $128 \cdot L$ 个 token：第 $l$ 层某个 token 的滑窗 KV 只依赖第 $l-1$ 层最近 128 个 token 的输出，而第 $l-1$ 层的输出又只依赖再往前 128 个。$L$ 层往回推，最后 128 条滑窗 KV 的依赖范围是 $128 \cdot L$ 个 token，Pro 是 7808 个。有了落盘的压缩条目，这些 token 的注意力可以照常算，不需要更早的东西。这是滑窗结构给的一个便宜的重建路径。
+
+按部署场景选策略。
+
+## mHC 的 6.7% 是怎么压出来的
+
+[第 4 篇](/2026/09/05/deepseek-v4-04-mhc/)说过 mHC 的算术量可以忽略，代价在访存、激活内存和流水线通信。V4 论文 §3.4.2 和 mHC 论文 §4.3 讲了三件事：
+
+**融合 kernel。** 不融合时一个子层要把 4 条流读好几遍：生成系数读一遍，读算子读一遍，混合再读一遍。做法是三个专用 kernel：一个算 24 个系数（把 RMSNorm 的除法挪到矩阵乘之后，前向的两次扫描合成一个 kernel）；一个做读；一个把「写 + 混 + 残差合并」合成一次，读的元素从 $(3n+1)d$ 降到 $(n+1)d$，写从 $3nd$ 降到 $nd$。Sinkhorn 的 20 轮在一个 kernel 里做，反向 kernel 在片上重算整个迭代。这些 kernel 用 TileLang 写。
+
+**重算。** 前向后丢掉 mHC kernel 的所有中间结果，反向时不带子层地重跑 mHC。每 $L_r$ 个子层只需要存进入时的 4 条流，其余临时重建；V4 的措辞是「重算大部分层间隐状态和所有归一化后的层输入，但不重算计算密集的操作」。最优块大小 $L_r^* \approx \sqrt{nL/(n+2)}$，和流水线每 stage 的层数差不多，于是重算块直接对齐 stage 边界，重算也不依赖流水线通信，因为每个 stage 的入口激活本来就在本地。
+
+**DualPipe。** stage 之间传的激活是 4 倍。DualPipe 的 1F1B 调度被改过，把 mHC 的通信和重算与相邻的计算重叠；FFN 层的写+混 kernel 放在一条高优先级的计算流上，注意力层不用持久化 kernel 以便被抢占。
+
+合起来，mHC 的墙钟开销是重叠后 1F1B 阶段的 6.7%。
+
+## 其余一句话带过
+
+- **Muon 的分布式实现**（§3.4.1）：Newton–Schulz 要对完整矩阵做乘法，而参数是分片的。论文说做了高效实现，细节不多。
+- **EP 通信重叠**（§3.1）：去掉节点限制路由之后 all-to-all 的目标节点更多，V4 用细粒度的通信计算重叠把延迟藏起来，并开源了一个 mega-kernel。
+- **激活 checkpoint**（§3.4.4）：用 TorchFX 追踪计算图，按张量粒度标注要重算的中间结果，自动找最小重算子图。mHC 的重算用的就是这套机制。
+- **确定性内核**（§3.3）：batch-invariant 的内核库，让训练和推理逐位可复现，对 RL 里的 on-policy 校验有用。
+
+## 连载收尾
+
+八篇下来，DeepSeek-V4 的结构可以压成三句话：
+
+1. **序列维度**：把 KV 压缩成每 4 个或 128 个 token 一条，在压缩块上做稀疏选择，用 K = V 的单头 MQA 和分组输出投影把 512 维的大头压回合理的代价；滑窗分支补最近的 128 个 token，输出反旋转补回相对位置。1M 上下文的 KV cache 约 5 GB。
+2. **深度维度**：残差流拓宽成 4 条，流之间的混合矩阵约束成双随机的，复合映射的增益从 3000 压回 1.6。
+3. **宽度和优化器**：DeepSeekMoE 的骨架不动，改打分函数、前三层 hash 路由、SwiGLU 截断；Muon 加混合 Newton–Schulz，Q/KV 归一化让它不需要 QK-Clip。
+
+和同期的 [Kimi K3](/2026/09/05/kimi-k3-00-overview/) 放在一起看更有意思：两家在序列维度上走了不同的路（K3 用线性注意力换掉 KV cache，V4 用压缩把 KV cache 缩小 50 倍），在深度维度上分别做了「深度上的线性 RNN」和「深度上的 softmax 注意力」，在宽度维度上都被大规模训练的离群激活逼出了截断，在优化器上都选了 Muon 但用不同的办法管住注意力 logit。两份技术报告对照着读，比单独读任何一份都清楚。
+
+## 资料
+
+- DeepSeek-V4 报告 §3：[arXiv 2606.19348](https://arxiv.org/abs/2606.19348)
+- mHC 论文 §4.3 的系统部分：[arXiv 2512.24880](https://arxiv.org/abs/2512.24880)
+- DualPipe：DeepSeek-V3 报告 §3.2；TileLang：[arXiv 2504.17577](https://arxiv.org/abs/2504.17577)
+- 官方推理实现里 KV cache 的组织：`inference/model.py` 的 `Attention.__init__`（`kv_cache` 的形状是 `window_size + max_seq_len // compress_ratio`）和 `Compressor` 的 `kv_state`

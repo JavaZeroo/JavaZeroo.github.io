@@ -1,0 +1,149 @@
+---
+title: "DeepSeek-V4 模型结构（6）：优化器与稳定性，Muon"
+pubDate: 2026-09-05 20:00:00
+description: "从「Adam 逐元素、Muon 逐矩阵」的动机出发，推出谱范数下最速下降的解是梯度的正交化，再看 Newton–Schulz 迭代怎么不做 SVD 地逼近它。V4 的混合迭代用两组系数：一组把小奇异值快速抬起来，一组把奇异值精确钉在 1 上，多项式的形状说明了为什么。再讲 RMS 匹配、哪些参数留给 AdamW、为什么 Q/KV 归一化让 QK-Clip 不再需要、Anticipatory Routing，以及 MTP。"
+categories:
+  - "📝学习"
+tags:
+  - "大模型"
+  - "DeepSeek-V4"
+  - "模型结构"
+  - "优化器"
+series: deepseek-v4
+part: "优化器与训练"
+order: 6
+draft: false
+---
+
+import V4ArchDiagram from '../../components/v4/V4ArchDiagram.astro';
+import NewtonSchulzDemo from '../../components/v4/NewtonSchulzDemo.astro';
+import RoutingTimeline from '../../components/v4/RoutingTimeline.astro';
+
+对应论文 §2.4 "Muon Optimizer"（Algorithm 1，公式 (28)）和 §4.2.3 "Mitigating Training Instability"，顺带把 §2.1 的 MTP 收掉。这是 DeepSeek 第一次在旗舰模型上用 Muon，上游是 Keller Jordan 2024 年的原始实现和 Moonshot 2025 年的 [Moonlight](https://arxiv.org/abs/2502.16982)。
+
+<V4ArchDiagram highlight="mtp" caption="这一篇不对应图上的某个模块，讲的是怎么更新图上所有的矩阵。底部的 MTP 层放在这一篇收尾。" />
+
+## 为什么要一个逐矩阵的优化器
+
+Adam 把每个参数当成独立的标量：一阶矩、二阶矩、逐元素地自适应步长。它不知道参数是排成矩阵的。但 Transformer 里几乎所有参数都是矩阵 $W \in \mathbb{R}^{n \times m}$，作用是 $\mathbf{y} = W\mathbf{x}$，梯度 $G = \nabla_W \mathcal{L}$ 也是矩阵，并且经验上梯度矩阵的**奇异值分布极不均匀**：少数几个方向占了绝大部分能量，其余方向几乎不动。Adam 逐元素归一化并不会改变这一点，更新仍然集中在少数方向上，长尾方向学得慢。
+
+Muon 的想法：把更新的**所有奇异方向推同样的距离**。
+
+**推导。** 把一步更新写成「在某个范数球内让损失下降最多」的最速下降：
+
+$$
+\Delta W = \arg\min_{\|\Delta\| \le \eta} \langle G, \Delta \rangle .
+$$
+
+范数取欧氏范数（Frobenius）时，解是 $-\eta G / \|G\|_F$，就是普通 SGD。Muon 换成**谱范数**，也就是限制 $W$ 作为线性算子的最大放大倍数。记 $G = U\Sigma V^\top$，令 $\Delta = -\eta\, U V^\top$：
+
+$$
+\langle G, UV^\top \rangle = \operatorname{tr}(V \Sigma U^\top U V^\top) = \operatorname{tr}(\Sigma) = \sum_i \sigma_i ,
+$$
+
+而对任意谱范数不超过 1 的 $\Delta$，$\langle G, \Delta\rangle \le \|G\|_* \|\Delta\|_2 \le \sum_i \sigma_i$（核范数是谱范数的对偶）。所以 $UV^\top$ 取到了上界，谱范数下的最速下降方向就是**把梯度的奇异值全部置 1**，只保留奇异方向。这个 $UV^\top$ 就是「$G$ 的正交化」，也是离 $G$ 最近的半正交矩阵。
+
+Muon 在正交化之前先做动量累积，再加 Nesterov：
+
+$$
+M_t = \mu M_{t-1} + G_t,
+\qquad
+O'_t = \operatorname{Orthogonalize}(\mu M_t + G_t) .
+$$
+
+## Newton–Schulz：不做 SVD 的正交化
+
+每一步对每个矩阵做 SVD 太贵。Newton–Schulz 迭代用矩阵乘法逼近 $UV^\top$：先把 $M$ 除以 Frobenius 范数，保证所有奇异值不超过 1，然后反复做
+
+$$
+M_k = a\, M_{k-1} + b\, (M_{k-1} M_{k-1}^\top)\, M_{k-1} + c\, (M_{k-1} M_{k-1}^\top)^2\, M_{k-1} .
+$$
+
+关键观察：这个迭代**不改变奇异方向，只改变奇异值**。代入 $M = U\Sigma V^\top$，$M M^\top = U \Sigma^2 U^\top$，于是每一步是 $\Sigma \mapsto p(\Sigma)$，
+
+$$
+p(\sigma) = a\sigma + b\sigma^3 + c\sigma^5 ,
+$$
+
+对每个奇异值独立地作用同一个奇多项式。目标是让 $p$ 迭代若干次后把 $[0, 1]$ 上的所有 $\sigma$ 都送到 1 附近。系数怎么选，就是在设计这个多项式的形状。
+
+<NewtonSchulzDemo />
+
+**Jordan 的系数 $(3.4445, -4.7750, 2.0315)$。** 看它在两端的行为：$p'(0) = 3.4445$，原点附近斜率 3.4，一个很小的奇异值每步放大 3.4 倍，五步就是 $500$ 倍，这是为了让长尾方向尽快抬起来；但 $p(1) = 0.701$，它没有把 1 当成不动点，迭代到后面奇异值会在 $[0.7, 1.2]$ 之间震荡。Jordan 的说法是训练不需要精确正交化，落在这个范围内就够。
+
+**V4 的第二组系数 $(2, -1.5, 0.5)$。** 它满足 $p(1) = 2 - 1.5 + 0.5 = 1$，$p'(1) = 2 - 4.5 + 2.5 = 0$。1 是它的不动点，而且导数为零意味着**二次收敛**：离 1 差 $\epsilon$，一步之后差 $O(\epsilon^2)$。代价是 $p'(0) = 2$，抬升小奇异值的速度慢于第一组。
+
+**混合。** 前 8 步用第一组，把所有奇异值快速拉到 1 附近；后 2 步用第二组，把它们精确钉在 1 上。论文只说「第一阶段驱动快速收敛，第二阶段把奇异值精确稳定在 1」，上面对两个多项式的分析是从系数直接算出来的。为什么 V4 要精确正交化而 Jordan 不在乎，论文没说；一个合理的猜测是 1.6T 规模上更新的 RMS 要和 AdamW 严格对齐，震荡的奇异值会让每步的有效步长抖动。
+
+## RMS 匹配与 AdamW 的分工
+
+**RMS 匹配。** 正交化之后 $O'$ 的每个奇异值都是 1，它的元素 RMS 是 $\sqrt{\min(n,m)/(nm)}$ 量级，随矩阵形状变化，和 Adam 更新的 RMS（约 0.2 到 0.4）不在一个尺度上。Moonlight 的做法是把更新缩放到固定的 RMS，Algorithm 1 第 7 行：
+
+$$
+O_t = O'_t \cdot \sqrt{\max(n, m)} \cdot \gamma ,
+$$
+
+$\gamma = 0.18$（config 之外的训练超参，论文 §4.2.2）。这样 Muon 参数可以直接复用 AdamW 的学习率和权重衰减，两种优化器混用时不需要分别调。
+
+**权重衰减。** 第 8 行 $W_t = W_{t-1}(1 - \eta\lambda) - \eta O_t$，$\lambda = 0.1$。Moonlight 发现没有权重衰减时 Muon 训出来的权重范数会持续增长，长训练后期反而落后于 AdamW。
+
+**哪些参数不用 Muon。** 正交化只对「矩阵」有意义：embedding 和 LM head 是查表和分类头，不是线性算子意义上的矩阵；RMSNorm 的增益是向量；mHC 的静态偏置 $S$ 和门 $\alpha$ 是向量和标量。这些用 AdamW，$\beta_1 = 0.9$，$\beta_2 = 0.95$，$\epsilon = 10^{-20}$，权重衰减 0.1。其余全部矩阵用 Muon，动量 0.95，权重衰减 0.1。
+
+论文说正交化是对每个「逻辑上独立的权重」做的。分组输出投影的 16 个组、每个 expert 的三个矩阵，各自是独立矩阵。
+
+## 为什么不需要 QK-Clip
+
+Muon 有一个已知的副作用。Kimi K2 报告过：Muon 下注意力 logit 容易爆炸，因为正交化后的更新在所有方向上等距推进，$W_Q$、$W_K$ 的谱范数增长得比 Adam 下快，$\mathbf{q}^\top \mathbf{k}$ 随之增长。K2 的对策是 MuonClip：每步之后检查每个头的最大 logit，超过阈值就按比例缩小 $W_Q$、$W_K$。
+
+V4 不需要这一步，原因在结构上。[第 3 篇](/2026/09/05/deepseek-v4-03-hybrid-attention/)讲过，query 展开成 128 头之后逐头做 RMSNorm，KV 那条 512 维向量也做 RMSNorm，都在计算 logit 之前。归一化之后 $\|\mathbf{q}\|$ 和 $\|\mathbf{k}\|$ 的尺度被固定，logit 的上界由头维和 RMSNorm 的增益决定，和 $W^{UQ}$、$W^{KV}$ 的范数无关。$W$ 长多大都不会让 logit 爆炸。论文 §2.4 的原话：「V4 的注意力架构允许我们直接在 query 和 KV 上做 RMSNorm，有效防止 logit 爆炸，因此不采用 QK-Clip」。
+
+能这么做的前提是 V4 的 KV 只有一条向量：MLA 的 latent 在展开成 128 个头的 K 之后才有 logit，对 latent 做归一化管不住展开后的尺度。K = V 的单头设计顺手解决了这个问题。
+
+## Anticipatory Routing
+
+§4.2.3 的第二个稳定性技巧，和 MoE 相关。V4 训练中 loss spike 一直和 MoE 层的离群激活绑定，而且**路由本身在放大它**：某个 expert 出了离群值，路由把更多 token 送过去，离群值继续长。论文说完整的机理还不清楚，但找到了一个打断这个循环的办法。
+
+<RoutingTimeline />
+
+做法是把「算路由」和「算特征」在时间上拆开：第 $t$ 步的特征用当前参数 $\theta_t$，但路由索引用 $\Delta t$ 步之前的参数 $\theta_{t-\Delta t}$ 算。实现上不是保存两份参数，而是在第 $t - \Delta t$ 步提前取到第 $t$ 步的数据，多跑一次前向把索引算出来缓存。多出来的一次前向经过流水线和 EP 通信重叠后约 20% 额外时间，但**只在检测到 spike 之后才开启**：自动回滚一小段、打开这个模式跑一阵、再切回正常训练。整体开销可以忽略，论文说不损性能。
+
+和 SwiGLU 截断（[第 5 篇](/2026/09/05/deepseek-v4-05-moe/)）一起，这是 V4 训练稳定性的两个支柱：一个直接压离群值，一个打断路由的正反馈。
+
+## MTP
+
+多 token 预测沿用 DeepSeek-V3：一个 MTP 模块，预测第 $t+2$ 个 token，损失权重 0.3，学习率衰减开始时降到 0.1。V4 里它的结构（官方代码 `MTPBlock`）：
+
+- 是一个**完整的 decoder block**，含注意力、MoE 和自己的一套 mHC 参数，输入输出都是 4 条残差流。
+- 输入是主干最后一层的 4 条流经 RMSNorm 后过 `h_proj`，加上下一个 token 的 embedding 经 RMSNorm 后过 `e_proj` 广播到 4 条流。
+- 注意力**只有滑窗分支**（`compress_ratios` 的最后一项是 0）。
+- 输出经它自己的 `hc_head` 压成 1 条，共用主干的最终 RMSNorm 和 LM head。
+
+论文没有说 MTP 在部署时是否用于投机解码。
+
+## 训练配方的数字
+
+放在这里方便查，都来自 §4.2.2：
+
+| | Flash | Pro |
+|---|---|---|
+| token 数 | 32T | 33T |
+| 最大 batch | 75.5M token | 94.4M token |
+| 峰值学习率 → 末端 | $2.7 \times 10^{-4}$ → $2.7 \times 10^{-5}$ | $2.0 \times 10^{-4}$ → $2.0 \times 10^{-5}$ |
+| warmup | 2000 步 | 同左 |
+| 序列长度 | 4K → 16K → 64K → 1M | 同左 |
+| 稠密注意力阶段 | 前 1T token | 更长 |
+| 引入稀疏 | 64K 阶段，先短暂热身 indexer | 同左 |
+| Muon RMS $\gamma$ / 动量 / 衰减 | 0.18 / 0.95 / 0.1 | 同左 |
+| 平衡偏置速度 / 序列级损失权重 | 0.001 / $10^{-4}$ | 同左 |
+| MTP 权重 | 0.3 → 0.1 | 同左 |
+
+## 术语坑
+
+- **Muon 里的「正交化」是半正交。** $n \ne m$ 时 $UV^\top$ 只是一侧正交。
+- **RMS 匹配的 0.18 不是学习率。** 它是把 Muon 更新的元素 RMS 对齐到 AdamW 的量级，学习率另算。
+- **QK-Clip 和 Q/KV 归一化不是二选一的技巧，是两种层面。** 前者是优化器里的事后修正，后者是结构。
+- **MTP 的 `compress_ratios` 项。** 61 层的 config 有 62 项，Flash 43 层有 44 项，多的那项属于 MTP。
+
+## 下一篇
+
+最后一篇讲结构决定的系统：混合注意力的 KV cache 怎么布局，压缩窗口跨越上下文并行边界时怎么通信，磁盘上的前缀缓存怎么存，以及 mHC 的 6.7% 是怎么压出来的。

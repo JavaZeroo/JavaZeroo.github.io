@@ -1,0 +1,251 @@
+---
+title: "DeepSeek-V4 模型结构（4）：深度维度，mHC"
+pubDate: 2026-09-05 19:20:00
+description: "残差连接为什么是恒等映射，Hyper-Connections 把它拓宽成 4 条流之后为什么会不稳，从「想要什么性质」一步步推出双随机矩阵这个约束，Sinkhorn-Knopp 怎么把任意矩阵投影上去，V4 的参数化与代码接线，以及它和 Kimi K3 的 Attention Residuals 的关系。"
+categories:
+  - "📝学习"
+tags:
+  - "大模型"
+  - "DeepSeek-V4"
+  - "模型结构"
+series: deepseek-v4
+part: "深度"
+order: 4
+draft: false
+---
+
+import V4ArchDiagram from '../../components/v4/V4ArchDiagram.astro';
+import MhcCell from '../../components/v4/MhcCell.astro';
+import SinkhornDemo from '../../components/v4/SinkhornDemo.astro';
+import GainDemo from '../../components/v4/GainDemo.astro';
+
+对应论文 §2.2 "Manifold-Constrained Hyper-Connections"，公式 (1) 到 (8)。这一节论文只写了一页半，因为它假设你读过 DeepSeek 团队半年前的 [mHC 论文](https://arxiv.org/abs/2512.24880)。本文把那篇论文里需要的部分补上，再对照官方推理代码看 V4 到底是怎么接线的。
+
+<V4ArchDiagram highlight="mhc" caption="你现在在这里：4 条残差流，以及每个子层前后的读、写、混三个算子。" />
+
+## 残差连接是恒等映射
+
+先把普通的 pre-norm Transformer 写开。记 $x_l \in \mathbb{R}^d$ 是第 $l$ 个子层的输入，$\mathcal{F}_l$ 是子层本身（注意力或 FFN，各算一个子层）。残差连接是
+
+$$
+x_{l+1} = x_l + \mathcal{F}_l(x_l)
+\quad\Longrightarrow\quad
+x_L = x_l + \sum_{i=l}^{L-1} \mathcal{F}_i(x_i).
+$$
+
+展开式里 $x_l$ 这一项**原封不动**地出现在任意深的 $x_L$ 里，系数是 1。反向也一样：$\partial x_L / \partial x_l = I + (\cdots)$，梯度里总有一条系数为 1 的直通路径。He 等人 2016 年的分析把这个叫 identity mapping：信号在深度上传播时，既不会被放大也不会被衰减，训练几百层也稳。这是残差连接十年不变的原因。
+
+它的代价是**残差流只有一条**。所有子层读的是同一个 $d$ 维向量，写的也是同一个。想拓宽残差流、让不同子层读写不同的组合，就要动这个恒等映射。
+
+## Hyper-Connections：把残差流拓宽成 $n$ 条
+
+Hyper-Connections（HC，字节 2024）的做法直接：把残差流从 $\mathbb{R}^d$ 拓宽成 $\mathbb{R}^{n \times d}$，$n$ 条流，每条 $d$ 维。记 $X_l = [x_{l,1}; \dots; x_{l,n}]$。子层还是只吃 $d$ 维、吐 $d$ 维，所以需要三个映射来对接（论文公式 (1)）：
+
+$$
+X_{l+1} = B_l\, X_l + C_l\, \mathcal{F}_l(A_l\, X_l),
+\qquad
+A_l \in \mathbb{R}^{1 \times n},\quad B_l \in \mathbb{R}^{n \times n},\quad C_l \in \mathbb{R}^{n \times 1}.
+$$
+
+- **读 $A_l$**：$n$ 个权重，把 $n$ 条流加权求和成子层输入。
+- **写 $C_l$**：$n$ 个权重，把子层的 $d$ 维输出分配到 $n$ 条流。
+- **混 $B_l$**：$n \times n$ 矩阵，让 $n$ 条流在这一步互相交换。
+
+$n = 1$ 时 $B_l = 1$、$A_l = C_l = 1$，退化回普通残差。$n$ 通常取 4，远小于 $d$，所以三个映射的算术量可以忽略；残差流的宽度和子层的宽度解耦了，多了一个和 FLOPs 无关的 scaling 维度。mHC 论文的消融（Table 1）说三个映射里 $B_l$ 贡献最大：只加 $B_l$，loss 降 0.022；三个都加，降 0.027。流之间的交换是收益的主要来源。
+
+<MhcCell />
+
+## 为什么 HC 不稳：复合映射
+
+把 HC 展开到 $L$ 层（mHC 论文公式 (4)）：
+
+$$
+X_L = \Big(\prod_{i=1}^{L-l} B_{L-i}\Big) X_l + \sum_{i=l}^{L-1} \Big(\prod_{j=1}^{L-1-i} B_{L-j}\Big) C_i\, \mathcal{F}_i(A_i X_i).
+$$
+
+和普通残差的展开式对比：原来 $x_l$ 前面的系数 1，现在变成了 $L - l$ 个 $B$ 的连乘。$B_l$ 无约束时，这个连乘没有理由停在单位矩阵附近，会随深度指数地放大或缩小。前向的信号、反向的梯度都要穿过它。
+
+mHC 论文用一个具体的量来看它：**复合映射的最大绝对行和**（前向）和**最大绝对列和**（反向）。为什么是行和：如果 $n$ 条流上是同一个向量 $v$（共模分量），那么 $(BX)_k = (\sum_j B_{kj})\, v$，第 $k$ 行的行和就是这条流上共模信号的增益。反向传播走的是 $B^\top$，对应列和。他们在一个 27B 模型上测，无约束 HC 的复合映射增益最高到 **3000**，同时 loss 在 12k 步附近突然上跳、梯度范数不稳。
+
+<GainDemo />
+
+上面这个演示不是模型里的真实矩阵，只是随机矩阵的连乘，但足以看出问题的形状：无约束的 $B$ 一叠深就是指数增长；把每个 $B$ 投到双随机矩阵上，增益永远贴着 1。
+
+## 从想要的性质推出双随机矩阵
+
+现在把「复合映射要像恒等映射」拆成可以写成约束的条件。
+
+**前向保共模。** 共模信号穿过 $B$ 之后增益是行和，要求每一行的和是 1：$B\mathbf{1} = \mathbf{1}$。这也等价于说 $\mathbf{1}$ 是 $B$ 的特征向量、特征值 1：如果 4 条流内容相同，混合之后还是相同、幅度不变。
+
+**反向保共模。** 梯度穿过 $B^\top$，同样要求 $B^\top \mathbf{1} = \mathbf{1}$，即每一列的和是 1。
+
+**不许抵消。** 行和为 1 并不能阻止「+5 和 −4」这种组合，它们的和是 1，但会把两条流的内容互相抵消、放大噪声。加上非负 $B \ge 0$，行和为 1 就变成了凸组合：每条新流是旧流的加权平均。
+
+三个条件合在一起，就是**双随机矩阵**的定义（论文公式 (2)）：
+
+$$
+\mathcal{M} = \{\, M \in \mathbb{R}^{n\times n} \mid M\mathbf{1} = \mathbf{1},\ \mathbf{1}^\top M = \mathbf{1}^\top,\ M \ge 0 \,\}.
+$$
+
+这个集合有三条正好对应上面三个担心的性质：
+
+1. **谱范数不超过 1。** 对非负矩阵有 $\|M\|_2^2 \le \|M\|_1 \|M\|_\infty$，右边是最大列和乘最大行和，等于 1。所以 $B$ 是非扩张的，任何信号穿过它范数不增。共模分量恰好保持（特征值 1），其余分量只会收缩。
+2. **乘法封闭。** $B_1 B_2 \mathbf{1} = B_1 \mathbf{1} = \mathbf{1}$，$\mathbf{1}^\top B_1 B_2 = \mathbf{1}^\top B_2 = \mathbf{1}^\top$，非负性显然保持。所以任意多层的复合映射仍然是双随机的，谱范数仍然不超过 1。这一条是关键：约束单层不够，要的是复合之后还成立。
+3. **Birkhoff 多面体。** 双随机矩阵集合是所有置换矩阵的凸包。每个 $B$ 都是「把流打乱」的若干种置换的凸组合，反复作用只会让流之间越混越匀，不会让某条流独大。
+
+$A_l$ 和 $C_l$ 也加了约束：非负且有界（sigmoid），理由是同一个：防止正负系数互相抵消。
+
+## 参数化与 Sinkhorn 投影
+
+约束定好了，接下来是怎么生成满足约束的矩阵。HC 的映射由两部分组成：随输入变的动态部分，和不随输入变的静态偏置。V4 沿用这个设计（论文公式 (3) – (5)）。
+
+**从 4 条流生成 24 个数。** 把 $X_l$ 拉平成 $nd = 28672$ 维向量，做 RMSNorm，乘一个 $[nd \times (n^2 + 2n)]$ 的矩阵，得到 $4 + 4 + 16 = 24$ 个原始值：
+
+$$
+\tilde A_l = \alpha^{\text{pre}}_l\,(\hat X_l W^{\text{pre}}_l) + S^{\text{pre}}_l,
+\qquad
+\tilde B_l = \alpha^{\text{res}}_l\,\operatorname{Mat}(\hat X_l W^{\text{res}}_l) + S^{\text{res}}_l,
+\qquad
+\tilde C_l = \alpha^{\text{post}}_l\,(\hat X_l W^{\text{post}}_l)^\top + S^{\text{post}}_l .
+$$
+
+$\alpha$ 是三个可学习的标量门，**初始化成很小的值**，所以一开始动态部分几乎不起作用，映射由静态偏置 $S$ 决定。
+
+**投影到约束集合上**（公式 (6) – (8)）：
+
+$$
+A_l = \sigma(\tilde A_l),
+\qquad
+C_l = 2\sigma(\tilde C_l),
+\qquad
+B_l = \operatorname{Sinkhorn}\big(\exp(\tilde B_l)\big).
+$$
+
+$C_l$ 前面那个 2 值得想一下。sigmoid 的值域是 $(0, 1)$，中点是 0.5；乘 2 之后值域 $(0, 2)$，中点是 1。原始值为 0 时 $C_l$ 的每个分量正好是 1，也就是普通残差里「输出直接加回去」的系数。这样零初始化时写算子就是普通残差，不需要一开始就把 logit 推到饱和区。$A_l$ 没有乘 2，零初始化时是 4 个 0.5，对 4 条内容相同的流求和得到 $2x$；这个尺度差被紧跟其后的 RMSNorm 吸收了。
+
+**Sinkhorn-Knopp。** 双随机矩阵不能靠一个逐元素函数得到，行和列的约束是耦合的。Sinkhorn-Knopp 算法（1967）的做法是交替归一化：先把每一行除以行和，再把每一列除以列和，重复。对一个正矩阵，这个迭代收敛到唯一的一个双随机矩阵，而且它是 $\exp(\tilde B)$ 在 KL 散度意义下到 $\mathcal{M}$ 的投影（熵正则的最优传输）。先做 $\exp$ 是为了保证正性，正性是收敛的前提。V4 固定做 $t_{\max} = 20$ 轮。
+
+<SinkhornDemo />
+
+拖迭代次数的滑块可以看到，对 $4 \times 4$ 这么小的矩阵，几轮之内行和列和就都到了 1，20 轮是留了余量。mHC 论文测过：20 轮之后单层的反向增益仍略偏离 1，复合到整个 27B 模型上最大约 1.6。和 HC 的 3000 比是三个数量级。
+
+## V4 的接线：以官方代码为准
+
+论文只写到公式 (8)。到代码里才能看清具体怎么接，下面以 Hugging Face 上 `inference/model.py` 的 `Block` 为准。
+
+```python
+class Block(nn.Module):
+    def __init__(self, layer_id, args):
+        ...
+        mix_hc = (2 + hc_mult) * hc_mult          # 24
+        hc_dim = hc_mult * args.dim               # 28672
+        self.hc_attn_fn = nn.Parameter(torch.empty(mix_hc, hc_dim))   # W^pre, W^res, W^post 拼成一个矩阵
+        self.hc_ffn_fn = nn.Parameter(torch.empty(mix_hc, hc_dim))
+        self.hc_attn_base = nn.Parameter(torch.empty(mix_hc))         # 静态偏置 S
+        self.hc_ffn_base = nn.Parameter(torch.empty(mix_hc))
+        self.hc_attn_scale = nn.Parameter(torch.empty(3))             # 三个 α
+        self.hc_ffn_scale = nn.Parameter(torch.empty(3))
+
+    def hc_pre(self, x, hc_fn, hc_scale, hc_base):
+        # x: [b, s, 4, d]
+        x = x.flatten(2).float()                                      # [b, s, 4d]
+        rsqrt = torch.rsqrt(x.square().mean(-1, keepdim=True) + eps)
+        mixes = F.linear(x, hc_fn) * rsqrt                            # 先乘矩阵再除范数：等价于 RMSNorm 后乘
+        pre, post, comb = hc_split_sinkhorn(mixes, hc_scale, hc_base, ...)
+        y = torch.sum(pre.unsqueeze(-1) * x.view(shape), dim=2)       # 读：4 条流加权求和 → [b, s, d]
+        return y, post, comb
+
+    def hc_post(self, x, residual, post, comb):
+        # x: 子层输出 [b, s, d]；residual: 进入子层前的 4 条流 [b, s, 4, d]
+        return post.unsqueeze(-1) * x.unsqueeze(-2) \
+             + torch.sum(comb.unsqueeze(-1) * residual.unsqueeze(-2), dim=2)
+
+    def forward(self, x, start_pos, input_ids):
+        residual = x
+        x, post, comb = self.hc_pre(x, self.hc_attn_fn, self.hc_attn_scale, self.hc_attn_base)
+        x = self.attn(self.attn_norm(x), start_pos)
+        x = self.hc_post(x, residual, post, comb)
+        residual = x
+        x, post, comb = self.hc_pre(x, self.hc_ffn_fn, self.hc_ffn_scale, self.hc_ffn_base)
+        x = self.ffn(self.ffn_norm(x), input_ids)
+        x = self.hc_post(x, residual, post, comb)
+        return x
+```
+
+`hc_split_sinkhorn` 是一个 TileLang kernel，把 24 个数拆成三份：
+
+```python
+pre[j]     = sigmoid(mixes[j]      * scale[0] + base[j])      + eps        # 4 个
+post[j]    = 2 * sigmoid(mixes[4+j] * scale[1] + base[4+j])               # 4 个
+comb[j,k]  = mixes[8 + 4j + k] * scale[2] + base[8 + 4j + k]              # 16 个
+comb = softmax_row(comb) + eps         # 第一轮的行归一化用 softmax 完成 exp 和归一化
+comb = comb / (col_sum + eps)          # 列归一化
+重复 19 次：行归一化，列归一化
+```
+
+读出来的几个事实：
+
+- **每个 decoder layer 有两套 mHC 参数**，注意力一套（`hc_attn_*`），FFN 一套（`hc_ffn_*`）。61 层就是 122 个子层、122 套 $(A, B, C)$。这和 mHC 论文把一个 Transformer block 拆成两个 layer 的口径一致。
+- **RMSNorm 的位置被交换过。** 数学上是先归一化再乘矩阵；代码里先乘矩阵再除以范数，两者等价，但后者不用在 28672 维上先写一遍归一化的中间结果。这是 mHC 论文 §4.3.1 说的 kernel 优化。
+- **第一轮 Sinkhorn 用 softmax 代替 exp 加行归一化。** 数值上更安全，结果相同。
+- **混合的方向。** `hc_post` 里 `comb[j, k]` 乘的是 `residual[j]`、累加到第 $k$ 条流，也就是 $X_{l+1} = B^\top X_l$ 的形式。$B$ 是双随机时 $B^\top$ 也是，所以性质不变，但读权重矩阵时要注意行列的含义。transformers 的实现里明确注释了这一点。
+- **参数量。** 每套 $24 \times 28672 + 24 + 3 \approx 0.69$M，全模型 122 套约 85M，占 1.6T 的 0.005%。
+- **参数的精度和优化器。** `hc_*_fn` 存 FP32；静态偏置 `base` 和门 `scale` 用 AdamW 而不是 Muon（论文 §2.4），因为它们不是矩阵。
+
+**输入和输出端。** embedding 出来后 `h.unsqueeze(2).repeat(1, 1, 4, 1)`，4 条流一开始内容相同。输出端 `ParallelHead.hc_head` 只有读权重：`sigmoid(mixes * scale + base) + eps` 四个数把 4 条流压成 1 条，然后才是最终 RMSNorm 和 LM head。MTP 块是一个完整的 `Block`，输入是 `e_proj(enorm(e))` 广播到 4 条流加上 `h_proj(hnorm(x))`，输出经过它自己的一套 `hc_head`。
+
+## 初始化时它就是普通 Transformer
+
+把上面的零初始化串起来看：$\alpha \approx 0$，静态偏置 $S = 0$ 时，$A_l = [0.5, 0.5, 0.5, 0.5]$，$C_l = [1, 1, 1, 1]$，$\exp(0)$ 是全 1 矩阵，Sinkhorn 之后 $B_l$ 是每个元素 $1/4$ 的均匀矩阵。4 条流一开始内容相同，记作 $x$：读出来是 $2x$，过 RMSNorm 后和 $x$ 过 RMSNorm 相同；混合之后 4 条流仍然相同；写回去每条流各加一份子层输出。整个网络的前向和普通 pre-norm Transformer 逐层相等。4 条流之间的差异要靠动态部分和偏置的学习才会出现。
+
+论文没有说 V4 的 $S$ 具体怎么初始化，上面是按 mHC 论文「$\alpha$ 初始化为小值」加上代码结构推出来的。
+
+## 它带来什么
+
+mHC 论文用 DeepSeek-V3 风格的 MoE 做的实验，$n = 4$：
+
+- **稳定性。** 27B 模型上 HC 在 12k 步附近 loss 上跳、梯度范数飙升；mHC 的梯度范数曲线和基线一样平。
+- **loss。** mHC 相对基线最终 loss 低 0.021；HC 在不炸的段落里也差不多，但稳不住。
+- **下游。** 27B 上 BBH 43.8 → 51.0，DROP 47.0 → 53.9，GSM8K 46.7 → 53.8，MMLU 59.0 → 63.4。相对 HC 再涨 2 个点左右，集中在推理类任务。
+- **scaling。** 3B、9B、27B 三个算力最优点上，优势基本不随规模衰减；3B 在 1T token 上的曲线全程领先。
+- **增益。** 复合映射的最大增益从 HC 的约 3000 降到约 1.6。
+
+V4 论文本身没有给 mHC 的消融，只说「in-house 大规模训练验证过」。
+
+## 和 Attention Residuals 的关系
+
+Kimi K3 在深度维度上做的是 [Attention Residuals](/2026/09/05/kimi-k3-04-attnres/)。两者都在改「第 $l$ 层的输入是前面各层输出的什么组合」，但形态不同。把任何残差结构写成 $h_l = \sum_{i \le l} M_{i\to l}\, v_i$，看混合矩阵 $M$ 的形状：
+
+| 方法 | 状态 | $M_{i\to l}$ | 一句话 |
+|---|---|---|---|
+| 普通残差 | 1 条流 | 全 1 | 恒等映射，权重固定 |
+| HC / mHC | $n$ 条流，$n \times d$ | $C_i^\top \big(\prod B\big) A_l$ | **深度上的线性 RNN**：状态是矩阵，每层做一次线性变换。mHC 把变换约束到非扩张 |
+| Block AttnRes | 块代表，$N \times d$ | $\operatorname{softmax}(w_l^\top \operatorname{RMSNorm}(v_i))$ | **深度上的 softmax 注意力**：按内容选择性取回 |
+
+这个视角下 mHC 和 AttnRes 的关系，正好是序列方向上线性注意力和 softmax 注意力的关系。mHC 的状态固定 4 条流，代价是每 token 每层要读写 $4d$ 而不是 $d$；AttnRes 论文给的访存账是 mHC 约 $34d$、Block AttnRes 约 $5.5d$、普通残差 $3d$。V4 论文 §3.4.2 说 mHC 的墙钟开销压到了流水线阶段的 6.7%，第 7 篇讲它怎么做到。
+
+## 系统代价
+
+mHC 的算术量可以忽略，代价在别处：
+
+- **访存。** 一个子层要读写 $n$ 条流。mHC 论文 Table 2 算过，不做融合时每 token 的读从 $2d$ 涨到 $(5n+1)d$，写从 $d$ 涨到 $(3n+1)d$。融合成三个 kernel（生成系数、读、写+混）之后，写+混那个 kernel 的读从 $(3n+1)d$ 降到 $(n+1)d$，写从 $3nd$ 降到 $nd$。
+- **激活内存。** $A, B, C$ 有参数，反向要用到它们的输入。做法是前向后丢掉 mHC kernel 的中间结果、反向时不带子层地重算；每 $L_r$ 个子层只存一份进入时的 $X_{l_0}$。总内存对 $L_r$ 最小化，解是 $L_r^* \approx \sqrt{nL/(n+2)}$，恰好和流水线每个 stage 的层数差不多，于是重算块直接对齐 stage。
+- **流水线通信。** stage 之间传的激活是 $n$ 倍。DualPipe 的 1F1B 调度被改过，把 mHC 的通信和重算与相邻计算重叠。
+
+## 术语坑
+
+- **$n$ 和 `hc_mult`。** 论文写 $n_{\text{hc}}$，config 写 `hc_mult`，都是 4。
+- **"layer" 指子层。** mHC 论文和 V4 代码里一个 decoder layer 有两套 mHC。V4 的 61 层是 122 个子层。
+- **$B$ 的方向。** 代码里应用的是 $B^\top$。双随机矩阵的转置仍是双随机，性质上没区别。
+- **Sinkhorn 的 eps。** 代码在 softmax 之后和每次列归一化的分母里都加了 $10^{-6}$，所以行和不严格等于 1，差在 $10^{-5}$ 量级。
+- **不是 DenseFormer，也不是 LAuReL。** 那两个是对前面各层输出做固定或低秩的加权；mHC 是把状态本身拓宽。
+
+## 下一篇
+
+第 5 篇进入宽度维度：DeepSeekMoE 在 V4 里的四个改动。其中 SwiGLU 截断和这里的思路同源：都是用有界性换稳定性。
+
+## 资料
+
+- mHC 论文：[arXiv 2512.24880](https://arxiv.org/abs/2512.24880)，Hyper-Connections 原文：[arXiv 2409.19606](https://arxiv.org/abs/2409.19606)
+- V4 的实现：Hugging Face [deepseek-ai/DeepSeek-V4-Pro](https://huggingface.co/deepseek-ai/DeepSeek-V4-Pro) 的 `inference/model.py`（搜 `hc_pre`）和 `inference/kernel.py`（搜 `hc_split_sinkhorn`）
+- Sinkhorn 与熵正则最优传输：Cuturi 2013，"Sinkhorn Distances"

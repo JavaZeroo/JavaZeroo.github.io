@@ -1,0 +1,148 @@
+---
+title: "DeepSeek-V4 模型结构（2）：序列维度（中），Lightning Indexer 与稀疏选择"
+pubDate: 2026-09-05 18:40:00
+description: "压缩之后 1M 上下文仍有 26 万个条目，每个 query 只看其中 1024 个。从 DeepSeek-V3.2 的 DSA 说起：indexer 的打分公式为什么长这样、ReLU 和 FP4 从哪来、它怎么用主注意力的分布来训练；再看 V4 把索引对象从 token 换成压缩块之后改了什么，以及一层 CSA 从头到尾的完整维度。"
+categories:
+  - "📝学习"
+tags:
+  - "大模型"
+  - "DeepSeek-V4"
+  - "模型结构"
+series: deepseek-v4
+part: "序列"
+order: 2
+draft: false
+---
+
+import V4ArchDiagram from '../../components/v4/V4ArchDiagram.astro';
+import IndexerCell from '../../components/v4/IndexerCell.astro';
+import CsaCell from '../../components/v4/CsaCell.astro';
+
+对应论文 §2.3.1 的后半，公式 (13) 到 (17)。上一篇把 KV 压成了每 4 个 token 一条，这一篇讲 CSA 名字里的 "Sparse"：每个 query 只对其中 top-$k$ 条做注意力，选哪些由 lightning indexer 决定。indexer 来自 [DeepSeek-V3.2](https://arxiv.org/abs/2512.02556) 的 DSA，V4 论文只写了公式，训练方法要回 V3.2 的报告里找。
+
+<V4ArchDiagram highlight="csa" caption="你现在在这里：全部偶数层的 CSA。" />
+
+## 为什么压缩之后还要选
+
+CSA 把条目数除以了 4，但 1M 上下文下仍有 $2^{18} = 262144$ 条。128 个 query 头对 26 万条 512 维向量做注意力，每 token 每层 $2 \times 128 \times 262144 \times 512 \approx 34$ GFLOP，61 层的一半是 CSA，光注意力就 1 TFLOP 一个 token。HCA 靠 128 倍的压缩率把条目压到 8192 条，能全看；CSA 要保留细粒度，只能选。
+
+选的原则和 DSA 一样：用一个便宜的打分器给每对 (query, 条目) 算一个分数，只对 top-$k$ 做真正的注意力。便宜到什么程度决定了它能不能用：打分器本身是 $O(n)$ 每 query，要比主注意力低一到两个数量级才划算。
+
+## DSA 复习：lightning indexer 长什么样
+
+V3.2 的 indexer 给 query token $t$ 和前文 token $s$ 打分：
+
+$$
+I_{t,s} = \sum_{j=1}^{H^I} w^I_{t,j}\cdot \operatorname{ReLU}\big(\mathbf{q}^I_{t,j}\cdot \mathbf{k}^I_s\big).
+$$
+
+拆开看它为什么长这样：
+
+- **它是一个小号的多头注意力打分，没有 softmax。** $H^I$ 个头（V3.2 和 V4 都是 64），每头的 query $\mathbf{q}^I_{t,j}$ 和 key $\mathbf{k}^I_s$ 维度 128。主注意力有 128 头 × 512 维，indexer 是 64 头 × 128 维，内积的算术量是主注意力的 $1/8$。
+- **key 只有一份，所有头共享。** 和主注意力的 MQA 一样，indexer 的 $\mathbf{k}^I_s$ 不分头，缓存每 token 128 个数。
+- **ReLU 而不是 exp。** 论文说是为了吞吐。ReLU 让负内积直接归零、不需要跨条目的归一化，每个分数可以独立算，也不需要维护 max 和 sum。
+- **头之间用 $w^I_{t,j}$ 加权求和。** 权重由 query token 决定（$\mathbf{w}^I_t = \mathbf{h}_t W^w$），可以为负，相当于让 query 决定这次检索听哪几个头的。64 个头压成一个标量分数，top-$k$ 只需要在一个分数上做。
+- **FP8 / FP4。** 打分不需要精度，V3.2 用 FP8，V4 进一步到 FP4。
+
+给定 $I_{t,:}$，取 top-$k$ 的条目集合 $\mathcal{S}_t$，主注意力只算 $\mathcal{S}_t$ 里的：核心注意力的复杂度从 $O(n^2)$ 降到 $O(nk)$，indexer 仍是 $O(n^2)$ 但常数小得多。
+
+**它怎么训练。** indexer 的输出不进主模型的损失，它有自己的目标：**模仿主注意力的分布**。V3.2 的做法分两阶段。
+
+1. **稠密热身。** 冻结主模型，保持稠密注意力，只训 indexer。对每个 query，把主注意力所有头的分数加起来、沿序列做 L1 归一化得到目标分布 $p_{t,:}$，最小化 $\mathrm{KL}(p_{t,:} \,\|\, \operatorname{Softmax}(I_{t,:}))$。1000 步、21 亿 token。
+2. **稀疏训练。** 打开 top-$k$ 选择，全部参数一起训。indexer 的 KL 目标只在选中的集合 $\mathcal{S}_t$ 上算；indexer 的输入 $\mathbf{h}_t$ 从计算图里 detach，主模型只收语言模型损失的梯度，indexer 只收 KL 的梯度。两者互不干扰。
+
+V4 沿用这个框架：先用稠密注意力训 1T token（Pro 更长），在序列长度 64K 时引入稀疏，引入时「先用一个短阶段热身 indexer」。
+
+## V4 的改动：索引对象从 token 变成压缩块
+
+V4 的 indexer（公式 (13) – (17)）和 V3.2 的形式相同，变的是 key 和 query 的来源。
+
+**key 是压缩块。** 上一篇的压缩算子再做一份，头维换成 $c^I = 128$，产生 $K^{\text{IComp}} \in \mathbb{R}^{n/m \times c^I}$。也就是说 indexer 有自己的 $W^{aKV}, W^{bKV}, W^{aZ}, W^{bZ}$（各 7168 × 128）和自己的位置偏置，和主注意力的压缩是两套参数、同一种算法。给每个压缩块一个 128 维的「索引键」，缓存每 4 个 token 128 个数。
+
+**query 从共享的 latent 出来。** 公式 (13)、(14)：
+
+$$
+\mathbf{c}^Q_t = \mathbf{h}_t W^{DQ} \in \mathbb{R}^{1536},
+\qquad
+\mathbf{q}^I_t = \mathbf{c}^Q_t W^{IUQ} \in \mathbb{R}^{64 \times 128}.
+$$
+
+$\mathbf{c}^Q_t$ 就是主注意力 query 的低秩 latent。V3.2 的论文只写 $\mathbf{q}^I$ 「由 $\mathbf{h}_t$ 得到」，V4 明确写成从 $\mathbf{c}^Q_t$ 展开（V3.2 的开源实现里其实已经是这样做的）：indexer 的 query 矩阵是 1536 × 8192 而不是 7168 × 8192，两路 query 共享底层表示。
+
+**打分和选择。** 公式 (15) – (17) 和 DSA 一样，只是 $s$ 的取值范围是压缩块编号 $s < \lfloor t/m \rfloor$，因果性以块为单位：query $t$ 只能看**已经完整压缩**的块，自己所在的块看不到。选 top-1024 个块（Flash 512），每块 4 个 token，覆盖 4096 个原始 token；V3.2 是选 2048 个 token。论文说 top-$k$ 减小是有意的，为了让短文本和中等长度上也更快。
+
+<IndexerCell />
+
+## 官方代码里的 indexer
+
+```python
+class Indexer(nn.Module):
+    def forward(self, x, qr, start_pos, offset):
+        q = self.wq_b(qr)                                  # qr 是 1536 维的 c^Q，→ 64 头 × 128
+        q = q.unflatten(-1, (self.n_local_heads, self.head_dim))
+        apply_rotary_emb(q[..., -rd:], freqs_cis)          # 后 64 维 RoPE
+        q = rotate_activation(q)                           # 随机 Hadamard 旋转
+        fp4_act_quant(q, fp4_block_size, True)             # 模拟 FP4 量化
+        self.compressor(x, start_pos)                      # 自己的压缩算子 → kv_cache，同样旋转 + FP4
+        weights = self.weights_proj(x) * (self.softmax_scale * self.n_heads ** -0.5)   # w^I_t，乘 128^-0.5 · 64^-0.5
+        index_score = torch.einsum("bshd,btd->bsht", q, self.kv_cache[:bsz, :end_pos // ratio])
+        index_score = (index_score.relu_() * weights.unsqueeze(-1)).sum(dim=2)          # Σ_h w_h ReLU(q_h · k)
+        # 因果 mask：块 s 只有在 s < (t+1)//ratio 时可见
+        topk_idxs = index_score.topk(min(self.index_topk, end_pos // ratio), dim=-1)[1]
+        return topk_idxs + offset                          # offset 跳过 cache 里前面的滑窗段
+```
+
+论文没写的细节：
+
+- **Hadamard 旋转。** query 和索引键在量化前都做一次随机 Hadamard 变换（`fast_hadamard_transform`，尺度 $1/\sqrt{128}$）。旋转是正交的，不改变内积，但把能量摊匀到所有维度，去掉离群通道，FP4 的量化误差小得多。这是 QuaRot 一系的做法。
+- **FP4 是模拟的。** 推理代码里 `fp4_act_quant(..., True)` 是原地量化再反量化回 BF16，注释说他们做了 QAT，真实部署用 FP4 内核。
+- **打分的缩放。** 权重 $w$ 乘了 $128^{-1/2} \cdot 64^{-1/2}$，前者是内积的标准缩放，后者是 64 个头求和的归一化。
+- **indexer 的 key 也带 RoPE。** 压缩键的后 64 维用块首位置做旋转，query 用自己的位置。两者用同一个 $\theta = 160000$ 的 YaRN 版本，和主注意力压缩层一致。
+- **top-$k$ 不够时。** 前文不足 1024 个块时取全部；序列开头几个 token 连一个完整块都没有，只靠滑窗分支。
+
+## 一层 CSA 的完整维度
+
+把上一篇和这一篇拼起来，一层 CSA 从输入到输出（Pro 的数）：
+
+<CsaCell />
+
+按官方代码 `Attention.forward` 的顺序：
+
+1. **query。** $\mathbf{h}_t$ (7168) → `wq_a` → 1536 → RMSNorm → `wq_b` → 128 × 512 → 逐头 RMSNorm（无权重）→ 后 64 维 RoPE。
+2. **单条 KV。** $\mathbf{h}_t$ → `wkv` → 512 → RMSNorm → 后 64 维 RoPE → 非 rope 的 448 维按 64 维一组做 FP8 量化。写入滑窗 cache（环形，128 条）。
+3. **压缩。** `Compressor` 每 4 个 token 产生一条 512 维条目，写入压缩 cache。
+4. **索引。** `Indexer` 产生 top-1024 个块编号；和 128 个滑窗位置拼成一个长度 1152 的索引数组。
+5. **核心注意力。** `sparse_attn(q, kv, attn_sink, topk_idxs, scale)`：按索引从 cache 里 gather 1152 条，128 个头各做一次 softmax，分母加 sink，K 和 V 是同一份。
+6. **输出。** 后 64 维反旋转，分 16 组 4096 → 1024，拼成 16384 → `wo_b` → 7168。
+
+每 token 每层 CSA 的核心注意力算术量是 $2 \times 128 \times 1152 \times 512 \approx 151$ MFLOP，和上下文长度无关。indexer 的打分是 $2 \times 64 \times (n/4) \times 128$，1M 时约 4.3 GFLOP，在 FP4 里算。
+
+## 参数账
+
+一层 CSA（Pro）：
+
+| 部件 | 参数 |
+|---|---|
+| `wq_a` 7168 × 1536 | 11.0M |
+| `wq_b` 1536 × 65536 | 100.7M |
+| `wkv` 7168 × 512 | 3.7M |
+| 压缩算子 4 × 7168 × 512 | 14.7M |
+| indexer `wq_b` 1536 × 8192 | 12.6M |
+| indexer `weights_proj` 7168 × 64 | 0.5M |
+| indexer 压缩算子 4 × 7168 × 128 | 3.7M |
+| `wo_a` 16 × 4096 × 1024 | 67.1M |
+| `wo_b` 16384 × 7168 | 117.4M |
+| 合计 | ≈ 331M |
+
+HCA 少了 indexer 的三项，压缩算子只有两个矩阵，约 307M。61 层注意力合计 19.8B，全部激活。
+
+## 术语坑
+
+- **$k$ 的单位变了。** V3.2 的 top-2048 是 token，V4 的 top-1024 是压缩块，每块 4 个 token。
+- **indexer 的压缩和主注意力的压缩是两套参数。** 同一种算法，不同的维度（128 对 512），不同的量化（FP4 对 FP8）。
+- **indexer 的梯度不进主模型。** 沿用 V3.2：输入 detach，只训 KL。V4 论文没有重复说，按 V3.2 理解。
+- **`index_topk` 和 `sliding_window` 是加起来的。** 核心注意力看 1024 + 128 条。
+
+## 下一篇
+
+第 3 篇讲剩下的部分：HCA 为什么不用 indexer、两种注意力怎么交错、滑窗分支为什么必须有、K = V 带来的位置编码问题怎么用反旋转解决、attention sink，以及 1M 上下文的 KV cache 和 FLOPs 的账。

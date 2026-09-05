@@ -1,0 +1,90 @@
+---
+/**
+ * mHC 一个子层的接线：4 条残差流横向流过，读算子 A 把 4 条压成子层输入，写算子 C 把子层输出分回 4 条，
+ * 同时混合矩阵 B（双随机）让 4 条流互相交换。x_{l+1} = B x_l + C F(A x_l)。
+ */
+import SvgTex from '../k3/SvgTex.astro';
+const ys = [60, 100, 140, 180];
+const XA = 230, XF = 470, XB = 640, XBW = 90, XC = 780;
+const OPY = 270, OPC = OPY + 17;   // 算子行
+---
+
+<figure class="mhc">
+  <svg viewBox="0 0 960 420" role="img" aria-label="mHC 一个子层的接线">
+    <defs>
+      <marker id="mhc-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" /></marker>
+    </defs>
+    <!-- 4 条流 -->
+    {ys.map((y, j) => (
+      <g>
+        <line class="stream" x1="40" y1={y} x2={XB - 2} y2={y} />
+        <line class="stream" x1={XB + XBW} y1={y} x2="900" y2={y} marker-end="url(#mhc-arrow)" />
+        <SvgTex x={34} y={y} size={11} align="end" src={`$x_{l,${j + 1}}$`} />
+        <SvgTex x={906} y={y} size={11} align="start" src={`$x_{l+1,${j + 1}}$`} />
+        <!-- 读：权重 a_j -->
+        <circle class="tap a" cx={XA} cy={y} r="5" />
+        <path class="wire a" d={`M${XA} ${y + 5} V ${OPY}`} />
+        <SvgTex x={XA + 10} y={y - 9} size={9.5} align="start" color="var(--cat-amber)" src={`$a_{${j + 1}}$`} />
+        <!-- 写：权重 c_j -->
+        <path class="wire c" d={`M${XC} ${OPC} V ${y + 2}`} marker-end="url(#mhc-arrow)" />
+        <SvgTex x={XC + 10} y={y + 12} size={9.5} align="start" color="var(--cat-emerald)" src={`$c_{${j + 1}}$`} />
+        <circle class="tap c" cx={XC} cy={y} r="5" />
+      </g>
+    ))}
+    <text class="lbl" x="40" y="40">残差流：4 条，每条 d 维</text>
+
+    <!-- 读算子 -->
+    <rect class="box a" x={XA - 60} y={OPY} width="120" height="34" rx="7" />
+    <SvgTex x={XA} y={OPC} size={11} weight={600} src="$\sum_j a_j\, x_{l,j}$" />
+    <SvgTex x={XA} y={OPY + 52} size={10} color="var(--text-2)" src="读 $A_l = \sigma(\cdot)$，$1\times 4$，非负" />
+    <line class="edge" x1={XA + 60} y1={OPC} x2={XF - 122} y2={OPC} marker-end="url(#mhc-arrow)" />
+    <rect class="box op" x={XF - 120} y={OPY} width="80" height="34" rx="7" />
+    <text class="t" x={XF - 80} y={OPC + 4} text-anchor="middle">RMSNorm</text>
+    <line class="edge" x1={XF - 40} y1={OPC} x2={XF - 2} y2={OPC} marker-end="url(#mhc-arrow)" />
+    <rect class="box f" x={XF} y={OPY - 8} width="150" height="50" rx="8" />
+    <SvgTex x={XF + 75} y={OPY + 10} size={12} weight={600} src="子层 $\mathcal{F}_l$" />
+    <text class="s" x={XF + 75} y={OPY + 32} text-anchor="middle">注意力或 MoE，d 维进 d 维出</text>
+    <line class="edge" x1={XF + 150} y1={OPC} x2={XC - 2} y2={OPC} marker-end="url(#mhc-arrow)" />
+    <SvgTex x={XC + 14} y={OPY + 52} size={10} align="start" color="var(--text-2)" src="写 $C_l = 2\sigma(\cdot)$，$4\times 1$，非负" />
+
+    <!-- 混合矩阵 B -->
+    <rect class="box b" x={XB} y={ys[0] - 22} width={XBW} height={ys[3] - ys[0] + 44} rx="8" />
+    {ys.map((y1) => ys.map((y2) => <line class="mix" x1={XB + 4} y1={y1} x2={XB + XBW - 4} y2={y2} />))}
+    <SvgTex x={XB + XBW / 2} y={ys[0] - 34} size={11} weight={600} src="混 $B_l$，$4\times 4$" />
+    <SvgTex x={XB + XBW / 2} y={ys[3] + 36} size={10} color="var(--text-2)" src="双随机：行和 = 列和 = 1，非负" />
+    <text class="s" x={XB + XBW / 2} y={ys[3] + 52} text-anchor="middle">Sinkhorn 20 轮</text>
+
+    <!-- 参数生成 -->
+    <rect class="box gen" x="40" y="350" width="150" height="50" rx="8" />
+    <SvgTex x={115} y={366} size={10.5} weight={600} src="RMSNorm(vec($x_l$))" />
+    <SvgTex x={115} y={386} size={9.5} color="var(--text-2)" src="4d 维 → 线性 → 24 个数" />
+    <path class="edge gen" d={`M115 350 V ${OPC} H ${XA - 62}`} marker-end="url(#mhc-arrow)" />
+    <path class="edge gen" d={`M190 362 H ${XB - 14} V ${ys[3] + 8} H ${XB - 2}`} marker-end="url(#mhc-arrow)" />
+    <path class="edge gen" d={`M190 388 H ${XC} V ${OPC + 22}`} marker-end="url(#mhc-arrow)" />
+    <text class="s" x="200" y="410">A、B、C 的动态部分都从当前的 4 条流算出来，再加各自的静态偏置</text>
+  </svg>
+  <figcaption>mHC 一个子层。灰线是 4 条残差流。读算子把它们按 <i>a<sub>j</sub></i> 加权求和成子层输入，写算子把子层输出按 <i>c<sub>j</sub></i> 分回每条流，B 让 4 条流之间互相混合。子层本身和普通 Transformer 完全一样。</figcaption>
+</figure>
+
+<style>
+  .mhc { margin: 2rem 0; padding: 0.8rem 0.6rem 0.6rem; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); overflow-x: auto; }
+  .mhc svg { display: block; width: 100%; min-width: 760px; height: auto; font-family: var(--font-sans); }
+  .mhc marker path { fill: var(--text-2); }
+  .stream { stroke: var(--text-2); stroke-width: 2; opacity: 0.55; }
+  .edge { fill: none; stroke: var(--text-2); stroke-width: 1.4; }
+  .edge.gen { stroke: var(--muted); stroke-dasharray: 4 3; }
+  .tap.a { fill: var(--cat-amber); } .tap.c { fill: var(--cat-emerald); }
+  .wire { fill: none; stroke-width: 1.2; }
+  .wire.a { stroke: var(--cat-amber); opacity: 0.8; } .wire.c { stroke: var(--cat-emerald); opacity: 0.8; }
+  .box { stroke-width: 1.5; }
+  .box.a { fill: color-mix(in srgb, var(--cat-amber) 16%, var(--bg-2)); stroke: var(--cat-amber); }
+  .box.op { fill: var(--bg-2); stroke: var(--text-2); }
+  .box.f { fill: color-mix(in srgb, var(--cat-indigo) 14%, var(--bg-2)); stroke: var(--cat-indigo); }
+  .box.b { fill: color-mix(in srgb, var(--cat-amber) 10%, var(--bg-2)); stroke: var(--cat-amber); }
+  .box.gen { fill: var(--bg-2); stroke: var(--muted); stroke-dasharray: 4 3; }
+  .mix { stroke: var(--cat-amber); stroke-width: 1; opacity: 0.55; }
+  .lbl { fill: var(--text-2); font-size: 11px; }
+  .t { fill: var(--text); font-size: 11px; font-weight: 600; }
+  .s { fill: var(--text-2); font-size: 9.5px; }
+  figcaption { margin-top: 0.6rem; font-size: 0.88rem; color: var(--text-2); line-height: 1.6; }
+</style>

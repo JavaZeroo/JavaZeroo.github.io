@@ -1,0 +1,130 @@
+---
+title: "DeepSeek-V4 模型结构（3）：序列维度（下），HCA、混合排布与零件"
+pubDate: 2026-09-05 19:00:00
+description: "HCA 为什么压缩 128 倍之后不需要再选，CSA 和 HCA 为什么要交错，滑窗分支为什么必须有。K = V 让注意力输出带上了绝对位置，V4 用对输出做反向旋转来抵消，这一步从 RoPE 的乘法性质推出来。再讲 attention sink 从 softmax 的什么缺陷来，Q/KV 归一化为什么让 Muon 不再需要 QK-Clip，最后算清 1M 上下文的 KV cache 和 FLOPs。"
+categories:
+  - "📝学习"
+tags:
+  - "大模型"
+  - "DeepSeek-V4"
+  - "模型结构"
+series: deepseek-v4
+part: "序列"
+order: 3
+draft: false
+---
+
+import V4ArchDiagram from '../../components/v4/V4ArchDiagram.astro';
+import V4LayerStrip from '../../components/v4/V4LayerStrip.astro';
+import HcaCell from '../../components/v4/HcaCell.astro';
+import KvCacheBars from '../../components/v4/KvCacheBars.astro';
+
+对应论文 §2.3.2 到 §2.3.4，公式 (20) 到 (27)。前两篇讲了压缩和选择，这一篇收尾序列维度：HCA，两种注意力的排布，以及论文 §2.3.3 里「为了行文清晰而省略」的几个零件。零件里位置编码那一段最值得推一遍。
+
+<V4ArchDiagram highlight={['hca', 'swa']} caption="你现在在这里：第 0、1 层和全部奇数层的 HCA，以及每层注意力里的滑窗分支。" />
+
+## HCA：压缩到不用选
+
+<HcaCell />
+
+HCA 的压缩算子（公式 (20) – (23)）和 CSA 是同一种，两处不同：压缩率 $m' = 128$，不重叠。1M 上下文压完只剩 8192 条，128 个头对 8192 条 512 维向量做注意力，每 token 每层约 1 GFLOP，可以全看，所以没有 indexer。
+
+为什么要有这样一层：CSA 每个 query 只看 1024 个块，是**有选择的精读**，选错了就看不到；HCA 每个 query 看全部历史的粗粒度摘要，是**无遗漏的粗读**。两者交错，每两层里总有一层保证全局信息不会因为 indexer 的误判而丢失。这和 Kimi K3 里「KDA 有损记忆 + MLA 无损检索」的 3:1 混合是同一类设计，只是 V4 的两种注意力都是 softmax、都有 KV cache，区别在粒度。
+
+论文没有给 CSA / HCA 的消融，也没有解释为什么是 1:1 交错、为什么 Pro 的开头两层是 HCA 而 Flash 是纯滑窗。
+
+## 排布
+
+<V4LayerStrip model="pro" caption="Pro：第 0、1 层 HCA，之后偶数层 CSA、奇数层 HCA，第 60 层 CSA。" />
+
+规则见[总览篇](/2026/09/05/deepseek-v4-00-overview/)。两点值得注意：
+
+- **最后一层是 CSA。** 交错从第 2 层开始，61 是奇数，最后落在偶数层 60 上。
+- **MTP 层是纯滑窗。** config 的 `compress_ratios` 最后一项是 0，官方代码 `MTPBlock(args.n_layers + layer_id)` 取到这一项。MTP 层预测下一个 token 的下一个，只用局部信息。
+
+## 滑窗分支：为什么必须有
+
+压缩有一个副作用：**query 看不到自己所在的块**。块 $\lfloor t/m \rfloor$ 要等到第 $m(\lfloor t/m \rfloor + 1) - 1$ 个 token 到齐才能压缩，为了严格保持因果性，query $t$ 只能看编号小于 $\lfloor t/m \rfloor$ 的块。HCA 的 $m' = 128$ 意味着最近的 127 个 token 可能完全不可见，而语言建模里最近的 token 恰恰最重要。
+
+论文的解法是给 CSA 和 HCA 都加一条**滑窗分支**：每个 query 额外看最近 $n_{\text{win}} = 128$ 个 token 的未压缩 KV。这些 KV 就是上一篇第 2 步里那条 512 维向量，写进一个 128 条的环形 cache。在核心注意力里，滑窗的 128 条和压缩条目放进**同一个** softmax，不是两个分支各算一次再加权（NSA 是后者）。官方代码里索引数组的前 128 项是滑窗位置、后面是压缩块编号，一次 `sparse_attn` 调用算完。
+
+Flash 的前两层干脆只有滑窗分支。
+
+## Q 和 KV 的 RMSNorm
+
+query 在展开成 128 头之后逐头做一次无权重的 RMSNorm，KV 那条 512 维向量也做 RMSNorm（有权重），都在 RoPE 之前。论文说目的是防止注意力 logit 爆炸。
+
+这一步在 V4 里比通常更重要，因为它和优化器绑定：Muon 的更新是正交化过的，每一步对权重矩阵的所有奇异方向推同样的距离，$W^{UQ}$ 和 $W^{KV}$ 会比 Adam 下更快地长大，logit 随之爆炸。Kimi K2 用 QK-Clip 事后压 $W_Q, W_K$ 的范数；V4 因为 q 和 kv 都归一化了，logit 的尺度被结构锁死，**不用 QK-Clip**（论文 §2.4）。第 6 篇再展开。
+
+## 部分 RoPE 与输出反旋转
+
+这是零件里最值得推的一段。
+
+**部分 RoPE。** query 的每个头和那条 KV 向量都只在最后 64 维加 RoPE（`qk_rope_head_dim = 64`），前 448 维不带位置。这是 MLA 的老做法：位置信息只需要一小部分维度承载。
+
+**问题：K = V 让输出带上了绝对位置。** 记 $R_j$ 是位置 $j$ 的旋转矩阵（作用在那 64 维上）。核心注意力对 rope 维的输出是
+
+$$
+\mathbf{o}_t = \sum_j \alpha_{t,j}\, R_j \mathbf{v}_j,
+\qquad
+\alpha_{t,j} = \operatorname{softmax}_j\big((R_t \mathbf{q}_t)^\top (R_j \mathbf{k}_j)\big) = \operatorname{softmax}_j\big(\mathbf{q}_t^\top R_{j-t} \mathbf{k}_j\big).
+$$
+
+注意力权重 $\alpha_{t,j}$ 只依赖相对位置 $j - t$，这是 RoPE 的设计。但普通注意力里 V 不带 RoPE，输出是 $\sum \alpha \mathbf{v}_j$，干净的内容加权和。V4 里 V 就是 K，K 已经被旋转过了，所以输出里每一项都带着 $R_j$，也就是**绝对位置** $j$。同一段内容出现在序列的不同位置，注意力输出会不一样，模型学到的东西就和绝对位置绑定了，长度外推时尤其麻烦。
+
+**解法：把输出反向旋转回来。** RoPE 是乘法的：$R_a R_b = R_{a+b}$，$R_{-a} = R_a^{-1} = R_a^\top$。对输出乘 $R_{-t}$：
+
+$$
+R_{-t}\, \mathbf{o}_t = \sum_j \alpha_{t,j}\, R_{-t} R_j \mathbf{v}_j = \sum_j \alpha_{t,j}\, R_{j-t}\, \mathbf{v}_j .
+$$
+
+现在每个条目对输出的贡献是 $\mathbf{v}_j$ 被旋转了 $j - t$，只和相对距离有关。论文说的「对每个 $\mathbf{o}_{t,i}$ 的最后 64 维施加位置 $-i$ 的 RoPE」就是这一步。官方代码是 `apply_rotary_emb(o[..., -rd:], freqs_cis, inverse=True)`，`inverse` 取共轭。
+
+这个副作用甚至可以看成一个特性：普通注意力的输出完全不含位置，V4 的输出里带着「被取回的内容离我多远」，下游的 $W^{OA}$ 可以利用这个信息。
+
+**压缩条目的位置。** 压缩条目由 $2m$（或 $m'$）个 token 合成，它的「位置」取块的第一个 token（代码里 `freqs_cis[:cutoff:ratio]`），RoPE 在压缩、RMSNorm **之后**加，压缩时 $C^a, C^b$ 本身不带旋转。所以压缩是在无位置的表示上做的，位置只在条目层面加一次。
+
+**两套 RoPE。** 压缩层的 $\theta = 160000$ 加 YaRN（factor 16，原始长度 64K）；纯滑窗层的 $\theta = 10000$，不用 YaRN，因为它只看 128 个 token。indexer 用压缩层那套。
+
+## Attention sink
+
+softmax 的一个结构性缺陷：权重必须加起来等于 1。即使当前 query 和所有条目都无关，它也得把注意力分出去，于是模型学会把没用的注意力堆到某个固定 token 上（通常是第一个 token），这就是 attention sink 现象。稀疏注意力下更麻烦：被选中的 1024 个块可能全是不相关的，但仍然要分完 1。
+
+解法（公式 (27)，和 gpt-oss 相同）：给每个头一个可学习的 logit $z'_h$，加进分母但不加进分子：
+
+$$
+s_{h,i,j} = \frac{\exp(z_{h,i,j})}{\sum_k \exp(z_{h,i,k}) + \exp(z'_h)} .
+$$
+
+等价于多了一个 value 为零的虚拟条目。当所有真实 logit 都远小于 $z'_h$ 时，权重之和趋近 0，这个头这一步输出接近零。模型不再需要牺牲一个真实 token 来当垃圾桶。
+
+官方 kernel 里它是 online softmax 结束后的一行：`sum_exp[i] += exp(attn_sink[i] - scores_max[i])`。128 个头共 128 个参数。
+
+## 1M 上下文的账
+
+**KV cache。** 一条压缩条目 512 维：64 维 rope 位存 BF16，448 维存 FP8，共 576 字节（忽略 scale）。indexer 的键 128 维，按 FP8 算 128 字节。
+
+| 层类型 | 每 token 摊到的字节 | 层数（Pro） | 1M token 合计 |
+|---|---|---|---|
+| CSA：(576 + 128) / 4 | 176 B | 30 | 5.16 GiB |
+| HCA：576 / 128 | 4.5 B | 31 | 0.14 GiB |
+| 滑窗：128 条 × 576，不随长度增长 | 常数 | 61 | 4.4 MiB |
+| 合计 | ≈ 5.4 KB | | ≈ 5.3 GiB |
+
+<KvCacheBars />
+
+对照：BF16 GQA-8、头维 128、61 层的基线是 250 KB/token，1M 时 244 GiB，V4-Pro 是它的 2%，和论文一致。DeepSeek-V3.2 每 token 每层 576 维 latent 加 128 维索引键，约 47 KB/token，V4 约是它的 11%，论文说 10%，差别在 scale 和 indexer 精度的记法。Flash 约 3.7 GiB。
+
+**FLOPs。** 核心注意力每 token 每层（Pro）：CSA 看 1152 条，$2 \times 128 \times 1152 \times 512 = 151$ MFLOP；HCA 在 1M 时看 8320 条，1.09 GFLOP。61 层合计约 38 GFLOP，加上 CSA 的 indexer 打分 30 层 × 4.3 GFLOP（FP4）。V3.2 在 1M 时每层要对 2048 个 token 做 128 头 × 192 维的 QK 和 128 × 128 的 PV，加上对全部 1M token 的 indexer 打分，后者是 61 层 × $2 \times 64 \times 10^6 \times 128 \approx 1$ TFLOP。V4 把 indexer 的 $n$ 除以 4、层数减半，是 27% 这个数的主要来源。
+
+## 术语坑
+
+- **$n_{\text{win}}$ 是 token 数，不是条目数。** 滑窗里的 128 条是未压缩的原始 KV。
+- **HCA 的「不重叠」和 CSA 的「重叠」是同一个 `Compressor` 类**，用 `compress_ratio == 4` 判断。
+- **sink 加在分母。** 不是一个可学习的 key，是一个常数 logit。
+- **RoPE 的反旋转只作用在 64 维上。** 前 448 维本来就不带位置。
+- **YaRN 只在压缩层。** `original_max_position_embeddings = 65536`、`factor = 16`，对应训练时 64K 到 1M 的扩展。
+
+## 下一篇
+
+序列维度讲完了。第 4 篇进入深度维度：mHC。它和这一篇的 Q/KV 归一化、attention sink 一样，都是在给一个无界的量加上界。

@@ -1,0 +1,168 @@
+---
+title: "DeepSeek-V4 模型结构（5）：宽度维度，DeepSeekMoE 的四个改动"
+pubDate: 2026-09-05 19:40:00
+description: "V4 的 MoE 仍是 DeepSeekMoE，但改了四处：路由打分从 sigmoid 换成 sqrt(softplus)，前三层用按 token id 查表的 hash routing 取代稠密层，无辅助损失的偏置路由之外加了一个极小的序列级平衡损失，SwiGLU 加了硬截断。每一处都先说它要解决什么，再看它在代码里长什么样，最后算参数账和 FP4。"
+categories:
+  - "📝学习"
+tags:
+  - "大模型"
+  - "DeepSeek-V4"
+  - "模型结构"
+series: deepseek-v4
+part: "宽度"
+order: 5
+draft: false
+---
+
+import V4ArchDiagram from '../../components/v4/V4ArchDiagram.astro';
+import ScoreDemo from '../../components/v4/ScoreDemo.astro';
+
+对应论文 §2.1 "Designs Inherited from DeepSeek-V3" 里 MoE 的那一段，以及 §4.2.3 的 SwiGLU clamping。论文对这一部分只用了七句话，因为骨架完全是 DeepSeek-V3 的。这一篇先把骨架放回来，再逐个看四处改动。
+
+<V4ArchDiagram highlight={['moe', 'hashmoe']} caption="你现在在这里：每层注意力后面的 FFN。61 层全部是 MoE，前三层是 hash-MoE。" />
+
+## 数字
+
+| | DeepSeek-V3 | V4-Pro | V4-Flash |
+|---|---|---|---|
+| routed expert 数 $N$ | 256 | 384 | 256 |
+| 每 token 激活 $k$ | 8 | 6 | 6 |
+| shared expert | 1 | 1 | 1 |
+| 稀疏度 $N/k$ | 32 | 64 | 43 |
+| expert 中间维 | 2048 | 3072 | 2048 |
+| 单个 expert 参数 | 44M | 66M | 25M |
+| 每层 routed 参数 | 11.3B | 25.4B | 6.4B |
+| 路由打分 | sigmoid | sqrt(softplus) | sqrt(softplus) |
+| `routed_scaling_factor` | 2.5 | 2.5 | 1.5 |
+| 稠密层 | 前 3 层 | 无 | 无 |
+| hash routing 层 | 无 | 前 3 层 | 前 3 层 |
+| expert 精度 | FP8 | FP4 | FP4 |
+
+Pro 相对 V3 的变化方向：expert 更大（中间维 +50%）、更多（+50%）、每 token 用得更少（8 → 6）。稀疏度从 32 提到 64。
+
+## 骨架：DeepSeekMoE
+
+DeepSeekMoE（2024）的两个要点 V4 都保留：**细粒度 expert**，每个 expert 的中间维远小于稠密 FFN，靠多选几个来组合；**shared expert**，一个总是激活的 expert 吸收公共知识，routed expert 只学差异。前向是
+
+$$
+\mathbf{y}_t = \mathbf{x}_t + E^{\text{shared}}(\mathbf{x}_t) + \sum_{i \in \mathcal{T}_t} g_{i,t}\, E_i(\mathbf{x}_t),
+$$
+
+$\mathcal{T}_t$ 是 token $t$ 选中的 $k$ 个 expert，$g_{i,t}$ 是路由权重。每个 expert 是一个三矩阵的 SwiGLU：$E(\mathbf{x}) = W_2\big(\operatorname{SiLU}(W_1 \mathbf{x}) \odot W_3 \mathbf{x}\big)$，7168 → 3072 → 7168。
+
+路由沿用 DeepSeek-V3 的**无辅助损失偏置路由**：
+
+$$
+s_{i,t} = f(\mathbf{w}_i^\top \mathbf{x}_t),
+\qquad
+\mathcal{T}_t = \operatorname{argtop}_k\,(s_{i,t} + b_i),
+\qquad
+g_{i,t} = \gamma \cdot \frac{s_{i,t}}{\sum_{j \in \mathcal{T}_t} s_{j,t}} .
+$$
+
+选哪些 expert 看加了偏置的分数，混合权重用原始分数并归一化，再乘缩放系数 $\gamma$（`routed_scaling_factor`）。偏置 $b_i$ 不是学出来的，训练时每步按负载调整：expert 超载就减、欠载就加，步长 0.001；推理时冻结。它只影响分发，不进梯度。
+
+V4 在这个骨架上改了四处。
+
+## 改动一：打分函数从 sigmoid 换成 sqrt(softplus)
+
+$f$ 在 V2 里是 softmax，V3 换成 sigmoid，V4 换成 $\sqrt{\operatorname{softplus}(\cdot)}$。论文只有一句话，没有解释。下面是我按「打分函数在路由里要干什么」推的理由，不是论文的原话。
+
+打分 $s_{i,t}$ 在路由里承担三件事：**排序**（加偏置后选 top-$k$），**加权**（归一化后当混合权重），**传梯度**（router 只通过 $g_{i,t}$ 收到梯度）。softmax 把三件事耦合在一起，一个 expert 的分数涨了别人的就得跌，V3 换成 sigmoid 是为了解耦。但 sigmoid 有两个问题：
+
+- **上界是 1，正半轴饱和。** 一个 token 对几个 expert 都很确定时，它们的分数都贴近 1，归一化之后权重几乎相等，router 无法再表达「这个比那个更相关」。
+- **饱和区梯度消失。** $\sigma'(x) = \sigma(x)(1 - \sigma(x))$，logit 到 5 以上梯度就只有 $0.7\%$，router 对最重要的那些 expert 恰恰学不动。
+
+<ScoreDemo />
+
+$\sqrt{\operatorname{softplus}(x)}$ 保留了 sigmoid 想要的性质，去掉了饱和：
+
+- 负半轴 $\operatorname{softplus}(x) \approx e^x$，开方后 $\approx e^{x/2}$，和 sigmoid 一样把不相关的 expert 压向 0，归一化后它们几乎不占权重。
+- 正半轴 $\operatorname{softplus}(x) \approx x$，开方后 $\approx \sqrt{x}$，**无界但缓慢增长**，几个高分 expert 之间仍有区分度，而权重归一化让绝对值不重要。
+- 导数 $\sigma(x) / (2\sqrt{\operatorname{softplus}(x)})$ 在正半轴按 $1/(2\sqrt{x})$ 衰减，永远不为零。
+- 处处非负，所以加偏置排序、按比例归一化这两步的语义不变。
+
+开方而不是直接用 softplus，我的理解是压一下正半轴的增长速度，否则少数几个高分会把归一化后的权重推向 one-hot。
+
+代码里三种打分并存，config 选 `sqrtsoftplus`：
+
+```python
+scores = linear(x.float(), self.weight.float())      # 路由 logit，FP32
+scores = F.softplus(scores).sqrt()                   # V4
+original_scores = scores
+scores = scores + self.bias                          # 偏置只用于选，推理时冻结
+indices = scores.topk(self.topk, dim=-1)[1]
+weights = original_scores.gather(1, indices)
+weights /= weights.sum(dim=-1, keepdim=True)         # 按原始分数归一化
+weights *= self.route_scale                          # × 2.5
+```
+
+## 改动二：前三层用 hash routing
+
+DeepSeek-V3 的前三层是稠密 FFN，理由是浅层的路由不稳定、负载难平衡。V4 把它们也换成 MoE，但路由不看分数，**按 token id 查一张固定的表**：`tid2eid` 的形状是 $[129280 \times 6]$，每个词表 id 对应 6 个 expert 编号，训练时不更新。混合权重仍由 router 打分算（分数 gather 到查表选出的 6 个上再归一化），只是「选谁」是固定的。这是 Roller 等 2021 年 Hash Layers 的做法。
+
+为什么浅层可以这样：第 0 层的输入就是词嵌入，路由 logit $\mathbf{w}_i^\top \mathbf{x}_t$ 本来就只是 token id 的函数；第 1、2 层的隐状态也主要由 token 自身决定。学出来的路由在浅层近似等于一张查表，干脆把表固定下来。收益：
+
+- **负载均衡可以离线做。** 表是预先构造的，可以直接让每个 expert 分到的 token 频率之和相等，不需要偏置调整，也不会有路由抖动。
+- **决定性。** 同一个 token 在任何上下文里都走同一组 expert，浅层的行为可预测。
+- **参数量。** 三层 MoE 代替三层稠密 FFN，多出 $3 \times 25.4$B 的容量而激活量不变。
+
+论文没有说 `tid2eid` 是怎么构造的，只说是「预定义的 hash 函数」。
+
+## 改动三：极小的序列级平衡损失
+
+无辅助损失路由靠偏置在**全局 batch** 上平衡负载，但单条序列内部可能极端不均匀，比如一整段代码全打到同一个 expert 上。V3 就已经加过一个序列级平衡损失来兜底，V4 沿用，权重 $10^{-4}$，偏置更新速度 0.001。论文的措辞是「防止单条序列内的极端不平衡」，它不是主力，主力仍是偏置。
+
+另一个相关的改动：V3 限制每个 token 最多路由到 $M = 4$ 个节点（node-limited routing），为了压 EP 通信；V4 **去掉了这个限制**，代之以重新设计的并行策略（§3.1 的细粒度 EP 通信重叠）。路由自由度回到纯 top-$k$。
+
+## 改动四：SwiGLU 截断
+
+来自 §4.2.3 的训练稳定性一节。V4 训练中 loss spike 一直和 MoE 层里的离群激活相关；对策之一是给 SwiGLU 加硬截断（gpt-oss 的做法）：
+
+$$
+E(\mathbf{x}) = W_2\Big(\operatorname{SiLU}\big(\min(W_1 \mathbf{x},\ 10)\big) \odot \operatorname{clamp}(W_3 \mathbf{x},\ -10,\ 10)\Big).
+$$
+
+上支截到 $[-10, 10]$，门只截上界。为什么门不截下界：$\operatorname{SiLU}(x) = x\sigma(x)$ 在负半轴自带有界（最小值约 $-0.28$），只有正半轴会无界增长。乘积的绝对值于是不超过 $10 \times 10 = 100$。config 里 `swiglu_limit = 10`，代码：
+
+```python
+gate = self.w1(x).float()
+up = self.w3(x).float()
+if self.swiglu_limit > 0:
+    up = torch.clamp(up, min=-self.swiglu_limit, max=self.swiglu_limit)
+    gate = torch.clamp(gate, max=self.swiglu_limit)
+x = F.silu(gate) * up
+```
+
+论文说它「有效地消除了离群值」而且不损性能。和 Kimi K3 的 [SiTU-GLU](/2026/09/05/kimi-k3-05-stable-latentmoe/) 对照：目标一样（给乘积加上界），K3 用 $\beta\tanh(x/\beta)$ 软截断保住梯度，V4 用硬 clamp，截断区梯度为零。两家都是在 2.8T / 1.6T 的尺度上被离群激活逼出来的。
+
+shared expert 用同一个 `Expert` 类，也截断。
+
+## FP4 expert
+
+routed expert 的权重是 FP4（E2M1），每 32 个元素一个 UE8M0 的 scale，激活是 FP8（每 128 个元素一个 scale）；shared expert、注意力和其他部分是 FP8。这是 post-training 阶段做量化感知训练的结果（§5.2.1）。1.57T 的 routed 参数在 FP4 下约 0.8 TB，加上其余约 25B 参数的 FP8，整个 Pro 的权重约 0.83 TB。
+
+## 参数账
+
+Pro 的 MoE 层：
+
+| 部件 | 每层 | 61 层 |
+|---|---|---|
+| routed expert：3 × 7168 × 3072 × 384 | 25.4B | **1.55T** |
+| shared expert：3 × 7168 × 3072 | 66M | 4.0B |
+| router：384 × 7168 | 2.8M | 0.17B |
+| hash 表：129280 × 6 个 int32 | 3.1MB | 前 3 层 |
+
+每 token 每层激活 7 个 expert 共 462M，61 层 28.2B，加上注意力的 19.8B 和 embedding / head 的 1.85B，约 50B，和论文的 49B 对得上。
+
+## 术语坑
+
+- **`e_score_correction_bias` 就是负载偏置**，transformers 里存成 buffer，推理时不动。官方代码里叫 `Gate.bias`，FP32。
+- **hash 层也有 router 权重**，只是不用它选 expert。
+- **`routed_scaling_factor` 乘在归一化之后。** 权重之和是 2.5 而不是 1。
+- **shared expert 是 1 个**，和 V3 一样；Kimi K3 是 2 个。
+- **前三层不是稠密层。** V3 的 `first_k_dense_replace = 3` 在 V4 config 里不存在，换成 `num_hash_layers = 3`。
+
+## 下一篇
+
+第 6 篇讲优化器和训练稳定性：Muon 的混合 Newton–Schulz 从「把梯度正交化」推出来，为什么 Q/KV 归一化让它不需要 QK-Clip，以及 Anticipatory Routing 和 MTP。

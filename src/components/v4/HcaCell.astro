@@ -1,0 +1,35 @@
+---
+/** 一层 HCA 的内部（Pro 维度）：与 CSA 相同的 query / KV / 滑窗 / 输出，压缩率 128，不重叠，没有 indexer。 */
+import FlowDiagram from '../k3/FlowDiagram.astro';
+const nodes = [
+  { id: 'in', x: 20, y: 120, w: 90, kind: 'in', lines: ['$x_t$', '7168'] },
+  { id: 'qa', x: 160, y: 30, w: 150, kind: 'mla', lines: ['$W^{DQ}$', '7168 → 1536'] },
+  { id: 'qn', x: 340, y: 30, w: 110, kind: 'op', lines: ['RMSNorm'] },
+  { id: 'qb', x: 480, y: 30, w: 170, kind: 'mla', lines: ['$W^{UQ}$', '1536 → 128 × 512'] },
+  { id: 'qh', x: 680, y: 30, w: 190, kind: 'op', lines: ['逐头 RMSNorm', '+ 后 64 维 RoPE'] },
+  { id: 'kv', x: 160, y: 130, w: 150, kind: 'main', lines: ['$W^{KV}$', '7168 → 512'] },
+  { id: 'kvn', x: 340, y: 130, w: 170, kind: 'op', lines: ['RMSNorm + RoPE(64)'] },
+  { id: 'win', x: 540, y: 130, w: 150, kind: 'cache', lines: ['滑窗 cache', '最近 128 条'] },
+  { id: 'cmp', x: 160, y: 240, w: 220, kind: 'main', lines: ['压缩 128 → 1，不重叠', '$W^{KV}, W^{Z}$：7168 → 512'] },
+  { id: 'cmpn', x: 410, y: 240, w: 200, kind: 'op', lines: ['RMSNorm + RoPE(块首)', 'softmax 在 128 个槽上'] },
+  { id: 'ccache', x: 640, y: 240, w: 150, kind: 'cache', lines: ['压缩 cache', '$n/128$ 条 × 512'] },
+  { id: 'attn', x: 900, y: 130, w: 230, h: 60, kind: 'main', strong: true, lines: ['MQA 核心注意力', '128 头 × (128 + $n/128$) 条', 'K = V，每头一个 sink'] },
+  { id: 'derot', x: 900, y: 240, w: 230, kind: 'op', lines: ['输出反旋转 RoPE(−t)'] },
+  { id: 'oa', x: 900, y: 330, w: 230, kind: 'out', lines: ['分组投影 16 × (4096 → 1024)', '再 16384 → 7168'] },
+];
+const edges = [
+  { from: 'in', to: 'qa', orient: 'h' as const }, { from: 'in', to: 'kv', orient: 'h' as const }, { from: 'in', to: 'cmp', orient: 'h' as const },
+  { from: 'qa', to: 'qn' }, { from: 'qn', to: 'qb' }, { from: 'qb', to: 'qh' },
+  { from: 'kv', to: 'kvn' }, { from: 'kvn', to: 'win' },
+  { from: 'cmp', to: 'cmpn' }, { from: 'cmpn', to: 'ccache' },
+  { from: 'qh', to: 'attn', path: 'M870 52 H 1015 V 128' },
+  { from: 'win', to: 'attn', orient: 'h' as const, label: '128 条', lx: 700, ly: 148 },
+  { from: 'ccache', to: 'attn', path: 'M790 262 H 830 V 170 H 898', label: '全部压缩条目', lx: 800, ly: 216 },
+  { from: 'attn', to: 'derot' }, { from: 'derot', to: 'oa' },
+];
+const groups = [{ x: 150, y: 220, w: 660, h: 90, label: '压缩分支：1M token 只产生 8192 条，所以不用选' }];
+---
+
+<FlowDiagram id="hca-cell" viewBox="0 0 1150 400" minWidth={860} nodes={nodes} edges={edges} groups={groups}
+  label="一层 HCA 的内部结构"
+  caption="一层 HCA（Pro 维度）。和 CSA 相比只有两处不同：压缩率从 4 变成 128 且不重叠；没有 indexer，query 看全部压缩条目。" />

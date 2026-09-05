@@ -1,0 +1,96 @@
+---
+/**
+ * CSA 的重叠压缩：m = 4，12 个 token，两套 (C^a, Z^a)、(C^b, Z^b)。
+ * 压缩条目 i 由「块 i 的 b 系列 + 块 i−1 的 a 系列」共 2m 个槽做一次 softmax 加权和。
+ */
+import SvgTex from '../k3/SvgTex.astro';
+const m = 4, T = 12;
+const X0 = 150, CW = 52, GAP = 4;
+const tx = (t: number) => X0 + t * (CW + GAP) + Math.floor(t / m) * 14;
+const rowT = 40, rowA = 110, rowB = 170, rowE = 290, CH = 36;
+const entries = [0, 1, 2];
+const ex = (i: number) => (tx(i * m) + tx(i * m + m - 1) + CW) / 2;
+const W = tx(T - 1) + CW + 76;
+---
+
+<figure class="cmp">
+  <svg viewBox={`0 0 ${W} 372`} role="img" aria-label="CSA 的重叠压缩">
+    <defs>
+      <marker id="cmp-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" /></marker>
+    </defs>
+
+    <!-- token 行 -->
+    <SvgTex x={X0 - 12} y={rowT + CH / 2} size={11} align="end" color="var(--text-2)" src="token $t$" />
+    {Array.from({ length: T }, (_, t) => (
+      <g>
+        <rect class="tok" x={tx(t)} y={rowT} width={CW} height={CH} rx="5" />
+        <text class="tt" x={tx(t) + CW / 2} y={rowT + CH / 2 + 4} text-anchor="middle">{t}</text>
+      </g>
+    ))}
+    {[0, 1, 2].map((i) => (
+      <SvgTex x={ex(i)} y={rowT - 12} size={10.5} color="var(--text-2)" src={`块 ${i}（$m = 4$ 个 token）`} />
+    ))}
+
+    <!-- a 系列 / b 系列 -->
+    <SvgTex x={X0 - 12} y={rowA + CH / 2} size={11} align="end" color="var(--cat-amber)" src="$C^a_t,\ Z^a_t + B^a$" />
+    <SvgTex x={X0 - 12} y={rowB + CH / 2} size={11} align="end" color="var(--cat-indigo)" src="$C^b_t,\ Z^b_t + B^b$" />
+    {Array.from({ length: T }, (_, t) => (
+      <g>
+        <line class="down" x1={tx(t) + CW / 2} y1={rowT + CH} x2={tx(t) + CW / 2} y2={rowA - 2} marker-end="url(#cmp-arrow)" />
+        <rect class:list={['cell', 'a', { unused: t >= T - m }]} x={tx(t)} y={rowA} width={CW} height={CH} rx="5" />
+        <rect class="cell b" x={tx(t)} y={rowB} width={CW} height={CH} rx="5" />
+        <text class="pos" x={tx(t) + CW / 2} y={rowA + CH / 2 + 4} text-anchor="middle">{`a, 位 ${t % m}`}</text>
+        <text class="pos" x={tx(t) + CW / 2} y={rowB + CH / 2 + 4} text-anchor="middle">{`b, 位 ${t % m}`}</text>
+      </g>
+    ))}
+    <text class="note" x={tx(T - 1) + CW + 4} y={rowA + CH / 2 + 4}>→ 给条目 3</text>
+
+    <!-- 汇聚到压缩条目 -->
+    {entries.map((i) => {
+      const xb1 = tx(i * m), xb2 = tx(i * m + m - 1) + CW;
+      const cx = ex(i);
+      return (
+        <g>
+          <path class="brace b" d={`M${xb1} ${rowB + CH + 6} v6 H${xb2} v-6`} />
+          <line class="flow b" x1={cx} y1={rowB + CH + 12} x2={cx} y2={rowE - 2} marker-end="url(#cmp-arrow)" />
+          {i > 0 && (() => {
+            const xa1 = tx((i - 1) * m), xa2 = tx((i - 1) * m + m - 1) + CW, ca = (xa1 + xa2) / 2;
+            return (
+              <g>
+                <path class="brace a" d={`M${xa1} ${rowA - 8} v-6 H${xa2} v6`} />
+                <path class="flow a" d={`M${xa2 + 2} ${rowA - 14} H ${xa2 + 8} V ${rowE - 14} H ${cx - 12} V ${rowE - 2}`} marker-end="url(#cmp-arrow)" />
+              </g>
+            );
+          })()}
+          <rect class="ent" x={cx - 78} y={rowE} width={156} height={44} rx="8" />
+          <SvgTex x={cx} y={rowE + 14} size={11.5} weight={600} src={`$C^{\\text{Comp}}_{${i}}$`} />
+          <SvgTex x={cx} y={rowE + 32} size={9.5} color="var(--text-2)" src={i === 0 ? '只有块 0 的 b（a 槽填 $-\\infty$）' : `块 ${i} 的 b + 块 ${i - 1} 的 a`} />
+        </g>
+      );
+    })}
+    <SvgTex x={X0 - 12} y={rowE + 22} size={11} align="end" color="var(--text-2)" src="压缩条目 $n/m$ 个" />
+    <SvgTex x={W / 2} y={352} size={10.5} color="var(--muted)" src="每个条目：把 $2m = 8$ 个槽的 $Z + B$ 做一次 softmax（逐通道，$c = 512$ 个通道各一套权重），用它给 $C$ 加权求和。每个 token 参与两个条目。" />
+  </svg>
+  <figcaption>CSA 的重叠压缩（公式 11、12）。橙色是 a 系列，供<b>下一个</b>条目用；蓝色是 b 系列，供<b>当前</b>条目用。条目数仍是 n/m，但每个条目看到 2m 个 token。</figcaption>
+</figure>
+
+<style>
+  .cmp { margin: 2rem 0; padding: 0.8rem 0.6rem 0.6rem; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); overflow-x: auto; }
+  .cmp svg { display: block; width: 100%; min-width: 760px; height: auto; font-family: var(--font-sans); }
+  .cmp marker path { fill: var(--text-2); }
+  .tok { fill: var(--bg-2); stroke: var(--border-2); stroke-width: 1.2; }
+  .tt { fill: var(--text); font-size: 12px; font-weight: 600; }
+  .blk { fill: var(--text-2); font-size: 10.5px; }
+  .cell.a { fill: color-mix(in srgb, var(--cat-amber) 22%, var(--bg-2)); stroke: var(--cat-amber); stroke-width: 1.2; }
+  .cell.b { fill: color-mix(in srgb, var(--cat-indigo) 18%, var(--bg-2)); stroke: var(--cat-indigo); stroke-width: 1.2; }
+  .cell.unused { opacity: 0.45; }
+  .pos { fill: var(--text-2); font-size: 9.5px; }
+  .down { stroke: var(--border-2); stroke-width: 1; }
+  .brace { fill: none; stroke-width: 1.3; }
+  .brace.a { stroke: var(--cat-amber); } .brace.b { stroke: var(--cat-indigo); }
+  .flow { fill: none; stroke-width: 1.5; }
+  .flow.a { stroke: var(--cat-amber); } .flow.b { stroke: var(--cat-indigo); }
+  .ent { fill: color-mix(in srgb, var(--cat-indigo) 12%, var(--bg-2)); stroke: var(--cat-indigo); stroke-width: 1.6; }
+  .note { fill: var(--muted); font-size: 9.5px; }
+  figcaption { margin-top: 0.6rem; font-size: 0.88rem; color: var(--text-2); line-height: 1.6; }
+</style>

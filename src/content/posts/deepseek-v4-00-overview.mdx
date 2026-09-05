@@ -1,0 +1,172 @@
+---
+title: "DeepSeek-V4 模型结构（0）：一张图看懂 DeepSeek-V4"
+pubDate: 2026-09-05 18:00:00
+description: "连载开篇。用一张可点击的总架构图把 DeepSeek-V4 的 4 条残差流、交错的两种压缩注意力和 MoE 摆在一起，给出 Pro 与 Flash 的层排布和维度表、V3 → V3.2 → V4 的结构对照，并说明后面每一篇讲什么。"
+categories:
+  - "📝学习"
+tags:
+  - "大模型"
+  - "DeepSeek-V4"
+  - "模型结构"
+series: deepseek-v4
+part: "总览"
+order: 0
+draft: false
+---
+
+import V4ArchDiagram from '../../components/v4/V4ArchDiagram.astro';
+import V4LayerStrip from '../../components/v4/V4LayerStrip.astro';
+
+这个连载配合 [DeepSeek-V4 技术报告](https://arxiv.org/abs/2606.19348)的 §2 "Architecture" 一起读。论文这一节只有九页，但三个升级各自压着一篇独立论文，MoE 和训练稳定性上又散落着几处小改动。开篇先不进任何细节，只做三件事：把整个模型画成一张图，把层数和维度对上，告诉你后面每一篇在图上的哪个位置。
+
+## 三句话版本
+
+DeepSeek-V4 是两个模型：**Pro** 总参数 1.6T、每 token 激活 49B、61 层；**Flash** 总参数 284B、激活 13B、43 层。两者结构完全相同，只差尺寸，都在 32T 以上的 token 上预训练，上下文 **1M**。
+
+论文把结构上的改动归成三个升级，再加上 MoE 上的几处小调整：
+
+| 维度 | 混合的是什么 | 模块 | 来自哪篇论文 |
+|---|---|---|---|
+| **序列** | token 之间 | Compressed Sparse Attention（CSA）与 Heavily Compressed Attention（HCA）交错 | DeepSeek-V3.2 的 DSA（2512.02556）+ V4 自己的压缩 |
+| **深度** | 层之间 | Manifold-Constrained Hyper-Connections（mHC） | mHC（2512.24880） |
+| **宽度** | 通道之间 | DeepSeekMoE，打分函数、前三层路由、平衡损失、激活截断四处小改 | DeepSeekMoE、DeepSeek-V3 |
+| **优化器** | | Muon，混合 Newton–Schulz | Moonlight（2502.16982） |
+
+论文给的效率数字：1M 上下文下，Pro 单 token 推理的 FLOPs 只有 DeepSeek-V3.2 的 27%，KV cache 只有 10%。
+
+## 总图
+
+下面这张图是论文 Figure 2 的中文可交互版。后面每一篇文章开头都会再放一次，只点亮当篇讲的模块。
+
+<V4ArchDiagram caption="DeepSeek-V4-Pro 总架构。纵向是深度，每一行是一个子层：先经过一个读算子 A 把 4 条残差流压成一条，进子层，输出再由写算子 C 分回 4 条流，同时 4 条流按混合矩阵 B 互相交换。方块可点击跳到对应文章。" />
+
+怎么读这张图：
+
+- **中间是 4 条残差流，不是 1 条。** 这是 mHC 的做法：把残差流拓宽成 `hc_mult = 4` 份，每份 $d$ 维。词嵌入进来时复制 4 份。子层本身仍然只看 $d$ 维输入、输出 $d$ 维，所以注意力和 MoE 的内部设计不受影响。
+- **每个子层前后各有一个 mHC 算子。** 前面的读算子 $A_l$ 是 4 个非负权重，把 4 条流加权求和成子层输入；后面的写算子 $C_l$ 把子层输出分回 4 条流，混合矩阵 $B_l$ 让 4 条流在这一步互相交换。$B_l$ 被约束成双随机矩阵，这个约束是 mHC 相对 HC 的全部改动。三者都由当前 4 条流的内容动态生成。
+- **子层只有四种。** CSA 和 HCA 是两种注意力，DeepSeekMoE 是 FFN，前三层的 FFN 是一个按 token id 查表路由的 hash-MoE。没有稠密层。
+- **虚线框里的四行交错重复。** 偶数层是 CSA，奇数层是 HCA，每层注意力后面接一个 MoE。第 0、1 层是两层 HCA，最后一层是 CSA。
+- **底部是输出。** 最后一次读算子把 4 条流压成 1 条，过 RMSNorm 和 LM head。预训练时还挂了一个 MTP 层，它是一个完整的 decoder block，带自己的 4 条流和输出头。
+
+## 层怎么排
+
+<V4LayerStrip model="pro" caption="Pro 的 61 层。层号按 config.json 和官方代码的 0-indexed 口径。" />
+
+<V4LayerStrip model="flash" caption="Flash 的 43 层。前两层是纯滑窗注意力，其余排法和 Pro 一样。" />
+
+排布直接来自 config 里的 `compress_ratios` 数组，每一项是该层的压缩率：4 是 CSA，128 是 HCA，0 是只有滑窗分支的注意力。Pro 是
+
+$$
+[\text{HCA},\ \text{HCA}]\ +\ [\text{CSA},\ \text{HCA}] \times 29\ +\ [\text{CSA}],
+$$
+
+所以 CSA 有 30 层（全部偶数层），HCA 有 31 层（第 0、1 层加全部奇数层）。Flash 把开头两层换成纯滑窗注意力，中段重复 20 次，共 21 层 CSA、20 层 HCA、2 层滑窗。
+
+两个 config 的数组都比层数多一项，最后一项是 0。官方推理代码里 MTP 块用的层号是 `n_layers + 0`，正好取到这一项：**MTP 层的注意力只有滑窗分支**。论文没有写这一点。
+
+每一层的 FFN 都是 MoE。前三层用 hash routing（`num_hash_layers = 3`），DeepSeek-V3 里前三层的稠密 FFN 在 V4 里不存在了。
+
+## V3 → V3.2 → V4 对照表
+
+| | DeepSeek-V3 | DeepSeek-V3.2 | DeepSeek-V4-Pro | DeepSeek-V4-Flash |
+|---|---|---|---|---|
+| 层数 | 61 | 61 | 61 | 43 |
+| 隐藏维 $d$ | 7168 | 7168 | 7168 | 4096 |
+| 总参数 | 671B | 671B | 1.6T | 284B |
+| 激活参数 | 37B | 37B | 49B | 13B |
+| 注意力 | MLA | MLA + DSA | CSA / HCA 交错 | 同左，前两层滑窗 |
+| 注意力头数 / 头维 | 128 / 128 + 64 | 同左 | 128 / 512 | 64 / 512 |
+| KV 每 token 每层 | 576 数 | 576 数 | CSA 每 4 token 一条 512，HCA 每 128 token 一条 | 同左 |
+| 稀疏选择 | 无 | top-2048 token | top-1024 个压缩块 | top-512 个压缩块 |
+| 残差连接 | 普通 | 普通 | mHC，4 条流 | mHC，4 条流 |
+| routed expert / 激活 / shared | 256 / 8 / 1 | 同左 | 384 / 6 / 1 | 256 / 6 / 1 |
+| expert 中间维 | 2048 | 2048 | 3072 | 2048 |
+| 路由打分 | sigmoid | sigmoid | sqrt(softplus) | sqrt(softplus) |
+| 稠密层 | 前 3 层 | 前 3 层 | 无，前 3 层 hash-MoE | 同左 |
+| 优化器 | AdamW | AdamW | Muon + AdamW | Muon + AdamW |
+| 词表 | 129280 | 129280 | 129280 | 129280 |
+| 训练上下文 | 128K | 128K | 1M | 1M |
+| 预训练 token | 14.8T | 续训 | 33T | 32T |
+| 权重精度 | FP8 | FP8 | FP8，expert FP4 | FP8，expert FP4 |
+
+config.json 里值得先记住的几个数，后面每一篇都会用到（Pro 的值，括号里是 Flash）：
+
+| 字段 | 值 | 意思 |
+|---|---|---|
+| `hidden_size` | 7168（4096） | 主干宽度 $d$ |
+| `num_attention_heads` / `head_dim` | 128 / 512（64 / 512） | query 头数与头维。头维 512 是 V3 的 4 倍 |
+| `num_key_value_heads` | 1 | 只有一条 KV 向量，K 和 V 是同一个东西 |
+| `q_lora_rank` | 1536（1024） | query 的低秩维 $d_c$，indexer 的 query 也从这里出来 |
+| `qk_rope_head_dim` | 64 | 每个头最后 64 维带 RoPE |
+| `o_groups` / `o_lora_rank` | 16 / 1024（8 / 1024） | 分组输出投影：16 组各投到 1024 维 |
+| `sliding_window` | 128 | 滑窗分支的窗口 $n_{\text{win}}$ |
+| `compress_ratios` | 4 / 128 / 0 | 每层的压缩率，见上一节 |
+| `index_n_heads` / `index_head_dim` / `index_topk` | 64 / 128 / 1024（… / 512） | lightning indexer 的头数、头维和选多少个块 |
+| `compress_rope_theta` / `rope_theta` | 160000 / 10000 | 压缩层与滑窗层各用一套 RoPE 基数 |
+| `rope_scaling` | YaRN，factor 16，原始 65536 | 压缩层用 YaRN 从 64K 扩到 1M |
+| `hc_mult` / `hc_sinkhorn_iters` | 4 / 20 | mHC 的流数和 Sinkhorn 轮数 |
+| `n_routed_experts` / `num_experts_per_tok` / `n_shared_experts` | 384 / 6 / 1（256 / 6 / 1） | MoE 配置 |
+| `moe_intermediate_size` | 3072（2048） | expert 中间维 |
+| `scoring_func` / `routed_scaling_factor` | sqrtsoftplus / 2.5（1.5） | 路由打分函数与权重缩放 |
+| `topk_method` | noaux_tc | 无辅助损失的偏置路由 |
+| `num_hash_layers` | 3 | 前三层 MoE 用 hash routing |
+| `swiglu_limit` | 10 | SwiGLU 截断 |
+| `expert_dtype` | fp4 | routed expert 权重 FP4，其余 FP8 |
+| `num_nextn_predict_layers` | 1 | MTP 深度 |
+| `max_position_embeddings` | 1048576 | 1M 上下文 |
+
+## 一个 token 的一次前向
+
+把维度串起来走一遍，用 Pro 的数。进入第 $l$ 层时残差流是 4 个 7168 维向量。
+
+**读算子。** 把 4 条流拉平成一个 28672 维向量，做无权重的 RMSNorm，乘一个 $[24 \times 28672]$ 的矩阵得到 24 个数。前 4 个过 sigmoid 是读权重 $A_l$，中间 4 个过 $2\sigma(\cdot)$ 是写权重 $C_l$，后 16 个排成 $4\times 4$ 过 Sinkhorn 是混合矩阵 $B_l$。子层输入是 4 条流按 $A_l$ 的加权和，7168 维，再过普通的 RMSNorm。
+
+**CSA。** query 走低秩：7168 → 1536 → 128 头 × 512 维，逐头 RMSNorm，最后 64 维加 RoPE。KV 只有一条：7168 → 512，RMSNorm，最后 64 维加 RoPE，既当 K 也当 V。这条 512 维向量进两个地方：最近 128 个 token 的滑窗 cache；以及压缩算子，每 4 个 token 压成一个 512 维条目存进压缩 cache。lightning indexer 用自己的一套 128 维压缩键给每个压缩块打分，选出 1024 个块。核心注意力是 MQA：128 个 query 头对着 128 条滑窗加 1024 条压缩条目，每头一个可学习的 sink。输出的 64 维 rope 位做反旋转，然后分 16 组、每组 4096 → 1024，拼成 16384 → 7168。
+
+**HCA。** 和 CSA 的差别只有两处：压缩率 128 且不重叠；没有 indexer，1M 上下文也只有 8192 个压缩条目，全部看。
+
+**DeepSeekMoE。** router 在 7168 维上给 384 个 expert 打分，打分函数是 $\sqrt{\operatorname{softplus}(\cdot)}$，加偏置选 top-6，权重按原始分数归一化再乘 2.5。每个 expert 是 7168 → 3072 → 7168 的 SwiGLU，上支截到 $[-10, 10]$、门上限 10。一个同形的 shared expert 直接加上。前三层 expert 的选择不看分数，按 token id 查一张 $[129280 \times 6]$ 的表。
+
+**写算子。** 子层输出乘 $C_l$ 分到 4 条流，同时旧的 4 条流按 $B_l$ 混合，两者相加就是下一个子层看到的残差流。
+
+最后一层出来以后，一个只有读权重的 hc_head 把 4 条流压成 1 条，过 RMSNorm，LM head 把 7168 维映到 129280 个 logit。LM head 不和 embedding 共享权重。
+
+## 参数账
+
+按 config 手算，和论文的口径对得上：
+
+| 部件 | Pro | Flash |
+|---|---|---|
+| routed expert：3 × $d$ × 中间维 × expert 数 × 层数 | 3 × 7168 × 3072 × 384 × 61 = **1.57T** | 3 × 4096 × 2048 × 256 × 43 = 277B |
+| shared expert | 4.1B | 1.1B |
+| 注意力（含压缩算子和 indexer） | 19.8B | 5.2B |
+| embedding + LM head | 1.85B | 1.06B |
+| mHC 参数 | 85M | 35M |
+| 合计 | ≈ 1.60T | ≈ 291B |
+| 每 token 激活 | 7 个 expert 28.7B + 注意力 19.8B + emb/head 1.85B ≈ 50B | ≈ 14B |
+
+routed expert 占了 98%。注意力这一项比 V3 大得多，因为头维从 128 涨到 512，128 个头的 query 展开矩阵一层就有 100M。
+
+## 阅读地图
+
+每一篇对应论文的一个小节，括号里是它在总图上点亮的部分。
+
+| 篇 | 讲什么 | 对应论文 |
+|---|---|---|
+| 0 | 本篇。总图、层排布、维度账 | §2 开头，§4.2.1，Figure 2 |
+| 1 | 序列维度（上）：从 MLA 到压缩 KV。注意力的谱系，压缩算子怎么从平均池化推出来，重叠窗口，K = V 的 MQA，分组输出投影（CSA、HCA） | §2.3 开头，§2.3.1 前半 |
+| 2 | 序列维度（中）：lightning indexer 与在压缩块上做稀疏选择（CSA） | §2.3.1 后半，V3.2 §2.1 |
+| 3 | 序列维度（下）：HCA、混合排布、滑窗分支、部分 RoPE 与输出反旋转、attention sink、1M 上下文的账（HCA、滑窗） | §2.3.2 – §2.3.4 |
+| 4 | 深度维度：mHC。为什么普通 HC 不稳，为什么双随机矩阵是对的约束，Sinkhorn，代码里的接线（mHC） | §2.2，mHC 论文 |
+| 5 | 宽度维度：DeepSeekMoE 的四个改动。sqrt-softplus 打分，hash routing，序列级平衡损失，SwiGLU 截断（MoE） | §2.1，§4.2.3 |
+| 6 | 优化器与稳定性：Muon 的混合 Newton–Schulz，为什么不需要 QK-Clip，Anticipatory Routing，MTP（零件） | §2.4，§4.2.3 |
+| 7 | 结构决定系统：混合注意力的 KV cache 布局、上下文并行、磁盘缓存、mHC 的系统实现 | §3.4.2，§3.4.3，§3.5 |
+
+明确一下本连载**不讲**：数据构建、post-training（SFT、RL、on-policy distillation）、评测结果、FP4 量化感知训练的细节、EP 通信重叠和 TileLang 内核。这些在论文 §3.1 – §3.3、§4.1、§4.3、§5 里。
+
+## 资料
+
+- DeepSeek-V4 技术报告：[arXiv 2606.19348](https://arxiv.org/abs/2606.19348)
+- 权重与官方推理实现：Hugging Face [deepseek-ai/DeepSeek-V4-Pro](https://huggingface.co/deepseek-ai/DeepSeek-V4-Pro) 与 [DeepSeek-V4-Flash](https://huggingface.co/deepseek-ai/DeepSeek-V4-Flash)，`inference/model.py` 是论文说的「用来消除歧义」的参考实现
+- transformers 里的实现：`src/transformers/models/deepseek_v4/`
+- 三篇上游论文：DeepSeek-V3.2 [2512.02556](https://arxiv.org/abs/2512.02556)、mHC [2512.24880](https://arxiv.org/abs/2512.24880)、Moonlight [2502.16982](https://arxiv.org/abs/2502.16982)

@@ -1,0 +1,55 @@
+---
+/** DeepSeek-V4 推理时的 KV cache 布局（论文 Figure 6）：状态 cache（每序列一块，固定大小）+ 经典 cache（每序列多块，块 = lcm(4,128) = 128 个原 token）。 */
+import SvgTex from '../k3/SvgTex.astro';
+---
+
+<figure class="kvl">
+  <svg viewBox="0 0 960 330" role="img" aria-label="KV cache 布局">
+    <!-- 状态 cache -->
+    <rect class="frame" x="20" y="40" width="360" height="250" rx="10" />
+    <text class="ttl" x="36" y="30">状态 cache：每个序列一块，大小固定，像 SSM 的状态</text>
+    {['滑窗段', 'CSA 尾段', 'HCA 尾段'].map((name, i) => (
+      <g>
+        <rect class:list={['seg', ['win', 'csa', 'hca'][i]]} x="40" y={60 + i * 74} width="320" height="58" rx="6" />
+        <text class="t" x="52" y={82 + i * 74}>{name}</text>
+        <text class="s" x="52" y={100 + i * 74}>{['最近 128 个 token 的未压缩 KV，环形覆盖，每层一份', '未满 4 个的尾 token（≤ 3 个）和它们的压缩权重，每 CSA 层一份', '未满 128 个的尾 token（≤ 127 个）和压缩权重，每 HCA 层一份'][i]}</text>
+      </g>
+    ))}
+    <text class="s" x="40" y="304">命中 / 淘汰策略和分页 cache 不同，所以单独管理</text>
+
+    <!-- 经典 cache -->
+    <rect class="frame" x="420" y="40" width="520" height="250" rx="10" />
+    <text class="ttl" x="436" y="30">经典 KV cache：每个序列多块，块内按层类型分区</text>
+    {[0, 1, 2].map((b) => (
+      <g>
+        <rect class="blk" x={440 + b * 165} y="60" width="150" height="180" rx="6" />
+        <text class="t" x={515 + b * 165} y="80" text-anchor="middle">{`块 ${b}`}</text>
+        <text class="s" x={515 + b * 165} y="96" text-anchor="middle">{`原 token ${b * 128}–${b * 128 + 127}`}</text>
+        <rect class="seg csa" x={452 + b * 165} y="106" width="126" height="46" rx="4" />
+        <text class="s" x={515 + b * 165} y="125" text-anchor="middle">CSA：32 条 × 512</text>
+        <text class="s" x={515 + b * 165} y="140" text-anchor="middle">+ indexer 32 条 × 128</text>
+        <rect class="seg hca" x={452 + b * 165} y="160" width="126" height="30" rx="4" />
+        <text class="s" x={515 + b * 165} y="179" text-anchor="middle">HCA：1 条 × 512</text>
+        <text class="s" x={515 + b * 165} y="214" text-anchor="middle">每层各自的这一段</text>
+      </g>
+    ))}
+    <SvgTex x={680} y={268} size={10.5} color="var(--text-2)" src="块大小取 $\operatorname{lcm}(m, m') = 128$ 个原 token 的整数倍，两种层的条目都对齐到块边界" />
+    <text class="s" x="440" y="304">块满了才写入；每块内容只依赖它覆盖的 token，所以可以按块做前缀缓存和落盘</text>
+  </svg>
+  <figcaption>论文 Figure 6 的布局。左边是随序列走的「状态」，右边是随长度增长、可以分页和复用的压缩条目。</figcaption>
+</figure>
+
+<style>
+  .kvl { margin: 2rem 0; padding: 0.8rem 0.6rem 0.6rem; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); overflow-x: auto; }
+  .kvl svg { display: block; width: 100%; min-width: 760px; height: auto; font-family: var(--font-sans); }
+  .frame { fill: none; stroke: var(--border-2); stroke-width: 1.2; stroke-dasharray: 6 5; }
+  .ttl { fill: var(--text-2); font-size: 11.5px; font-weight: 600; }
+  .blk { fill: var(--bg-2); stroke: var(--border-2); stroke-width: 1.2; }
+  .seg { stroke-width: 1.3; }
+  .seg.win { fill: color-mix(in srgb, var(--muted) 20%, var(--bg-2)); stroke: var(--muted); }
+  .seg.csa { fill: color-mix(in srgb, var(--cat-indigo) 14%, var(--bg-2)); stroke: var(--cat-indigo); }
+  .seg.hca { fill: color-mix(in srgb, var(--cat-cyan) 14%, var(--bg-2)); stroke: var(--cat-cyan); }
+  .t { fill: var(--text); font-size: 11.5px; font-weight: 600; }
+  .s { fill: var(--text-2); font-size: 9.8px; }
+  figcaption { margin-top: 0.6rem; font-size: 0.88rem; color: var(--text-2); line-height: 1.6; }
+</style>

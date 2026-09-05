@@ -1,0 +1,89 @@
+---
+/**
+ * 交互：Newton–Schulz 迭代作用在奇异值上的多项式 p(σ) = aσ + bσ³ + cσ⁵。
+ * 两组系数：Jordan 的 (3.4445, −4.7750, 2.0315) 与 (2, −1.5, 0.5)；滑块看迭代 k 次后的复合函数，可选 V4 的 hybrid 调度（前 8 步 A、后 2 步 B）。
+ */
+import { texMix } from './tex';
+---
+
+<div class="demo ns-demo">
+  <div class="ctl">
+    <label>迭代次数 k = <output data-k-out>1</output><input type="range" min="1" max="10" value="1" data-k /></label>
+    <label>
+      调度
+      <select data-mode>
+        <option value="a">只用 A：(3.4445, −4.7750, 2.0315)</option>
+        <option value="b">只用 B：(2, −1.5, 0.5)</option>
+        <option value="h" selected>V4 hybrid：前 8 步 A，后 2 步 B</option>
+      </select>
+    </label>
+  </div>
+  <svg viewBox="0 0 640 320" data-plot>
+    <g data-grid></g>
+    <line class="one" x1="0" x2="0" y1="0" y2="0" data-one />
+    <path class="c-a" data-a d="" />
+    <path class="c-b" data-b d="" />
+    <path class="c-k" data-kk d="" />
+    <text class="ax" x="620" y="312" text-anchor="end">归一化后的奇异值 σ ∈ [0, 1]</text>
+    <text class="ax" x="8" y="16">迭代后的奇异值</text>
+  </svg>
+  <div class="legend">
+    <span class="a" set:html={texMix('A 一步：$p_A(\\sigma) = 3.4445\\sigma - 4.7750\\sigma^3 + 2.0315\\sigma^5$，$p_A(1) = 0.70$，$p_A^{\\prime}(0) = 3.44$')} />
+    <span class="b" set:html={texMix('B 一步：$p_B(\\sigma) = 2\\sigma - 1.5\\sigma^3 + 0.5\\sigma^5$，$p_B(1) = 1$，$p_B^{\\prime}(1) = 0$')} />
+    <span class="k">k 步复合（按所选调度）</span>
+  </div>
+</div>
+
+<style>
+  .ns-demo { border: 1px solid var(--border); border-radius: var(--r); padding: 1rem 1.1rem; background: var(--surface); margin: 1.5rem 0; }
+  .ns-demo .ctl { display: flex; flex-wrap: wrap; gap: 0.8rem 2rem; align-items: end; font-size: 0.9rem; color: var(--text-2); }
+  .ns-demo .ctl label { display: block; }
+  .ns-demo output { font-variant-numeric: tabular-nums; color: var(--text); font-weight: 600; }
+  .ns-demo input[type='range'] { display: block; width: 200px; margin-top: 0.3rem; accent-color: var(--accent); }
+  .ns-demo select { display: block; margin-top: 0.3rem; background: var(--bg-2); color: var(--text); border: 1px solid var(--border-2); border-radius: 6px; padding: 0.2rem 0.4rem; }
+  .ns-demo svg { display: block; width: 100%; height: auto; margin-top: 0.8rem; font-family: var(--font-sans); }
+  .ns-demo .c-a { fill: none; stroke: var(--cat-indigo); stroke-width: 1.8; opacity: 0.8; }
+  .ns-demo .c-b { fill: none; stroke: var(--cat-cyan); stroke-width: 1.8; opacity: 0.8; }
+  .ns-demo .c-k { fill: none; stroke: var(--cat-rose); stroke-width: 2.6; }
+  .ns-demo .one { stroke: var(--muted); stroke-dasharray: 5 4; }
+  .ns-demo .ax, .ns-demo [data-grid] text { fill: var(--muted); font-size: 11px; }
+  .ns-demo [data-grid] line { stroke: var(--border-2); stroke-width: 1; }
+  .ns-demo .legend { display: flex; flex-wrap: wrap; gap: 0.4rem 1.4rem; margin-top: 0.6rem; font-size: 0.85rem; color: var(--text-2); }
+  .ns-demo .legend span::before { content: ''; display: inline-block; width: 18px; height: 3px; margin-right: 6px; vertical-align: middle; border-radius: 2px; }
+  .ns-demo .legend .a::before { background: var(--cat-indigo); }
+  .ns-demo .legend .b::before { background: var(--cat-cyan); }
+  .ns-demo .legend .k::before { background: var(--cat-rose); }
+</style>
+
+<script>
+  document.querySelectorAll<HTMLElement>('.ns-demo').forEach((root) => {
+    const q = <T extends Element>(s: string) => root.querySelector<T>(s)!;
+    const kIn = q<HTMLInputElement>('[data-k]'), kOut = q<HTMLOutputElement>('[data-k-out]'), mode = q<HTMLSelectElement>('[data-mode]');
+    const pa = q<SVGPathElement>('[data-a]'), pb = q<SVGPathElement>('[data-b]'), pk = q<SVGPathElement>('[data-kk]'), grid = q<SVGGElement>('[data-grid]'), one = q<SVGLineElement>('[data-one]');
+    const A = [3.4445, -4.775, 2.0315], B = [2, -1.5, 0.5];
+    const p = (c: number[], s: number) => c[0] * s + c[1] * s ** 3 + c[2] * s ** 5;
+    const W = 640, H = 320, L = 44, R = 16, Tp = 24, Bm = 40, yMax = 1.4;
+    const sx = (x: number) => L + x * (W - L - R);
+    const sy = (y: number) => Tp + (1 - Math.max(0, Math.min(yMax, y)) / yMax) * (H - Tp - Bm);
+    const render = () => {
+      const k = Number(kIn.value), m = mode.value;
+      kOut.textContent = String(k);
+      const sched = Array.from({ length: k }, (_, i) => (m === 'a' ? A : m === 'b' ? B : i < 8 ? A : B));
+      let da = '', db = '', dk = '';
+      for (let i = 0; i <= 300; i++) {
+        const x = i / 300;
+        let s = x; for (const c of sched) s = p(c, s);
+        da += `${i ? 'L' : 'M'}${sx(x).toFixed(1)} ${sy(p(A, x)).toFixed(1)} `;
+        db += `${i ? 'L' : 'M'}${sx(x).toFixed(1)} ${sy(p(B, x)).toFixed(1)} `;
+        dk += `${i ? 'L' : 'M'}${sx(x).toFixed(1)} ${sy(s).toFixed(1)} `;
+      }
+      pa.setAttribute('d', da); pb.setAttribute('d', db); pk.setAttribute('d', dk);
+      one.setAttribute('x1', String(L)); one.setAttribute('x2', String(W - R)); one.setAttribute('y1', String(sy(1))); one.setAttribute('y2', String(sy(1)));
+      grid.innerHTML =
+        [0, 0.5, 1, 1.4].map((t) => `<line x1="${L}" x2="${W - R}" y1="${sy(t)}" y2="${sy(t)}"/><text x="${L - 6}" y="${sy(t) + 4}" text-anchor="end">${t}</text>`).join('') +
+        [0, 0.25, 0.5, 0.75, 1].map((x) => `<line x1="${sx(x)}" x2="${sx(x)}" y1="${Tp}" y2="${H - Bm}"/><text x="${sx(x)}" y="${H - Bm + 16}" text-anchor="middle">${x}</text>`).join('');
+    };
+    kIn.addEventListener('input', render); mode.addEventListener('change', render);
+    render();
+  });
+</script>

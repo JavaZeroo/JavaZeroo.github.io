@@ -1,0 +1,169 @@
+---
+title: "DeepSeek-V4 模型结构（1）：序列维度（上），从 MLA 到压缩 KV"
+pubDate: 2026-09-05 18:20:00
+description: "1M 上下文下注意力的账到底花在哪，可以砍的只有三个量：头数、维度、条目数。沿着 MHA → MQA → MLA → DSA → CSA/HCA 的谱系走一遍，每一步砍了什么；把 V4 的压缩算子从平均池化一步步推出来，解释重叠窗口和逐通道 softmax；再讲 K = V 的单头 MQA 和分组输出投影。"
+categories:
+  - "📝学习"
+tags:
+  - "大模型"
+  - "DeepSeek-V4"
+  - "模型结构"
+series: deepseek-v4
+part: "序列"
+order: 1
+draft: false
+---
+
+import V4ArchDiagram from '../../components/v4/V4ArchDiagram.astro';
+import AttnLineage from '../../components/v4/AttnLineage.astro';
+import CompressCell from '../../components/v4/CompressCell.astro';
+
+对应论文 §2.3 的开头和 §2.3.1 的前半，公式 (9) 到 (12)，以及 (18)、(19) 和分组输出投影那一段。V4 的两种注意力 CSA 和 HCA 共用一套骨架：单条 KV、压缩、MQA、分组输出投影。这一篇讲这套骨架，特别是压缩算子；lightning indexer 放到下一篇，HCA 和其余零件放到第 3 篇。
+
+<V4ArchDiagram highlight={['csa', 'hca']} caption="你现在在这里：全部注意力层。这一篇讲 CSA 和 HCA 共有的部分。" />
+
+## 1M 上下文的账花在哪
+
+先算清楚要砍什么。一个标准的多头注意力层，每个 token 每层要缓存所有头的 K 和 V，缓存量是 $2\, n_h c$ 个数（$n_h$ 头，头维 $c$）；decode 时每生成一个 token，要把前文所有 $n$ 个 token 的缓存读一遍，算 $n_h \cdot n \cdot c$ 次乘加，再乘 2（QK 和 PV）。所以每 token 的代价是
+
+$$
+\text{KV cache} \propto n_h\, c \times L,
+\qquad
+\text{注意力 FLOPs} \propto n_h\, c \times n \times L .
+$$
+
+$L$ 是层数，不好动。剩下三个量：**头数** $n_h$、**每条目的维度** $c$、**条目数** $n$。每一代高效注意力都是在砍其中一个。
+
+DeepSeek 自己的路线：V2 的 MLA 砍维度，把 K、V 压成一个 576 维的 latent；V3.2 的 DSA 砍看的条目数，每个 query 只对 top-2048 个 token 做注意力，但缓存的条目数没变。1M 上下文下 61 层的 MLA 缓存约 46 GB，每层 2048 个条目的注意力算起来还是重。V4 砍的是**存的条目数**：把每 $m$ 个 token 的 KV 压成一条，缓存和注意力的 $n$ 同时除以 $m$。
+
+## 谱系：每一步砍了什么
+
+<AttnLineage />
+
+按节点走一遍。每一节先说它砍了什么，再说留下的问题。
+
+### MHA
+
+Vaswani 2017。每个头有自己的 $W_Q, W_K, W_V$，缓存 $2 n_h c$。它的问题是缓存和头数成正比，头数是模型质量的旋钮，不愿意减。
+
+### MQA 与 GQA
+
+MQA（Shazeer 2019）让所有 query 头共享一组 K、V，缓存降到 $2c$；GQA（2023）折中，$g$ 组各一份，缓存 $2gc$。砍的是 K/V 的**头数**，query 头数不变。质量有损失，但 decode 是访存瓶颈，读 KV cache 的时间直接除以 $n_h / g$，所以几乎所有开源模型都用了 GQA。
+
+### MLA
+
+DeepSeek-V2，2024。不砍头数，砍**每个条目的维度**：$c_t = W^{DKV} x_t \in \mathbb{R}^{512}$，只缓存这个 latent 加 64 维带 RoPE 的共享键，每 token 每层 576 个数，用的时候再用 $W^{UK}, W^{UV}$ 展开成 128 个头的 K、V。展开矩阵可以吸收进 query 和输出投影，于是推理时可以不展开，直接把 latent 当成所有头共享的 K 和 V 来算，这就是 MLA 的 **MQA 模式**：头数 128，K、V 只有一条 576 维向量。V4 沿用的正是这个模式的骨架。
+
+### NSA
+
+Native Sparse Attention，DeepSeek 2025 年 2 月。在 GQA 上做三条并行分支：把每个块压缩成一条的**压缩分支**、按压缩块的分数选出若干块做细粒度注意力的**选择分支**、以及**滑窗分支**，三条分支的输出由门加权求和。CSA 的压缩加选择加滑窗三件套，形状上来自这里。区别在于 NSA 的选择分支选出块之后看的是块内**未压缩**的 token，而 V4 选出块之后看的就是**压缩条目本身**。
+
+### DSA
+
+DeepSeek-V3.2，2025 年 12 月。在 MLA 的 MQA 模式上加一个 lightning indexer：给每个 query 和每个前文 token 算一个便宜的分数，只对 top-2048 个 token 做注意力。砍的是**看的条目数**，缓存不变，indexer 本身仍是 $O(n^2)$ 但很轻。它是 V4 indexer 的直接前身，下一篇细讲。
+
+### CSA 与 HCA
+
+DeepSeek-V4，2026。在 DSA 前面加一步压缩：先把每 $m = 4$ 个 token 的 KV 压成一条，缓存和 indexer 的 $n$ 都除以 4；indexer 在压缩块上选 top-1024 个块；核心注意力对着 1024 条压缩条目加 128 条滑窗做 MQA。HCA 把压缩率提到 $m' = 128$，条目少到不用再选。
+
+砍的是**存的条目数**。这是 DeepSeek 这条线上第一次动 KV cache 的长度。
+
+## 单条 KV：K 和 V 是同一个向量
+
+CSA 和 HCA 的 KV 都只有一条 512 维向量（`num_key_value_heads = 1`，`head_dim = 512`），既当 K 也当 V。论文公式 (19)：
+
+$$
+\mathbf{o}_{t,i} = \operatorname{CoreAttn}(\text{query} = \mathbf{q}_{t,i},\ \text{key} = \mathcal{C}_t,\ \text{value} = \mathcal{C}_t).
+$$
+
+为什么可以这样：回到 MLA 的 MQA 模式。推理时 latent $c_t$ 同时充当所有头的 K 和 V，展开矩阵 $W^{UK}$ 被吸进 query、$W^{UV}$ 被吸进输出投影。V4 把这一步做成了训练时的结构：干脆不要 $W^{UK}, W^{UV}$，让 512 维的 KV 向量直接和 512 维的 query 头做内积、直接被加权求和。每个头的「K 展开」和「V 展开」，由 query 上投影 $W^{UQ}$ 和分组输出投影 $W^{OA}$ 各自学出来。
+
+这样做的代价是 K 和 V 不能再各自选择内容，收益是缓存只有一条、内核里 K 和 V 只读一遍。头维 512 是为了补回表达力：V3 的 MLA 是 128 头 × (128 + 64) 维 query，V4 是 128 头 × 512 维，query 的总维度 65536。
+
+query 走低秩（公式 (18)）：$\mathbf{c}^Q_t = \mathbf{h}_t W^{DQ}$，7168 → 1536，然后 $W^{UQ}$ 展开成 128 × 512。这个 1536 维的 $\mathbf{c}^Q_t$ 同时是 indexer 的 query 来源，下一篇会用到。
+
+## 压缩算子：从平均池化推出来
+
+现在看 V4 新加的东西。目标是把连续 $m$ 个 token 的 KV 压成一条 $c$ 维向量，而且这个操作要能在 decode 时增量地做（每来 $m$ 个 token 产生一条）。
+
+**第 0 步：平均。** 最简单的压缩是把 $m$ 个 KV 向量取平均。它丢掉了两样信息：块内哪个 token 更重要，以及 token 在块内的位置（平均是置换不变的）。
+
+**第 1 步：加权。** 让权重由 token 自己决定。给每个 token 算一个和 KV 同维的权重向量 $Z_t = H W^{Z}$（公式 (10)），对块内 $m$ 个 token 做 softmax，用它给 KV 加权求和。权重是 $c$ 维而不是标量，意味着 softmax 是**逐通道**做的：512 个通道各自有一套「块内哪个 token 重要」的分布，一个通道可以专门记块首、另一个专门记块尾。公式里的 $\odot$ 就是这个意思。
+
+**第 2 步：位置。** 加一个可学习的 $B \in \mathbb{R}^{m \times c}$（公式 (11) 里的 $B^a, B^b$），块内第 $j$ 个位置的权重 logit 加上 $B_j$。这是一个块内的绝对位置编码，让压缩条目知道「这一条里第 2 个 token 通常比第 1 个重要」这种先验。
+
+到这里得到的是 HCA 的压缩算子（公式 (22)、(23)）：
+
+$$
+S_{m'i : m'(i+1)-1} = \operatorname{Softmax}_{\text{row}}\big(Z_{m'i : m'(i+1)-1} + B\big),
+\qquad
+C^{\text{Comp}}_i = \sum_{j = m'i}^{m'(i+1)-1} S_j \odot C_j .
+$$
+
+**第 3 步：重叠。** 块是硬切的：token 3 和 token 4 属于不同的条目，它们之间的关系在压缩后只能靠 query 同时看两条来恢复。CSA 的 $m = 4$ 很小，边界效应相对大。V4 的做法是让每个 token 参与**两个**条目：算两套 KV 和权重 $(C^a, Z^a)$、$(C^b, Z^b)$（公式 (9)、(10)），条目 $i$ 由块 $i$ 的 b 系列和块 $i - 1$ 的 a 系列共 $2m$ 个槽做一次 softmax（公式 (11)、(12)）：
+
+$$
+[S^a_{m(i-1):mi-1};\ S^b_{mi:m(i+1)-1}] = \operatorname{Softmax}_{\text{row}}\big([Z^a_{m(i-1):mi-1} + B^a;\ Z^b_{mi:m(i+1)-1} + B^b]\big),
+$$
+
+$$
+C^{\text{Comp}}_i = \sum_{j=m(i-1)}^{mi-1} S^a_j \odot C^a_j + \sum_{j=mi}^{m(i+1)-1} S^b_j \odot C^b_j .
+$$
+
+<CompressCell />
+
+条目数仍然是 $n/m$，每个条目的感受野变成 $2m = 8$ 个 token，窗口宽 8、步长 4。$i = 0$ 时没有前一块，a 系列的槽 kv 填 0、logit 填 $-\infty$，softmax 自动把权重全给 b 系列。
+
+**为什么两套投影而不是一套。** 如果 a、b 用同一个 $C_t$，token $t$ 对它「所在的条目」和「下一个条目」的贡献内容相同，只有权重不同。分成两套，同一个 token 可以给当前条目写一种摘要、给下一条写另一种，比如给下一条的版本更侧重「上文结尾是什么」。代价是压缩算子的参数翻倍，Pro 里 $W^{aKV}, W^{bKV}, W^{aZ}, W^{bZ}$ 各 7168 × 512，一层 14.7M。
+
+**压缩之后。** 条目过一个 RMSNorm，最后 64 维加上 RoPE，位置取块的**第一个 token**的位置（官方代码 `freqs_cis[:cutoff:ratio]`）。位置编码的细节第 3 篇讲。
+
+## 官方代码里的压缩算子
+
+`inference/model.py` 的 `Compressor` 把上面几步写在一起。prefill 路径：
+
+```python
+kv = self.wkv(x.float())                 # [b, n, 2·512]：前 512 维是 a 系列，后 512 维是 b 系列
+score = self.wgate(x.float())            # [b, n, 2·512]：Z^a, Z^b
+kv = kv.unflatten(1, (-1, ratio))        # [b, n/4, 4, 1024]，按块切
+score = score.unflatten(1, (-1, ratio)) + self.ape     # 加块内位置偏置 B，形状 [4, 1024]
+if overlap:                              # ratio == 4 时
+    kv = self.overlap_transform(kv, 0)               # [b, n/4, 8, 512]：后 4 槽是本块的 b，前 4 槽是上一块的 a
+    score = self.overlap_transform(score, float("-inf"))
+kv = (kv * score.softmax(dim=2)).sum(dim=2)          # 逐通道 softmax，8 个槽上求和 → [b, n/4, 512]
+kv = self.norm(kv.to(dtype))                         # RMSNorm(512)
+apply_rotary_emb(kv[..., -rd:], self.freqs_cis[:cutoff:ratio])   # 块首位置的 RoPE
+```
+
+几个论文没写的细节：
+
+- **压缩在 FP32 里算。** `wkv`、`wgate` 的权重和 `ape` 都存 FP32，注释说「compression need fp32」。softmax 权重在 BF16 里会把差得很小的两个 logit 合并，块宽越大越明显。
+- **decode 时的状态。** 每层维护一个 `kv_state` 和 `score_state` 缓冲（重叠时 8 个槽，否则 $m'$ 个槽），每来一个 token 写进对应的槽，凑满 $m$ 个时输出一条。这个缓冲就是第 7 篇讲的「状态 cache」里 CSA/HCA 段的内容。
+- **重叠只在 $m = 4$ 时开。** `self.overlap = compress_ratio == 4`，HCA 的 128 不重叠，和论文一致。
+- **尾巴丢掉。** 序列长度不是 $m$ 的整数倍时，剩下的 token 留在缓冲里等下一批，不单独成条目。训练时（§3.4.3）每个样本独立压缩，不足 $m$ 的尾 token 直接丢弃。
+- **indexer 有自己的一份。** `Indexer` 里另有一个 `Compressor`，头维 128，多做一步 Hadamard 旋转再 FP4 量化，产生 $K^{\text{IComp}}$。下一篇讲。
+
+## 分组输出投影
+
+128 个头 × 512 维的注意力输出是 65536 维。直接投影到 7168 维要一个 $65536 \times 7168$ 的矩阵，470M 参数，一层的算术量比 query 展开还大。论文的做法是分组：把 128 个头分成 $g = 16$ 组，每组 8 个头共 4096 维，各自投到 $d_g = 1024$ 维，拼起来 16384 维，再一个矩阵投到 7168：
+
+$$
+\mathbf{o}^{G'}_{t,i} = \mathbf{o}^{G}_{t,i} W^{OA}_i \in \mathbb{R}^{1024},\ i = 1..16,
+\qquad
+\mathbf{y}_t = [\mathbf{o}^{G'}_{t,1}; \dots; \mathbf{o}^{G'}_{t,16}]\, W^{OB} .
+$$
+
+参数从 470M 降到 $16 \times 4096 \times 1024 + 16384 \times 7168 = 67\text{M} + 117\text{M}$。config 里是 `o_groups = 16`、`o_lora_rank = 1024`（Flash 是 8 组）。代码里第一步是一个分组的 einsum，第二步是普通的 `wo_b`。
+
+这可以看成输出投影的低秩分解，但不是整体低秩：16 组各自独立地降到 1024，跨组的混合只发生在 $W^{OB}$ 里。论文这一段在 arXiv 的 HTML 版里被截断了，上面的维度以代码为准。
+
+## 术语坑
+
+- **$c$ 是头维也是 KV 维。** 论文用 $c$ 同时表示 query 头维和压缩条目的维度，因为 V4 里它们相等（512）。V3 里两者不等。
+- **$C$ 不是 cache。** 公式里 $C^a, C^b, C^{\text{Comp}}$ 是 KV 条目，$\mathcal{C}^{\text{SprsComp}}$ 是被选中的条目集合。
+- **每 token 一条 512 维 KV，不等于每 token 缓存 512 个数。** 未压缩的 KV 只在滑窗里存 128 条；长期缓存的是压缩条目，CSA 每 4 个 token 一条。
+- **「重叠压缩」不改变条目数。** 条目仍是 $n/m$ 个，只是每条的感受野是 $2m$。
+
+## 下一篇
+
+压缩之后条目数是 $n/4$，1M 上下文下仍有 26 万条。第 2 篇讲 lightning indexer 怎么在这些压缩块上选出 1024 个。

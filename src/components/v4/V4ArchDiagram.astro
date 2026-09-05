@@ -1,0 +1,248 @@
+---
+/**
+ * DeepSeek-V4 总架构图。数据驱动的 SVG：块列表 + 连线在 frontmatter 里声明，
+ * 每篇文章通过 `highlight` 点亮自己讲的那一组模块，其余淡化。方块可点击跳到对应文章。
+ * 残差流画成 4 条并行竖线（mHC 的 hc_mult = 4），每个子层前一个「读」算子 A，后一个「写 + 混」算子 C / B。
+ */
+import SvgTex from '../k3/SvgTex.astro';
+type Group = 'embed' | 'csa' | 'hca' | 'swa' | 'moe' | 'hashmoe' | 'mhc' | 'output' | 'mtp';
+
+interface Props {
+  /** 要点亮的模块组；不传则全部正常显示 */
+  highlight?: Group | Group[];
+  /** 画 Pro（默认）还是 Flash 的层排布；两者只差前两层和层数 */
+  model?: 'pro' | 'flash';
+  caption?: string;
+}
+const { highlight, model = 'pro', caption } = Astro.props;
+const hl = new Set<Group>(highlight ? (Array.isArray(highlight) ? highlight : [highlight]) : []);
+const dimming = hl.size > 0;
+const pro = model === 'pro';
+
+const LINKS: Record<Group, string | null> = {
+  embed: '/2026/09/05/deepseek-v4-00-overview/',
+  csa: '/2026/09/05/deepseek-v4-02-lightning-indexer/',
+  hca: '/2026/09/05/deepseek-v4-03-hybrid-attention/',
+  swa: '/2026/09/05/deepseek-v4-03-hybrid-attention/',
+  moe: '/2026/09/05/deepseek-v4-05-moe/',
+  hashmoe: '/2026/09/05/deepseek-v4-05-moe/',
+  mhc: '/2026/09/05/deepseek-v4-04-mhc/',
+  output: '/2026/09/05/deepseek-v4-00-overview/',
+  mtp: '/2026/09/05/deepseek-v4-06-muon/',
+};
+
+interface Box { id: string; group: Group; x: number; y: number; w: number; h: number; label: string; sub?: string; title?: string; }
+
+// ---- 布局常量 ----
+const STREAMS = [340, 356, 372, 388];            // 4 条残差流
+const SX = (STREAMS[0] + STREAMS[3]) / 2;         // 流束中心
+const RW = 76;                                    // 读 / 写算子的宽度（横跨 4 条流）
+const ROW0 = 168, ROW_H = 68;
+const BOX_H = 34, WB_H = 18;                      // 模块框高、写算子高
+const MOD_X = 462, MOD_W = 214;
+const rowY = (i: number) => ROW0 + i * ROW_H;
+const rowC = (i: number) => rowY(i) + BOX_H / 2;
+const wbY = (i: number) => rowY(i) + BOX_H + 8;   // 写算子顶
+const wbC = (i: number) => wbY(i) + WB_H / 2;
+
+const L = pro ? 61 : 43;
+const nCSA = pro ? 30 : 21, nHCAmid = pro ? 29 : 20;
+const rows: { i: number; group: Group; label: string; sub?: string; title: string }[] = [
+  pro
+    ? { i: 0, group: 'hca', label: 'HCA', sub: '第 0、1 层 · m′ = 128', title: 'Heavily Compressed Attention：每 128 个 token 压成一个 KV 条目，不做稀疏选择' }
+    : { i: 0, group: 'swa', label: '滑窗注意力', sub: '第 0、1 层 · 窗口 128', title: 'Flash 的前两层只有滑动窗口分支，没有压缩 KV' },
+  { i: 1, group: 'hashmoe', label: 'Hash-MoE', sub: `第 0–2 层的 FFN · ${pro ? 384 : 256} 选 6`, title: '前三层的 MoE 按 token id 查表决定 expert，权重仍由 router 打分' },
+  { i: 2, group: 'csa', label: 'CSA', sub: `偶数层 · ×${nCSA} · m = 4`, title: 'Compressed Sparse Attention：每 4 个 token 压成一个条目，indexer 选 top-k 个条目，加 128 个滑窗条目' },
+  { i: 3, group: 'moe', label: 'DeepSeekMoE', sub: `${pro ? 384 : 256} 选 6 + 1 shared`, title: 'sqrt(softplus) 打分，无辅助损失偏置路由，SwiGLU clamp，FP4 expert' },
+  { i: 4, group: 'hca', label: 'HCA', sub: `奇数层 · ×${nHCAmid} · m′ = 128`, title: '每 128 个 token 压成一个条目，全部条目都看' },
+  { i: 5, group: 'moe', label: 'DeepSeekMoE', sub: `${pro ? 384 : 256} 选 6 + 1 shared`, title: '同上' },
+  { i: 6, group: 'csa', label: 'CSA', sub: `第 ${L - 1} 层 · 收尾`, title: '最后一层是 CSA' },
+  { i: 7, group: 'moe', label: 'DeepSeekMoE', sub: `第 ${L - 1} 层`, title: '同上' },
+];
+
+const boxes: Box[] = [
+  { id: 'embed', group: 'embed', x: SX - 88, y: 52, w: 176, h: BOX_H, label: 'Token Embedding', sub: `129280 × ${pro ? 7168 : 4096}`, title: '词表 129280' },
+  ...rows.map((r) => ({ id: `row${r.i}`, group: r.group, x: MOD_X, y: rowY(r.i), w: MOD_W, h: BOX_H, label: r.label, sub: r.sub, title: r.title })),
+  { id: 'norm', group: 'output', x: MOD_X, y: rowY(8), w: 96, h: BOX_H, label: 'RMSNorm', title: '最终归一化' },
+  { id: 'head', group: 'output', x: MOD_X + 112, y: rowY(8), w: 102, h: BOX_H, label: 'LM Head', sub: '→ 129280', title: '不与 embedding 共享权重' },
+  { id: 'mtp', group: 'mtp', x: MOD_X, y: rowY(9), w: MOD_W, h: BOX_H, label: 'MTP 层 ×1', sub: '滑窗注意力 + MoE · 自带 mHC', title: '多 token 预测模块：一个完整的 decoder block，注意力只有滑窗分支，有自己的 4 流残差和输出头' },
+];
+
+const cls = (g: Group) => ['blk', g, hl.has(g) ? 'hl' : ''].join(' ');
+const href = (g: Group) => LINKS[g];
+
+// 重复块的虚线框：CSA / HCA 交错的中段
+const grp = { x: 316, y: rowY(2) - 6, w: 372, h: 4 * ROW_H - 4 };
+const VB_H = rowY(9) + BOX_H + 30;
+---
+
+<figure class:list={['v4d', { dimming }]} data-highlight={[...hl].join(' ')}>
+  <svg viewBox={`0 0 1030 ${VB_H}`} role="img" aria-label="DeepSeek-V4 总架构图">
+    <defs>
+      <marker id="v4-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0 0 L10 5 L0 10 z" />
+      </marker>
+    </defs>
+
+    <text class="lbl" x={SX} y="34" text-anchor="middle">文本 token</text>
+
+    <!-- embedding → 4 条流 -->
+    {STREAMS.map((x) => <line class="edge" x1={SX} y1={86} x2={x} y2={rowY(0) - 14} />)}
+    <text class="note" x={SX + 100} y={rowY(0) - 30}>复制成 4 份，进入 4 条残差流</text>
+    <text class="note" x={SX + 100} y={rowY(0) - 16}>（mHC 的 hc_mult = 4）</text>
+
+    <!-- 残差流：4 条 -->
+    {STREAMS.map((x) => <line class="stream" x1={x} y1={rowY(0) - 12} x2={x} y2={rowC(8)} />)}
+    <text class="note" x={STREAMS[0] - 16} y={rowC(0) - 2} text-anchor="end">残差流 ×4</text>
+    <text class="note" x={STREAMS[0] - 16} y={rowC(0) + 12} text-anchor="end">每条 d 维</text>
+
+    <!-- 重复块虚线框 -->
+    <rect class="grp" x={grp.x} y={grp.y} width={grp.w} height={grp.h} rx="10" />
+    <text class="grp-lbl" x={grp.x + grp.w + 10} y={rowY(2) + 6}>重复 {nHCAmid} 次</text>
+    <text class="grp-lbl" x={grp.x + grp.w + 10} y={rowY(2) + 22}>CSA 与 HCA 交错</text>
+    <text class="note" x={grp.x + grp.w + 10} y={rowY(2) + 40}>第 2 – {L - 2} 层，偶数层 CSA、奇数层 HCA</text>
+    <text class="note" x={grp.x + grp.w + 10} y={rowY(2) + 54}>每层注意力后接一个 MoE</text>
+
+    <!-- 每一行：读 → 模块 → 写/混 -->
+    {rows.map((r) => (
+      <g>
+        <line class="edge" x1={SX + RW / 2} y1={rowC(r.i)} x2={MOD_X - 2} y2={rowC(r.i)} marker-end="url(#v4-arrow)" />
+        <path class="edge ret" d={`M${MOD_X + MOD_W} ${rowC(r.i)} H ${MOD_X + MOD_W + 20} V ${wbC(r.i)} H ${SX + RW / 2 + 2}`} marker-end="url(#v4-arrow)" />
+      </g>
+    ))}
+
+    <!-- 左侧：mHC 说明 -->
+    <text class="note" x="40" y={rowY(2) - 14}>mHC：每个子层一次读、一次写 + 混</text>
+    <SvgTex x={40} y={rowY(2) + 8} size={11} align="start" color="var(--muted)" src="$x_{l+1} = B_l\,x_l + C_l\,\mathcal{F}_l(A_l\,x_l)$" />
+    <SvgTex x={40} y={rowY(2) + 30} size={11} align="start" color="var(--muted)" src="读 $A_l \in \mathbb{R}^{1\times 4}$：sigmoid，4 条流压成 1 条" />
+    <SvgTex x={40} y={rowY(2) + 50} size={11} align="start" color="var(--muted)" src="写 $C_l \in \mathbb{R}^{4\times 1}$：2·sigmoid，输出分给 4 条流" />
+    <SvgTex x={40} y={rowY(2) + 70} size={11} align="start" color="var(--muted)" src="混 $B_l \in \mathbb{R}^{4\times 4}$：Sinkhorn 20 轮，双随机" />
+    <text class="note" x="40" y={rowY(2) + 92}>三者都由当前 4 条流的内容动态生成</text>
+    {[0, 1, 2].map((k) => (
+      <path class="edge fan" d={`M 232 ${rowY(2) + 8 + k * 20} C 244 ${rowY(2) + 8 + k * 20}, 246 ${rowC(2)}, ${SX - RW / 2 - 2} ${rowC(2)}`} marker-end="url(#v4-arrow)" />
+    ))}
+
+    <!-- 输出行：只读不写 -->
+    <line class="edge" x1={SX + RW / 2} y1={rowC(8)} x2={MOD_X - 2} y2={rowC(8)} marker-end="url(#v4-arrow)" />
+    <line class="edge" x1={MOD_X + 96} y1={rowC(8)} x2={MOD_X + 110} y2={rowC(8)} marker-end="url(#v4-arrow)" />
+    <line class="edge" x1={MOD_X + MOD_W} y1={rowC(8)} x2={MOD_X + MOD_W + 30} y2={rowC(8)} marker-end="url(#v4-arrow)" />
+    <text class="lbl" x={MOD_X + MOD_W + 38} y={rowC(8) + 4}>logits</text>
+    <text class="note" x={SX - RW / 2 - 8} y={rowC(8) + 4} text-anchor="end">最后一次只读：4 条流压成 1 条</text>
+    <path class="edge mtp" d={`M${MOD_X + 48} ${rowY(8) + BOX_H} V ${rowY(9) - 2}`} marker-end="url(#v4-arrow)" />
+    <text class="note" x={MOD_X + 56} y={rowY(9) - 8}>4 条流的最终状态 + 下一个 token 的 embedding</text>
+
+    <!-- 读算子 A（每个子层前一个，输出前再一个） -->
+    {[...rows.map((r) => r.i), 8].map((i) => {
+      const link = href('mhc');
+      const body = (
+        <g class={cls('mhc')}>
+          <title>mHC 读算子 A：对 4 条流做 sigmoid 加权求和，得到子层的 d 维输入</title>
+          <rect x={SX - RW / 2} y={rowY(i)} width={RW} height={BOX_H} rx="8" />
+          <text class="t" x={SX} y={rowC(i) + 5} text-anchor="middle">读 A</text>
+        </g>
+      );
+      return link ? <a href={link}>{body}</a> : body;
+    })}
+    <!-- 写 + 混算子 C / B（每个子层后一个） -->
+    {rows.map((r) => {
+      const link = href('mhc');
+      const body = (
+        <g class={cls('mhc')}>
+          <title>mHC 写算子 C 与混合矩阵 B：子层输出按 C 分到 4 条流，同时 4 条流按双随机矩阵 B 互相混合</title>
+          <rect x={SX - RW / 2} y={wbY(r.i)} width={RW} height={WB_H} rx="6" />
+          <text class="s" x={SX} y={wbC(r.i) + 4} text-anchor="middle">写 C · 混 B</text>
+        </g>
+      );
+      return link ? <a href={link}>{body}</a> : body;
+    })}
+
+    <!-- 方块 -->
+    {boxes.map((b) => {
+      const link = href(b.group);
+      const body = (
+        <g class={cls(b.group)}>
+          {b.title && <title>{b.title}</title>}
+          <rect x={b.x} y={b.y} width={b.w} height={b.h} rx="8" />
+          <text class="t" x={b.x + b.w / 2} y={b.y + (b.sub ? 14 : b.h / 2 + 5)} text-anchor="middle">{b.label}</text>
+          {b.sub && <text class="s" x={b.x + b.w / 2} y={b.y + 27} text-anchor="middle">{b.sub}</text>}
+        </g>
+      );
+      return link ? <a href={link}>{body}</a> : body;
+    })}
+  </svg>
+
+  <div class="legend">
+    <span class:list={['chip', 'csa', { hl: hl.has('csa') }]}>序列 · CSA</span>
+    <span class:list={['chip', 'hca', { hl: hl.has('hca') }]}>序列 · HCA</span>
+    <span class:list={['chip', 'swa', { hl: hl.has('swa') }]}>序列 · 滑窗</span>
+    <span class:list={['chip', 'mhc', { hl: hl.has('mhc') }]}>深度 · mHC</span>
+    <span class:list={['chip', 'moe', { hl: hl.has('moe') || hl.has('hashmoe') }]}>宽度 · DeepSeekMoE</span>
+    <span class:list={['chip', 'mtp', { hl: hl.has('mtp') || hl.has('embed') || hl.has('output') }]}>零件</span>
+  </div>
+  {caption && <figcaption>{caption}</figcaption>}
+</figure>
+
+<style>
+  .v4d {
+    margin: 2rem 0;
+    padding: 1rem 1rem 0.8rem;
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    background: var(--surface);
+    --c-csa: var(--cat-indigo);
+    --c-hca: var(--cat-cyan);
+    --c-swa: var(--muted);
+    --c-moe: var(--cat-emerald);
+    --c-mhc: var(--cat-amber);
+    --c-embed: var(--muted);
+    --c-output: var(--muted);
+    --c-mtp: var(--muted);
+  }
+  .v4d svg { display: block; width: 100%; height: auto; font-family: var(--font-sans); }
+  .v4d marker path { fill: var(--text-2); }
+  .v4d .edge { fill: none; stroke: var(--text-2); stroke-width: 1.4; }
+  .v4d .edge.ret { opacity: 0.75; }
+  .v4d .edge.fan { stroke: var(--c-mhc); opacity: 0.8; }
+  .v4d .edge.mtp { stroke-dasharray: 4 4; opacity: 0.7; }
+  .v4d .stream { stroke: var(--text-2); stroke-width: 2; stroke-linecap: round; opacity: 0.5; }
+  .v4d .grp { fill: none; stroke: var(--border-2); stroke-dasharray: 6 5; }
+  .v4d .grp-lbl, .v4d .lbl { fill: var(--text-2); font-size: 12px; font-weight: 600; }
+  .v4d .note { fill: var(--muted); font-size: 11px; }
+
+  .v4d .blk rect {
+    fill: color-mix(in srgb, var(--c) 16%, var(--bg-2));
+    stroke: var(--c);
+    stroke-width: 1.5;
+    transition: opacity 0.2s, stroke-width 0.15s;
+  }
+  .v4d .blk.hashmoe rect { stroke-dasharray: 5 3; }
+  .v4d .blk .t { fill: var(--text); font-size: 13px; font-weight: 600; }
+  .v4d .blk .s { fill: var(--text-2); font-size: 10.5px; }
+  .v4d .blk.csa { --c: var(--c-csa); }
+  .v4d .blk.hca { --c: var(--c-hca); }
+  .v4d .blk.swa { --c: var(--c-swa); }
+  .v4d .blk.moe, .v4d .blk.hashmoe { --c: var(--c-moe); }
+  .v4d .blk.mhc { --c: var(--c-mhc); }
+  .v4d .blk.embed { --c: var(--c-embed); }
+  .v4d .blk.output { --c: var(--c-output); }
+  .v4d .blk.mtp { --c: var(--c-mtp); }
+  .v4d a { cursor: pointer; text-decoration: none; }
+  .v4d a text { text-decoration: none; }
+  .v4d a:hover .blk rect { stroke-width: 2.5; }
+  .v4d a:focus-visible .blk rect { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .v4d.dimming .blk:not(.hl) { opacity: 0.32; }
+  .v4d.dimming .blk.hl rect { stroke-width: 2.4; filter: drop-shadow(0 0 6px color-mix(in srgb, var(--c) 55%, transparent)); }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 0.4rem 0.6rem; margin-top: 0.8rem; }
+  .chip {
+    font-size: 0.78rem; padding: 0.15rem 0.6rem; border-radius: 999px;
+    border: 1px solid var(--c); color: var(--text-2);
+    background: color-mix(in srgb, var(--c) 12%, transparent);
+  }
+  .chip.csa { --c: var(--c-csa); } .chip.hca { --c: var(--c-hca); } .chip.swa { --c: var(--c-swa); }
+  .chip.mhc { --c: var(--c-mhc); } .chip.moe { --c: var(--c-moe); } .chip.mtp { --c: var(--c-mtp); }
+  .v4d.dimming .chip:not(.hl) { opacity: 0.45; }
+  .chip.hl { color: var(--text); font-weight: 600; }
+  figcaption { margin-top: 0.7rem; font-size: 0.88rem; color: var(--text-2); text-align: center; }
+</style>

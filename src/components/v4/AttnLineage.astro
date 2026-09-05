@@ -1,0 +1,82 @@
+---
+/**
+ * 注意力的谱系流程图：MHA → MQA/GQA → MLA → DSA → CSA/HCA，NSA 作为压缩分支的先例并入。
+ * 每条边标「砍掉了哪个量」；节点可点击跳到正文对应小节。
+ */
+import SvgTex from '../k3/SvgTex.astro';
+type Kind = 'root' | 'head' | 'latent' | 'sparse' | 'v4';
+interface Node { id: string; href?: string; kind: Kind; cx: number; y: number; w: number; name: string; cost: string; note: string }
+const H = 70;
+const nodes: Node[] = [
+  { id: 'mha', kind: 'root', cx: 200, y: 20, w: 280, name: 'MHA 2017', cost: '每 token 每层缓存 $2\\,n_h c$ 个数', note: '每个头各有自己的 K、V' },
+  { id: 'mqa-与-gqa', kind: 'head', cx: 200, y: 150, w: 280, name: 'MQA 2019 · GQA 2023', cost: '缓存 $2c$（MQA）或 $2 g c$（GQA）', note: '砍 K/V 的头数，query 头共享' },
+  { id: 'mla', kind: 'latent', cx: 560, y: 150, w: 280, name: 'MLA 2024（DeepSeek-V2）', cost: '缓存 $d_c + d_r = 576$', note: '砍每个条目的维度：K、V 压成一个 latent' },
+  { id: 'nsa', kind: 'sparse', cx: 200, y: 290, w: 280, name: 'NSA 2025', cost: '压缩块 + 选块 + 滑窗三条分支', note: 'GQA 上做，压缩块是 CSA 的先例' },
+  { id: 'dsa', kind: 'sparse', cx: 560, y: 290, w: 280, name: 'DSA 2025（DeepSeek-V3.2）', cost: '缓存不变，每个 query 只算 top-2048 条', note: '砍看的条目数：indexer 选 token' },
+  { id: 'csa-与-hca', kind: 'v4', cx: 380, y: 430, w: 320, name: 'CSA 2026（DeepSeek-V4）', cost: '每 4 个 token 一条 512 维条目，看 top-1024 条 + 128 条滑窗', note: '砍存的条目数：先压缩，再在压缩块上选' },
+  { id: 'hca', href: 'csa-与-hca', kind: 'v4', cx: 760, y: 430, w: 280, name: 'HCA 2026（DeepSeek-V4）', cost: '每 128 个 token 一条，全部看', note: '压缩率大到不需要再选' },
+];
+const byId = Object.fromEntries(nodes.map((n) => [n.id, n]));
+const left = (n: Node) => n.cx - n.w / 2, right = (n: Node) => n.cx + n.w / 2;
+const down = (a: Node, b: Node) => { const y1 = a.y + H, y2 = b.y, ym = (y1 + y2) / 2; return `M${a.cx} ${y1} V ${ym} H ${b.cx} V ${y2 - 2}`; };
+const across = (a: Node, b: Node) => `M${right(a)} ${a.y + H / 2} H ${left(b) - 2}`;
+interface Edge { d: string; label: string; lx: number; ly: number; dashed?: boolean; anchor?: 'start' | 'middle' }
+const edges: Edge[] = [
+  { d: down(byId.mha, byId['mqa-与-gqa']), label: '砍头数：K、V 只留 1 个（或 $g$ 个）头', lx: 210, ly: 118 },
+  { d: down(byId.mha, byId.mla), label: '砍维度：K、V 压成 latent，用时再展开', lx: 570, ly: 118 },
+  { d: across(byId['mqa-与-gqa'], byId.mla), label: 'MLA 的 MQA 模式：latent 就是共享的 K 和 V', lx: 350, ly: 168, dashed: true },
+  { d: down(byId.mla, byId.dsa), label: '砍看的条目数：lightning indexer 选 top-k', lx: 570, ly: 258 },
+  { d: down(byId['mqa-与-gqa'], byId.nsa), label: '砍存的条目数：把块压缩成一条', lx: 210, ly: 258 },
+  { d: down(byId.dsa, byId['csa-与-hca']), label: '先压缩 4:1，再在压缩块上选', lx: 570, ly: 386 },
+  { d: `M${byId.nsa.cx} ${byId.nsa.y + H} V 398 H ${byId['csa-与-hca'].cx - 60} V ${byId['csa-与-hca'].y - 2}`, label: '压缩分支 + 滑窗分支的先例', lx: 70, ly: 386, dashed: true },
+  { d: across(byId['csa-与-hca'], byId.hca), label: '去掉 indexer', lx: 548, ly: 448 },
+];
+---
+
+<figure class="lin">
+  <svg viewBox="0 0 920 520" role="img" aria-label="从 MHA 到 CSA/HCA 的注意力谱系">
+    <defs>
+      <marker id="lin-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" /></marker>
+    </defs>
+    <text class="head" x="200" y="12" text-anchor="middle">砍头数 / 砍存的条目数</text>
+    <text class="head" x="560" y="12" text-anchor="middle">砍维度 / 砍看的条目数</text>
+    {edges.map((e) => (
+      <g>
+        <path class:list={['edge', { dashed: e.dashed }]} d={e.d} marker-end="url(#lin-arrow)" />
+        <SvgTex x={e.lx} y={e.ly} size={10} align="start" color="var(--muted)" src={e.label} />
+      </g>
+    ))}
+    {nodes.map((n) => (
+      <a href={`#${n.href ?? n.id}`}>
+        <g class:list={['node', n.kind]}>
+          <title>{`跳到「${n.name}」`}</title>
+          <rect x={left(n)} y={n.y} width={n.w} height={H} rx="9" />
+          <SvgTex x={n.cx} y={n.y + 16} size={12.5} weight={600} src={n.name} />
+          <SvgTex x={n.cx} y={n.y + 37} size={10.5} src={n.cost} />
+          <SvgTex x={n.cx} y={n.y + 56} size={10} color="var(--text-2)" src={n.note} />
+        </g>
+      </a>
+    ))}
+    <SvgTex x={580} y={482} size={10} align="middle" color="var(--muted)" src="压缩率 4 → 128" />
+    <text class="foot" x="460" y="512" text-anchor="middle">每条边标注「砍掉了哪个量」。虚线是借鉴关系，不是继承关系。点击节点跳到对应小节。</text>
+  </svg>
+</figure>
+
+<style>
+  .lin { margin: 2rem 0; padding: 0.8rem 0.6rem 0.4rem; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); overflow-x: auto; }
+  .lin svg { display: block; width: 100%; min-width: 720px; height: auto; font-family: var(--font-sans); }
+  .lin marker path { fill: var(--text-2); }
+  .edge { fill: none; stroke: var(--text-2); stroke-width: 1.4; }
+  .edge.dashed { stroke-dasharray: 5 4; opacity: 0.8; }
+  .head { fill: var(--text-2); font-size: 11px; font-weight: 600; }
+  .foot { fill: var(--muted); font-size: 10.5px; }
+  .node rect { fill: color-mix(in srgb, var(--c) 12%, var(--bg-2)); stroke: var(--c); stroke-width: 1.5; transition: stroke-width 0.15s; }
+  .node.root { --c: var(--muted); }
+  .node.head { --c: var(--cat-emerald); }
+  .node.latent { --c: var(--cat-amber); }
+  .node.sparse { --c: var(--cat-rose); }
+  .node.v4 { --c: var(--cat-indigo); }
+  .node.v4 rect { fill: color-mix(in srgb, var(--c) 22%, var(--bg-2)); stroke-width: 1.9; }
+  .lin a { text-decoration: none; }
+  .lin a:hover .node rect { stroke-width: 2.6; }
+</style>

@@ -1,0 +1,96 @@
+---
+/**
+ * 交互：L 层残差映射的复合 ∏B_l 的增益（最大绝对行和 = 前向增益）随深度的变化。
+ * 无约束的 HC：B = I + σ·N(0,1)；mHC：B = Sinkhorn(exp(σ·N(0,1)))。滑块调 σ 和深度。
+ */
+import { texMix } from './tex';
+---
+
+<div class="demo gain-demo">
+  <div class="ctl">
+    <label>扰动尺度 σ = <output data-s-out>0.30</output><input type="range" min="2" max="100" value="30" data-s /></label>
+    <label>深度 L = <output data-l-out>120</output><input type="range" min="10" max="200" value="120" data-l /></label>
+    <button type="button" data-rand>重新随机</button>
+  </div>
+  <svg viewBox="0 0 640 320" data-plot>
+    <g data-grid></g>
+    <path class="c-hc" data-hc d="" />
+    <path class="c-mhc" data-mhc d="" />
+    <text class="ax" x="620" y="312" text-anchor="end">跨过的子层数 L − l</text>
+    <text class="ax" x="8" y="16">复合映射的最大绝对行和（对数轴）</text>
+  </svg>
+  <div class="legend">
+    <span class="hc" set:html={texMix('无约束 HC：$B_l = I + \\sigma G_l$，$G_l$ 每个元素 $\\sim \\mathcal{N}(0,1)$')} />
+    <span class="mhc" set:html={texMix('mHC：$B_l = \\operatorname{Sinkhorn}(\\exp(\\sigma G_l))$')} />
+  </div>
+</div>
+
+<style>
+  .gain-demo { border: 1px solid var(--border); border-radius: var(--r); padding: 1rem 1.1rem; background: var(--surface); margin: 1.5rem 0; }
+  .gain-demo .ctl { display: flex; flex-wrap: wrap; gap: 0.8rem 2rem; align-items: end; font-size: 0.9rem; color: var(--text-2); }
+  .gain-demo .ctl label { display: block; }
+  .gain-demo output { font-variant-numeric: tabular-nums; color: var(--text); font-weight: 600; }
+  .gain-demo input[type='range'] { display: block; width: 200px; margin-top: 0.3rem; accent-color: var(--accent); }
+  .gain-demo button { background: var(--bg-2); color: var(--text); border: 1px solid var(--border-2); border-radius: 6px; padding: 0.3rem 0.7rem; cursor: pointer; }
+  .gain-demo svg { display: block; width: 100%; height: auto; margin-top: 0.8rem; font-family: var(--font-sans); }
+  .gain-demo .c-hc { fill: none; stroke: var(--cat-rose); stroke-width: 2.2; }
+  .gain-demo .c-mhc { fill: none; stroke: var(--cat-amber); stroke-width: 2.4; }
+  .gain-demo .ax, .gain-demo [data-grid] text { fill: var(--muted); font-size: 11px; }
+  .gain-demo [data-grid] line { stroke: var(--border-2); stroke-width: 1; }
+  .gain-demo .legend { display: flex; flex-wrap: wrap; gap: 0.4rem 1.4rem; margin-top: 0.6rem; font-size: 0.85rem; color: var(--text-2); }
+  .gain-demo .legend span::before { content: ''; display: inline-block; width: 18px; height: 3px; margin-right: 6px; vertical-align: middle; border-radius: 2px; }
+  .gain-demo .legend .hc::before { background: var(--cat-rose); }
+  .gain-demo .legend .mhc::before { background: var(--cat-amber); }
+</style>
+
+<script>
+  document.querySelectorAll<HTMLElement>('.gain-demo').forEach((root) => {
+    const q = <T extends Element>(s: string) => root.querySelector<T>(s)!;
+    const sIn = q<HTMLInputElement>('[data-s]'), lIn = q<HTMLInputElement>('[data-l]');
+    const sOut = q<HTMLOutputElement>('[data-s-out]'), lOut = q<HTMLOutputElement>('[data-l-out]');
+    const pHC = q<SVGPathElement>('[data-hc]'), pM = q<SVGPathElement>('[data-mhc]'), grid = q<SVGGElement>('[data-grid]');
+    const n = 4, LMAX = 200;
+    const randn = () => { let u = 0, v = 0; while (!u) u = Math.random(); while (!v) v = Math.random(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); };
+    let Gs: number[][][] = [];
+    const reseed = () => { Gs = Array.from({ length: LMAX }, () => Array.from({ length: n }, () => Array.from({ length: n }, randn))); };
+    reseed();
+    const eye = () => Array.from({ length: n }, (_, i) => Array.from({ length: n }, (_, j) => (i === j ? 1 : 0)));
+    const mul = (A: number[][], B: number[][]) => A.map((r) => Array.from({ length: n }, (_, j) => r.reduce((a, x, k) => a + x * B[k][j], 0)));
+    const sinkhorn = (M: number[][]) => {
+      for (let k = 0; k < 20; k++) {
+        M = M.map((r) => { const s = r.reduce((a, b) => a + b, 0); return r.map((x) => x / s); });
+        const cs = Array.from({ length: n }, (_, j) => M.reduce((a, r) => a + r[j], 0));
+        M = M.map((r) => r.map((x, j) => x / cs[j]));
+      }
+      return M;
+    };
+    const gain = (M: number[][]) => Math.max(...M.map((r) => Math.abs(r.reduce((a, b) => a + b, 0))));
+
+    const render = () => {
+      const s = Number(sIn.value) / 100, L = Number(lIn.value);
+      sOut.textContent = s.toFixed(2); lOut.textContent = String(L);
+      let PH = eye(), PM = eye();
+      const gh: number[] = [], gm: number[] = [];
+      for (let l = 0; l < L; l++) {
+        const G = Gs[l];
+        const BH = G.map((r, i) => r.map((x, j) => (i === j ? 1 : 0) + s * x));
+        const BM = sinkhorn(G.map((r) => r.map((x) => Math.exp(s * x))));
+        PH = mul(BH, PH); PM = mul(BM, PM);
+        gh.push(gain(PH)); gm.push(gain(PM));
+      }
+      const W = 640, H = 320, Lp = 52, R = 16, Tp = 26, B = 40;
+      const yMinLog = -2, yMaxLog = Math.max(2, Math.ceil(Math.log10(Math.max(...gh, 1.1))));
+      const sx = (l: number) => Lp + (l / L) * (W - Lp - R);
+      const sy = (g: number) => { const v = Math.max(yMinLog, Math.min(yMaxLog, Math.log10(Math.max(g, 1e-9)))); return Tp + (1 - (v - yMinLog) / (yMaxLog - yMinLog)) * (H - Tp - B); };
+      const path = (arr: number[]) => arr.map((g, i) => `${i ? 'L' : 'M'}${sx(i + 1).toFixed(1)} ${sy(g).toFixed(1)}`).join(' ');
+      pHC.setAttribute('d', path(gh)); pM.setAttribute('d', path(gm));
+      let g = '';
+      for (let e = yMinLog; e <= yMaxLog; e++) g += `<line x1="${Lp}" x2="${W - R}" y1="${sy(10 ** e)}" y2="${sy(10 ** e)}"/><text x="${Lp - 6}" y="${sy(10 ** e) + 4}" text-anchor="end">${e === 0 ? '1' : `10^${e}`}</text>`;
+      for (let l = 0; l <= L; l += Math.max(10, Math.round(L / 8 / 10) * 10)) g += `<line x1="${sx(l)}" x2="${sx(l)}" y1="${Tp}" y2="${H - B}"/><text x="${sx(l)}" y="${H - B + 16}" text-anchor="middle">${l}</text>`;
+      grid.innerHTML = g;
+    };
+    sIn.addEventListener('input', render); lIn.addEventListener('input', render);
+    q<HTMLButtonElement>('[data-rand]').addEventListener('click', () => { reseed(); render(); });
+    render();
+  });
+</script>

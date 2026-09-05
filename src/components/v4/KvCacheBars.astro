@@ -1,0 +1,45 @@
+---
+/**
+ * 1M token 上下文下每 token 的 KV cache 字节数：GQA8-BF16 基线 / DeepSeek-V3.2 / V4-Pro / V4-Flash。
+ * 数字按 config 手算（见 drafts/deepseek-v4/refs/notes-v4.md），忽略量化 scale。
+ */
+import SvgTex from '../k3/SvgTex.astro';
+const rows = [
+  { name: 'GQA-8，头维 128，BF16，61 层', bytes: 249856, note: '8 × 128 × 2 × 2 B × 61', c: 'var(--muted)' },
+  { name: 'DeepSeek-V3.2（MLA + DSA）', bytes: 46848, note: '(512 FP8 + 64 BF16 + indexer 128 FP8) × 61', c: 'var(--cat-amber)' },
+  { name: 'DeepSeek-V4-Pro', bytes: 5424, note: 'CSA 30 层 × (576 + 128)/4 + HCA 31 层 × 576/128 + 滑窗', c: 'var(--cat-indigo)' },
+  { name: 'DeepSeek-V4-Flash', bytes: 3789, note: 'CSA 21 层、HCA 20 层', c: 'var(--cat-cyan)' },
+];
+const max = rows[0].bytes;
+const X0 = 250, BW = 500, Y0 = 30, RH = 62, BH = 26;
+const fmt = (b: number) => (b >= 1024 ? `${(b / 1024).toFixed(b >= 10240 ? 0 : 1)} KB` : `${b} B`);
+const gib = (b: number) => `${((b * 1048576) / 2 ** 30).toFixed(b > 10000 ? 0 : 1)} GiB @ 1M`;
+---
+
+<figure class="kvb">
+  <svg viewBox="0 0 960 290" role="img" aria-label="每 token 的 KV cache 大小对比">
+    {rows.map((r, i) => {
+      const y = Y0 + i * RH;
+      const w = Math.max(3, (r.bytes / max) * BW);
+      return (
+        <g>
+          <text class="name" x={X0 - 12} y={y + BH / 2 - 2} text-anchor="end">{r.name}</text>
+          <text class="note" x={X0 - 12} y={y + BH / 2 + 12} text-anchor="end">{r.note}</text>
+          <rect x={X0} y={y} width={w} height={BH} rx="4" fill={r.c} opacity="0.85" />
+          <text class="val" x={X0 + w + 8} y={y + BH / 2 + 4}>{fmt(r.bytes)} / token，{gib(r.bytes)}</text>
+        </g>
+      );
+    })}
+    <SvgTex x={480} y={Y0 + 4 * RH + 6} size={10.5} color="var(--muted)" src="V4-Pro ≈ 基线的 2.2%，≈ V3.2 的 12%（论文 Figure 1 的口径分别是 2% 和 10%；差别来自 scale 与 indexer 精度的记法）" />
+  </svg>
+  <figcaption>1M 上下文时每个 token 摊到的 KV cache。V4 的条目是 64 维 BF16 加 448 维 FP8，一条 576 B；CSA 每 4 个 token 一条，HCA 每 128 个 token 一条，滑窗固定 128 条不随长度增长。</figcaption>
+</figure>
+
+<style>
+  .kvb { margin: 2rem 0; padding: 0.8rem 0.6rem 0.6rem; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); overflow-x: auto; }
+  .kvb svg { display: block; width: 100%; min-width: 720px; height: auto; font-family: var(--font-sans); }
+  .name { fill: var(--text); font-size: 12px; font-weight: 600; }
+  .note { fill: var(--muted); font-size: 9.5px; }
+  .val { fill: var(--text-2); font-size: 11px; }
+  figcaption { margin-top: 0.6rem; font-size: 0.88rem; color: var(--text-2); line-height: 1.6; }
+</style>

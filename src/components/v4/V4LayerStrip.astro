@@ -1,0 +1,67 @@
+---
+/**
+ * DeepSeek-V4 的层怎么排：CSA / HCA / 滑窗交错，前三层 hash-MoE，末尾的 MTP 层。
+ * 层号按 config.json 与官方代码的 0-indexed 口径。数据直接来自 config 的 compress_ratios。
+ */
+import SvgTex from '../k3/SvgTex.astro';
+interface Props {
+  model?: 'pro' | 'flash';
+  caption?: string;
+}
+const { model = 'pro', caption } = Astro.props;
+const pro = model === 'pro';
+// config.compress_ratios（含最后一项 MTP 层）
+const ratios: number[] = pro
+  ? [128, 128, ...Array.from({ length: 29 }, () => [4, 128]).flat(), 4, 0]
+  : [0, 0, ...Array.from({ length: 20 }, () => [4, 128]).flat(), 4, 0];
+const L = ratios.length - 1;
+const kind = (r: number) => (r === 4 ? 'csa' : r === 128 ? 'hca' : 'swa');
+const name = (r: number) => (r === 4 ? 'CSA（m = 4）' : r === 128 ? 'HCA（m′ = 128）' : '纯滑窗注意力');
+const X0 = 24, CELL = pro ? 12.4 : 17.6, GAP = 0.8, Y0 = 28, H = 26;
+const cx = (l: number) => X0 + l * (CELL + GAP) + (l === L ? 14 : 0);
+const W = X0 * 2 + (L + 1) * (CELL + GAP) + 14;
+const nCSA = ratios.slice(0, L).filter((r) => r === 4).length;
+const nHCA = ratios.slice(0, L).filter((r) => r === 128).length;
+const nSWA = ratios.slice(0, L).filter((r) => r === 0).length;
+---
+
+<figure class="strip">
+  <svg viewBox={`0 0 ${W} 132`} role="img" aria-label={`DeepSeek-V4-${pro ? 'Pro' : 'Flash'} 层排布`}>
+    {ratios.map((r, l) => (
+      <g>
+        <title>{l === L ? `MTP 层：${name(r)} + MoE` : `第 ${l} 层：${name(r)}${l < 3 ? '，FFN 是 hash-MoE' : '，FFN 是 MoE'}`}</title>
+        <rect class:list={['cell', kind(r), { hash: l < 3, mtp: l === L }]} x={cx(l)} y={Y0} width={CELL} height={H} rx="1.5" />
+      </g>
+    ))}
+    {Array.from({ length: L }, (_, l) => l).filter((l) => l === 0 || l === 2 || l % 10 === 0 || l === L - 1).map((l) => (
+      <text class="tick" x={cx(l) + CELL / 2} y={Y0 - 8} text-anchor="middle">{l}</text>
+    ))}
+    <text class="tick" x={cx(L) + CELL / 2} y={Y0 - 8} text-anchor="middle">MTP</text>
+    <path class="hashbr" d={`M${cx(0)} ${Y0 + H + 6} v5 H${cx(2) + CELL} v-5`} />
+    <text class="lbl hash" x={cx(0)} y={Y0 + H + 24}>第 0–2 层：hash-MoE</text>
+
+    <text class="lbl csa" x={X0} y={Y0 + H + 48}>■ CSA ×{nCSA}（偶数层）</text>
+    <text class="lbl hca" x={X0 + 150} y={Y0 + H + 48}>■ HCA ×{nHCA}（{pro ? '第 0、1 层 + 奇数层' : '奇数层'}）</text>
+    {nSWA > 0 && <text class="lbl swa" x={X0 + 360} y={Y0 + H + 48}>■ 纯滑窗 ×{nSWA}（第 0、1 层）</text>}
+    <text class="lbl swa" x={X0 + (nSWA > 0 ? 540 : 360)} y={Y0 + H + 48}>■ MTP 层：纯滑窗注意力（config 里 compress_ratios 的最后一项）</text>
+    <SvgTex x={X0} y={Y0 + H + 72} size={10.5} align="start" color="var(--text-2)" src={`共 ${L} 层，全部是 MoE；论文说的「前两层」是这里的第 0、1 层。第 ${L - 1} 层（最后一层）是 CSA。`} />
+  </svg>
+  {caption && <figcaption>{caption}</figcaption>}
+</figure>
+
+<style>
+  .strip { margin: 2rem 0; padding: 0.8rem 0.6rem 0.4rem; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); overflow-x: auto; }
+  .strip svg { display: block; width: 100%; min-width: 640px; height: auto; font-family: var(--font-sans); }
+  .cell.csa { fill: var(--cat-indigo); }
+  .cell.hca { fill: color-mix(in srgb, var(--cat-cyan) 75%, var(--bg-2)); }
+  .cell.swa { fill: color-mix(in srgb, var(--muted) 60%, var(--bg-2)); }
+  .cell.hash { stroke: var(--cat-emerald); stroke-width: 1.4; stroke-dasharray: 2 1.5; }
+  .cell.mtp { stroke: var(--text); stroke-width: 1.2; }
+  .tick { fill: var(--muted); font-size: 9.5px; }
+  .lbl { fill: var(--text-2); font-size: 10.5px; }
+  .lbl.csa { fill: var(--cat-indigo); }
+  .lbl.hca { fill: var(--cat-cyan); }
+  .lbl.hash { fill: var(--cat-emerald); }
+  .hashbr { fill: none; stroke: var(--cat-emerald); stroke-width: 1.3; }
+  figcaption { margin-top: 0.6rem; font-size: 0.88rem; color: var(--text-2); text-align: center; }
+</style>

@@ -1,0 +1,24 @@
+---
+/** Lightning indexer 在 CSA 里的样子：query 从共享的 c^Q 出来，键是压缩块，打分是 ReLU 加权和，取 top-k 个块。 */
+import FlowDiagram from '../k3/FlowDiagram.astro';
+const nodes = [
+  { id: 'cq', x: 20, y: 40, w: 170, kind: 'mla', lines: ['$c^Q_t$', '1536，和主注意力共用'] },
+  { id: 'h', x: 20, y: 150, w: 170, kind: 'in', lines: ['$h_t$', '7168'] },
+  { id: 'hs', x: 20, y: 260, w: 170, kind: 'in', lines: ['$H$ 所有前文 token', '$n$ × 7168'] },
+  { id: 'q', x: 240, y: 40, w: 200, kind: 'idx', lines: ['$q^I_t = c^Q_t W^{IUQ}$', '64 头 × 128，RoPE，Hadamard + FP4'] },
+  { id: 'w', x: 240, y: 150, w: 200, kind: 'idx', lines: ['$w^I_t = h_t W^{w}$', '64 个头权重（标量）'] },
+  { id: 'k', x: 240, y: 260, w: 200, kind: 'idx', lines: ['压缩成 $K^{\\text{IComp}}$', '每 4 token 一条 × 128，同款重叠压缩'] },
+  { id: 'relu', x: 500, y: 150, w: 210, h: 56, kind: 'op', lines: ['$I_{t,s} = \\sum_h w^I_{t,h}\\operatorname{ReLU}(q^I_{t,h}\\cdot K^{\\text{IComp}}_s)$', '对每个块 $s < \\lfloor t/4 \\rfloor$ 一个分数'] },
+  { id: 'topk', x: 760, y: 150, w: 150, kind: 'idx', strong: true, lines: ['top-1024', '块编号'] },
+  { id: 'gather', x: 960, y: 150, w: 170, kind: 'cache', lines: ['从压缩 cache 取', '1024 条 × 512'] },
+];
+const edges = [
+  { from: 'cq', to: 'q' }, { from: 'h', to: 'w' }, { from: 'hs', to: 'k' },
+  { from: 'q', to: 'relu', path: 'M440 62 H 605 V 148' }, { from: 'w', to: 'relu' }, { from: 'k', to: 'relu', path: 'M440 282 H 605 V 208' },
+  { from: 'relu', to: 'topk' }, { from: 'topk', to: 'gather' },
+];
+---
+
+<FlowDiagram id="indexer-cell" viewBox="0 0 1150 330" minWidth={820} nodes={nodes} edges={edges}
+  label="lightning indexer"
+  caption="lightning indexer（公式 13–17）。它有自己的一套压缩键（128 维，比主注意力的 512 维小），打分只做一次 ReLU 加权和，在 FP4 里算；输出的是块编号，主注意力按编号去压缩 cache 里取条目。" />

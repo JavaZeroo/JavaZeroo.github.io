@@ -1,0 +1,22 @@
+---
+/** 压缩注意力的上下文并行：两阶段通信（论文 §3.4.3）。 */
+import FlowDiagram from '../k3/FlowDiagram.astro';
+const nodes = [
+  { id: 'r0', x: 20, y: 40, w: 190, kind: 'in', lines: ['rank $i$：$s$ 个 token', '本地未压缩 KV'] },
+  { id: 'r1', x: 20, y: 150, w: 190, kind: 'in', lines: ['rank $i+1$：$s$ 个 token', '本地未压缩 KV'] },
+  { id: 'send', x: 260, y: 95, w: 190, kind: 'comm', lines: ['阶段一：点对点', 'rank $i$ 把最后 $m$ 条发给 $i+1$'] },
+  { id: 'c1', x: 500, y: 150, w: 210, kind: 'main', lines: ['本地压缩', '固定产出 $s/m + 1$ 条（含 padding）'] },
+  { id: 'c0', x: 500, y: 40, w: 210, kind: 'main', lines: ['本地压缩', '固定产出 $s/m + 1$ 条'] },
+  { id: 'ag', x: 760, y: 95, w: 170, kind: 'comm', lines: ['阶段二：all-gather', '收齐所有 rank 的压缩条目'] },
+  { id: 'sp', x: 980, y: 95, w: 170, kind: 'out', lines: ['select-and-pad', '共 cp_size · $s/m$ 条，padding 放尾部'] },
+];
+const edges = [
+  { from: 'r0', to: 'send', orient: 'h' as const }, { from: 'send', to: 'c1', orient: 'h' as const },
+  { from: 'r1', to: 'c1', orient: 'h' as const }, { from: 'r0', to: 'c0', orient: 'h' as const },
+  { from: 'c0', to: 'ag', orient: 'h' as const }, { from: 'c1', to: 'ag', orient: 'h' as const }, { from: 'ag', to: 'sp' },
+];
+---
+
+<FlowDiagram id="cp-stages" viewBox="0 0 1170 240" minWidth={820} nodes={nodes} edges={edges}
+  label="压缩注意力的上下文并行"
+  caption="CP 下的压缩。压缩窗口可能跨过两个 rank 的边界，所以每个 rank 先把最后 $m$ 条未压缩 KV 发给下一个 rank，各自压成固定长度，再一次 all-gather 拼成完整的压缩序列。" />
