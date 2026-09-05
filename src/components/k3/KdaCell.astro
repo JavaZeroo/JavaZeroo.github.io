@@ -2,20 +2,25 @@
 /**
  * 一层 KDA 的内部：五路投影（q / k / v / β / α）、递推、逐头 RMSNorm、满秩 sigmoid 门、输出投影。
  * 维度按 Kimi K3：d = 7168，96 头，头维 128，96 × 128 = 12288。
+ * 标签里 `$...$` 的部分由 SvgTex 在构建期用 KaTeX 渲染。
  */
+import SvgTex from './SvgTex.astro';
 const X0 = 150, BW = 142, GAP = 10, BH = 36;
 const bx = (i: number) => X0 + i * (BW + GAP);
 type Kind = 'q' | 'k' | 'v' | 'beta' | 'alpha' | 'gate';
 const rows: { y: number; kind: Kind; out: string; boxes: { l: string; s?: string }[] }[] = [
-  { y: 36,  kind: 'q',     out: 'q_t  96 × 128', boxes: [{ l: 'Linear W_q', s: '7168 → 12288' }, { l: 'ShortConv(4) + Swish' }, { l: 'L2Norm', s: '逐头' }] },
-  { y: 96,  kind: 'k',     out: 'k_t  96 × 128', boxes: [{ l: 'Linear W_k', s: '7168 → 12288' }, { l: 'ShortConv(4) + Swish' }, { l: 'L2Norm', s: '逐头' }] },
-  { y: 156, kind: 'v',     out: 'v_t  96 × 128', boxes: [{ l: 'Linear W_v', s: '7168 → 12288' }, { l: 'ShortConv(4) + Swish' }] },
-  { y: 226, kind: 'beta',  out: 'β_t  96 个标量', boxes: [{ l: 'Linear W_β', s: '7168 → 96' }, { l: 'Sigmoid' }] },
-  { y: 286, kind: 'alpha', out: 'α_t = e^{g}  96 × 128', boxes: [{ l: 'Linear W_α↓', s: '7168 → 128' }, { l: 'Linear W_α↑ + b_α', s: '128 → 12288' }, { l: 'g = g_min · σ(e^A z)', s: '有下界，g_min = −5' }] },
-  { y: 372, kind: 'gate',  out: '', boxes: [{ l: 'Linear W_g（满秩）', s: '7168 → 12288' }, { l: 'Sigmoid' }] },
+  { y: 36,  kind: 'q',     out: '$q_t$  96 × 128', boxes: [{ l: 'Linear $W_q$', s: '7168 → 12288' }, { l: 'ShortConv(4) + Swish' }, { l: 'L2Norm', s: '逐头' }] },
+  { y: 96,  kind: 'k',     out: '$k_t$  96 × 128', boxes: [{ l: 'Linear $W_k$', s: '7168 → 12288' }, { l: 'ShortConv(4) + Swish' }, { l: 'L2Norm', s: '逐头' }] },
+  { y: 156, kind: 'v',     out: '$v_t$  96 × 128', boxes: [{ l: 'Linear $W_v$', s: '7168 → 12288' }, { l: 'ShortConv(4) + Swish' }] },
+  { y: 226, kind: 'beta',  out: '$\\beta_t$  96 个标量', boxes: [{ l: 'Linear $W_\\beta$', s: '7168 → 96' }, { l: 'Sigmoid' }] },
+  { y: 286, kind: 'alpha', out: '$\\alpha_t = e^{g}$  96 × 128', boxes: [{ l: 'Linear $W_\\alpha^{\\downarrow}$', s: '7168 → 128' }, { l: 'Linear $W_\\alpha^{\\uparrow} + b_\\alpha$', s: '128 → 12288' }, { l: '$g = g_{\\min}\\,\\sigma(e^{A} z)$', s: '有下界，$g_{\\min} = -5$' }] },
+  { y: 372, kind: 'gate',  out: '', boxes: [{ l: 'Linear $W_g$（满秩）', s: '7168 → 12288' }, { l: 'Sigmoid' }] },
 ];
 const REC = { x: 640, y: 60, w: 170, h: 260 };
 const OUT = { x: 850, w: 150 };
+const T = { size: 11, weight: 600 };
+const S = { size: 9.5, color: 'var(--text-2)' };
+const O = { size: 9.5, color: 'var(--muted)' };
 ---
 
 <figure class="cell">
@@ -28,8 +33,8 @@ const OUT = { x: 850, w: 150 };
 
     <!-- 输入 -->
     <rect class="in" x="24" y="190" width="90" height={BH} rx="7" />
-    <text class="t" x="69" y="208" text-anchor="middle">x_t</text>
-    <text class="s" x="69" y="220" text-anchor="middle">7168</text>
+    <SvgTex x={69} y={204} w={80} {...T} src="$x_t$" />
+    <SvgTex x={69} y={217} w={80} {...S} src="7168" />
     <line class="bus" x1="126" y1={36 + BH / 2} x2="126" y2={372 + BH / 2} />
     <line class="edge" x1="114" y1="208" x2="126" y2="208" />
 
@@ -39,15 +44,15 @@ const OUT = { x: 850, w: 150 };
         {r.boxes.map((b, i) => (
           <g>
             <rect class="b" x={bx(i)} y={r.y} width={BW} height={BH} rx="7" />
-            <text class="t" x={bx(i) + BW / 2} y={r.y + (b.s ? 15 : 22)} text-anchor="middle">{b.l}</text>
-            {b.s && <text class="s" x={bx(i) + BW / 2} y={r.y + 28} text-anchor="middle">{b.s}</text>}
+            <SvgTex x={bx(i) + BW / 2} y={r.y + (b.s ? 12 : 18)} w={BW - 6} h={18} {...T} src={b.l} />
+            {b.s && <SvgTex x={bx(i) + BW / 2} y={r.y + 26} w={BW - 6} h={14} {...S} src={b.s} />}
             {i < r.boxes.length - 1 && <line class="edge" x1={bx(i) + BW} y1={r.y + BH / 2} x2={bx(i + 1) - 2} y2={r.y + BH / 2} marker-end="url(#kc-arrow)" />}
           </g>
         ))}
         {r.kind !== 'gate' && (
           <g>
             <path class="edge" d={`M${bx(r.boxes.length - 1) + BW} ${r.y + BH / 2} H ${REC.x - 2}`} marker-end="url(#kc-arrow)" />
-            <text class="o" x={bx(r.boxes.length - 1) + BW + 6} y={r.y + BH / 2 - 6}>{r.out}</text>
+            <SvgTex x={bx(r.boxes.length - 1) + BW + 6} y={r.y + BH / 2 - 9} w={180} h={14} align="start" {...O} src={r.out} />
           </g>
         )}
       </g>
@@ -55,34 +60,34 @@ const OUT = { x: 850, w: 150 };
 
     <!-- 递推 -->
     <rect class="rec" x={REC.x} y={REC.y} width={REC.w} height={REC.h} rx="10" />
-    <text class="t" x={REC.x + REC.w / 2} y={REC.y + 26} text-anchor="middle">KDA 递推</text>
-    <text class="s" x={REC.x + REC.w / 2} y={REC.y + 48} text-anchor="middle">{"S_t = (I − β k kᵀ) Diag(α) S_{t−1}"}</text>
-    <text class="s" x={REC.x + REC.w / 2} y={REC.y + 62} text-anchor="middle">+ β k vᵀ</text>
-    <text class="s" x={REC.x + REC.w / 2} y={REC.y + 84} text-anchor="middle">õ_t = S_tᵀ q_t</text>
+    <SvgTex x={REC.x + REC.w / 2} y={REC.y + 22} w={REC.w - 10} {...T} src="KDA 递推" />
+    <SvgTex x={REC.x + REC.w / 2} y={REC.y + 46} w={REC.w - 6} h={18} {...S} src="$S_t = (I - \beta k k^\top)\operatorname{Diag}(\alpha)\, S_{t-1}$" />
+    <SvgTex x={REC.x + REC.w / 2} y={REC.y + 62} w={REC.w - 6} h={16} {...S} src="$+\ \beta k v^\top$" />
+    <SvgTex x={REC.x + REC.w / 2} y={REC.y + 84} w={REC.w - 6} h={18} {...S} src="$\tilde o_t = S_t^\top q_t$" />
     <rect class="state" x={REC.x + 30} y={REC.y + 110} width={REC.w - 60} height="90" rx="6" />
-    <text class="t" x={REC.x + REC.w / 2} y={REC.y + 150} text-anchor="middle">S</text>
-    <text class="s" x={REC.x + REC.w / 2} y={REC.y + 166} text-anchor="middle">96 头 × (128 × 128)</text>
-    <text class="s" x={REC.x + REC.w / 2} y={REC.y + 222} text-anchor="middle">训练 / prefill：chunkwise</text>
-    <text class="s" x={REC.x + REC.w / 2} y={REC.y + 238} text-anchor="middle">decode：逐 token 递推</text>
+    <SvgTex x={REC.x + REC.w / 2} y={REC.y + 146} w={100} {...T} size={13} src="$S$" />
+    <SvgTex x={REC.x + REC.w / 2} y={REC.y + 163} w={110} {...S} src="96 头 × (128 × 128)" />
+    <SvgTex x={REC.x + REC.w / 2} y={REC.y + 219} w={REC.w - 6} {...S} src="训练 / prefill：chunkwise" />
+    <SvgTex x={REC.x + REC.w / 2} y={REC.y + 235} w={REC.w - 6} {...S} src="decode：逐 token 递推" />
 
     <!-- 输出链 -->
     <line class="edge" x1={REC.x + REC.w} y1="140" x2={OUT.x - 2} y2="140" marker-end="url(#kc-arrow)" />
     <rect class="b out" x={OUT.x} y="122" width={OUT.w} height={BH} rx="7" />
-    <text class="t" x={OUT.x + OUT.w / 2} y="137" text-anchor="middle">逐头 RMSNorm</text>
-    <text class="s" x={OUT.x + OUT.w / 2} y="150" text-anchor="middle">128 维，每头独立</text>
+    <SvgTex x={OUT.x + OUT.w / 2} y={134} w={OUT.w - 6} h={16} {...T} src="逐头 RMSNorm" />
+    <SvgTex x={OUT.x + OUT.w / 2} y={148} w={OUT.w - 6} h={14} {...S} src="128 维，每头独立" />
 
     <circle class="mul" cx={OUT.x + OUT.w / 2} cy="212" r="13" />
     <text class="sym" x={OUT.x + OUT.w / 2} y="217" text-anchor="middle">⊙</text>
     <line class="edge" x1={OUT.x + OUT.w / 2} y1="158" x2={OUT.x + OUT.w / 2} y2="197" marker-end="url(#kc-arrow)" />
     <path class="edge gate" d={`M${bx(1) + BW} ${372 + BH / 2} H ${OUT.x + OUT.w / 2 - 40} V 212 H ${OUT.x + OUT.w / 2 - 15}`} marker-end="url(#kc-arrow)" />
-    <text class="o" x={bx(1) + BW + 6} y={372 + BH / 2 - 6}>输出门  96 × 128，∈ (0,1)</text>
+    <SvgTex x={bx(1) + BW + 6} y={372 + BH / 2 - 9} w={200} h={14} align="start" {...O} src="输出门  96 × 128，$\in (0,1)$" />
 
     <line class="edge" x1={OUT.x + OUT.w / 2} y1="225" x2={OUT.x + OUT.w / 2} y2="262" marker-end="url(#kc-arrow)" />
     <rect class="b out" x={OUT.x} y="264" width={OUT.w} height={BH} rx="7" />
-    <text class="t" x={OUT.x + OUT.w / 2} y="279" text-anchor="middle">Linear W_o</text>
-    <text class="s" x={OUT.x + OUT.w / 2} y="292" text-anchor="middle">12288 → 7168</text>
+    <SvgTex x={OUT.x + OUT.w / 2} y={276} w={OUT.w - 6} h={16} {...T} src="Linear $W_o$" />
+    <SvgTex x={OUT.x + OUT.w / 2} y={290} w={OUT.w - 6} h={14} {...S} src="12288 → 7168" />
     <line class="edge" x1={OUT.x + OUT.w / 2} y1="300" x2={OUT.x + OUT.w / 2} y2="330" marker-end="url(#kc-arrow)" />
-    <text class="t" x={OUT.x + OUT.w / 2} y="348" text-anchor="middle">y_t  7168</text>
+    <SvgTex x={OUT.x + OUT.w / 2} y={344} w={OUT.w} {...T} src="$y_t$  7168" />
   </svg>
   <figcaption>一层 KDA。粉色的那一行是 K3 的两个改动所在：衰减映射换成有下界的 scaled sigmoid，输出门从低秩改成满秩。</figcaption>
 </figure>
@@ -103,8 +108,5 @@ const OUT = { x: 850, w: 150 };
   .state { fill: color-mix(in srgb, var(--cat-cyan) 22%, var(--bg-2)); stroke: var(--cat-cyan); stroke-width: 1.2; }
   .mul { fill: var(--bg-2); stroke: var(--cat-emerald); stroke-width: 1.5; }
   .sym { fill: var(--text); font-size: 14px; }
-  .t { fill: var(--text); font-size: 11px; font-weight: 600; }
-  .s { fill: var(--text-2); font-size: 9.5px; }
-  .o { fill: var(--muted); font-size: 9.5px; }
   figcaption { margin-top: 0.6rem; font-size: 0.88rem; color: var(--text-2); text-align: center; }
 </style>

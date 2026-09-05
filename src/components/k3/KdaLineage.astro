@@ -7,6 +7,7 @@
  *
  * 渲染两份 SVG：宽屏三列（主线两列 + 旁支一列），窄屏两段（主线在上，旁支列在下），CSS 按宽度切换。
  */
+import SvgTex from './SvgTex.astro';
 type Kind = 'root' | 'forget' | 'erase' | 'kda' | 'leaf';
 interface Spec { id: string; kind: Kind; name: string; formula: string; note?: string; badge?: string; wide?: boolean }
 interface Node extends Spec { cx: number; y: number; w: number }
@@ -14,15 +15,15 @@ interface Edge { d: string; kind: 'forget' | 'erase' | 'leaf' | 'kda'; label: st
 
 const H = 66;
 const specs: Record<string, Spec> = {
-  la: { id: '线性注意力', kind: 'root', name: '线性注意力 2020', formula: 'S = S + k vᵀ', note: '只加不擦，目标无下界' },
-  ret: { id: 'retnet-和-mamba2', kind: 'forget', name: 'RetNet 2023 · Mamba2 2024', formula: 'S = α S + k vᵀ', note: 'α 每头一个标量', badge: 'Mamba2：三个合成任务全挂' },
-  dn: { id: 'deltanet', kind: 'erase', name: 'DeltaNet 2021', formula: 'S = (I − β k kᵀ) S + β k vᵀ', note: '在 k 方向先擦再写' },
-  lh: { id: 'longhorn', kind: 'leaf', name: 'Longhorn 2024', formula: 'β → β / (1 + β kᵀk)', note: '一步 SGD 换成闭式解' },
-  gla: { id: 'gla-和-hgrn2', kind: 'forget', name: 'GLA 2023 · HGRN2 2024', formula: 'S = Diag(α) S + k vᵀ', note: 'α 每个键通道一个' },
-  gdn: { id: 'gated-deltanet', kind: 'erase', name: 'Gated DeltaNet 2024', formula: 'S = (I − β k kᵀ) α S + β k vᵀ', note: '先忘，再擦，再写', badge: '收敛慢于 KDA' },
-  cb: { id: 'comba', kind: 'leaf', name: 'Comba 2025', formula: 'S = (α − b β k kᵀ) S + β k vᵀ', note: '擦得比写得少（b < 1），读出用 q − d k' },
-  kda: { id: 'kda', kind: 'kda', name: 'KDA 2025', formula: 'S = (I − β k kᵀ) Diag(α) S + β k vᵀ', note: '先逐通道忘，再擦，再写', wide: true },
-  rw: { id: 'rwkv-7', kind: 'leaf', name: 'RWKV-7 2025', formula: 'S = (Diag(α) − (a ⊙ κ̂) κ̂ᵀ) S + k̃ vᵀ', note: '一般 DPLR：擦除键 κ̂、写入键 k̃ 各不相同', wide: true },
+  la: { id: '线性注意力', kind: 'root', name: '线性注意力 2020', formula: 'S = S + k v^\\top', note: '只加不擦，目标无下界' },
+  ret: { id: 'retnet-和-mamba2', kind: 'forget', name: 'RetNet 2023 · Mamba2 2024', formula: 'S = \\alpha S + k v^\\top', note: '$\\alpha$ 每头一个标量', badge: 'Mamba2：三个合成任务全挂' },
+  dn: { id: 'deltanet', kind: 'erase', name: 'DeltaNet 2021', formula: 'S = (I - \\beta k k^\\top)\\, S + \\beta k v^\\top', note: '在 $k$ 方向先擦再写' },
+  lh: { id: 'longhorn', kind: 'leaf', name: 'Longhorn 2024', formula: '\\beta \;\\to\; \\beta / (1 + \\beta k^\\top k)', note: '一步 SGD 换成闭式解' },
+  gla: { id: 'gla-和-hgrn2', kind: 'forget', name: 'GLA 2023 · HGRN2 2024', formula: 'S = \\operatorname{Diag}(\\alpha)\\, S + k v^\\top', note: '$\\alpha$ 每个键通道一个' },
+  gdn: { id: 'gated-deltanet', kind: 'erase', name: 'Gated DeltaNet 2024', formula: 'S = (I - \\beta k k^\\top)\\, \\alpha S + \\beta k v^\\top', note: '先忘，再擦，再写', badge: '收敛慢于 KDA' },
+  cb: { id: 'comba', kind: 'leaf', name: 'Comba 2025', formula: 'S = (\\alpha - b\\beta k k^\\top)\\, S + \\beta k v^\\top', note: '擦得比写得少（$b<1$），读出用 $q - d\\,k$' },
+  kda: { id: 'kda', kind: 'kda', name: 'KDA 2025', formula: 'S = (I - \\beta k k^\\top)\\operatorname{Diag}(\\alpha)\\, S + \\beta k v^\\top', note: '先逐通道忘，再擦，再写', wide: true },
+  rw: { id: 'rwkv-7', kind: 'leaf', name: 'RWKV-7 2025', formula: 'S = (\\operatorname{Diag}(\\alpha) - (a \\odot \\hat\\kappa)\\hat\\kappa^\\top)\\, S + \\tilde k v^\\top', note: '一般 DPLR：擦除键 $\\hat\\kappa$、写入键 $\\tilde k$ 各不相同', wide: true },
 };
 
 const left = (n: Node) => n.cx - n.w / 2;
@@ -47,14 +48,14 @@ const WIDE: Layout = (() => {
   const gla = mk(specs.gla, XL, R[2], W), gdn = mk(specs.gdn, XM, R[2], W), cb = mk(specs.cb, XR, R[2], W);
   const kda = mk(specs.kda, XC, R[3], W + 40), rw = mk(specs.rw, XR, R[3], W + 40);
   const edges: Edge[] = [
-    { d: down(la, ret), kind: 'forget', label: '+ 标量衰减 α（忘）', ...lbl(XL + 8, R[1] - 14) },
+    { d: down(la, ret), kind: 'forget', label: '+ 标量衰减 $\\alpha$（忘）', ...lbl(XL + 8, R[1] - 14) },
     { d: down(la, dn), kind: 'erase', label: '内积目标 → 回归目标（擦）', ...lbl(XM + 8, R[1] - 14) },
     { d: down(ret, gla), kind: 'forget', label: '标量 → 逐通道', ...lbl(XL + 8, R[2] - 30) },
-    { d: down(dn, gdn), kind: 'erase', label: '+ 标量衰减 α（忘）', ...lbl(XM + 8, R[2] - 30) },
+    { d: down(dn, gdn), kind: 'erase', label: '+ 标量衰减 $\\alpha$（忘）', ...lbl(XM + 8, R[2] - 30) },
     { d: down(gla, kda), kind: 'kda', label: '+ delta rule（擦）', ...lbl(XL + 8, R[3] - 32) },
     { d: down(gdn, kda), kind: 'kda', label: '标量 → 逐通道', ...lbl(XM + 8, R[3] - 32) },
     { d: across(dn, lh), kind: 'leaf', label: '隐式解', ...lbl(mid(dn, lh), R[1] + H / 2 - 6, 'middle' as never) },
-    { d: across(gdn, cb), kind: 'leaf', label: '擦除 × b', ...lbl(mid(gdn, cb), R[2] + H / 2 - 6, 'middle' as never) },
+    { d: across(gdn, cb), kind: 'leaf', label: '擦除 × $b$', ...lbl(mid(gdn, cb), R[2] + H / 2 - 6, 'middle' as never) },
     { d: across(kda, rw), kind: 'leaf', label: '放开绑定', ...lbl(mid(kda, rw), R[3] + H / 2 - 6, 'middle' as never), dashed: true },
   ];
   return {
@@ -77,14 +78,14 @@ const NARROW: Layout = (() => {
   const XE = 282;   // 右列主线的边走在旁支左侧
   const XB = 440;   // 旁支的短边
   const edges: Edge[] = [
-    { d: down(la, ret), kind: 'forget', label: '+ 标量衰减 α（忘）', ...lbl(XL - 8, y1 - 14, 'end') },
+    { d: down(la, ret), kind: 'forget', label: '+ 标量衰减 $\\alpha$（忘）', ...lbl(XL - 8, y1 - 14, 'end') },
     { d: down(la, dn), kind: 'erase', label: '→ 回归目标（擦）', ...lbl(XM - 8, y1 - 14, 'end') },
     { d: `M${XL} ${y1 + H} V ${y2 - 2}`, kind: 'forget', label: '标量 → 逐通道', ...lbl(XL - 8, y2 - 40, 'end') },
-    { d: `M${XE} ${y1 + H} V ${y2 - 2}`, kind: 'erase', label: '+ 标量衰减 α（忘）', ...lbl(XE - 8, y2 - 40, 'end') },
+    { d: `M${XE} ${y1 + H} V ${y2 - 2}`, kind: 'erase', label: '+ 标量衰减 $\\alpha$（忘）', ...lbl(XE - 8, y2 - 40, 'end') },
     { d: `M${XL} ${y2 + H} V ${(y2 + H + y3) / 2} H ${XC} V ${y3 - 2}`, kind: 'kda', label: '+ delta rule（擦）', ...lbl(XL - 8, y3 - 62, 'end') },
     { d: `M${XE - 10} ${y2 + H} V ${(y2 + H + y3) / 2} H ${XC} V ${y3 - 2}`, kind: 'kda', label: '标量 → 逐通道', ...lbl(XE - 18, y3 - 62, 'end') },
     { d: `M${XB} ${y1 + H} V ${yLH - 2}`, kind: 'leaf', label: '隐式解', ...lbl(XB + 8, yLH - 10) },
-    { d: `M${XB} ${y2 + H} V ${yCB - 2}`, kind: 'leaf', label: '擦除 × b', ...lbl(XB + 8, yCB - 10) },
+    { d: `M${XB} ${y2 + H} V ${yCB - 2}`, kind: 'leaf', label: '擦除 × $b$', ...lbl(XB + 8, yCB - 10) },
     { d: `M300 ${y3 + H} V ${yRW - 2}`, kind: 'leaf', label: '放开绑定', ...lbl(308, yRW - 12), dashed: true },
   ];
   return {
@@ -113,18 +114,18 @@ const variants = [{ cls: 'wide', L: WIDE }, { cls: 'narrow', L: NARROW }];
       {L.edges.map((e) => (
         <g class:list={['edge', e.kind, { dashed: e.dashed }]}>
           <path d={e.d} marker-end={`url(#lin-arrow-${cls})`} />
-          <text class="elbl" x={e.lx} y={e.ly} text-anchor={e.anchor ?? 'start'}>{e.label}</text>
+          <SvgTex x={e.lx} y={e.ly - 4} w={170} h={16} size={10.5} align={e.anchor ?? 'start'} color="var(--text-2)" src={e.label} />
         </g>
       ))}
 
       {L.nodes.map((n) => (
         <a href={`#${n.id}`}>
           <g class:list={['node', n.kind]}>
-            <title>{`${n.name}：${n.formula}`}</title>
+            <title>{n.name}</title>
             <rect x={left(n)} y={n.y} width={n.w} height={H} rx="8" />
             <text class="name" x={n.cx} y={n.y + 18} text-anchor="middle">{n.name}</text>
-            <text class="f" x={n.cx} y={n.y + 38} text-anchor="middle">{n.formula}</text>
-            {n.note && <text class="note" x={n.cx} y={n.y + 55} text-anchor="middle">{n.note}</text>}
+            <SvgTex x={n.cx} y={n.y + 35} w={n.w - 8} h={20} size={11.5} src={`$${n.formula}$`} />
+            {n.note && <SvgTex x={n.cx} y={n.y + 52} w={n.w - 8} h={16} size={10} color="var(--text-2)" src={n.note} />}
             {n.badge && <text class="badge" x={n.cx} y={n.y + H + 13} text-anchor="middle">{n.badge}</text>}
           </g>
         </a>
@@ -154,8 +155,6 @@ const variants = [{ cls: 'wide', L: WIDE }, { cls: 'narrow', L: NARROW }];
   .lin a:hover .node rect, .lin a:focus-visible .node rect { stroke-width: 2.6; }
   .lin a:focus-visible { outline: none; }
   .name { fill: var(--text); font-size: 12.5px; font-weight: 600; }
-  .f { fill: var(--text); font-size: 11px; font-family: var(--font-mono, ui-monospace, monospace); }
-  .note { fill: var(--text-2); font-size: 10px; }
   .badge { fill: var(--cat-rose); font-size: 10px; }
   .edge path { fill: none; stroke-width: 1.6; }
   .edge.forget path { stroke: var(--cat-amber); }
@@ -164,6 +163,5 @@ const variants = [{ cls: 'wide', L: WIDE }, { cls: 'narrow', L: NARROW }];
   .edge.leaf path { stroke: var(--text-2); }
   .edge.dashed path { stroke-dasharray: 5 4; }
   marker path { fill: var(--text-2); }
-  .elbl { fill: var(--text-2); font-size: 10.5px; }
   .foot { fill: var(--muted); font-size: 10.5px; }
 </style>
