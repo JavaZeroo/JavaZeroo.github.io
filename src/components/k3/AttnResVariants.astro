@@ -3,6 +3,8 @@
  * 三联图：普通残差 / Full AttnRes / Block AttnRes（块大小 S = 2）。
  * 四个子层 f₁…f₄，纵向是深度。左列是"可以被取回的东西"，中间 α 是 AttnRes 算子，右列是子层本身。
  */
+import SvgTex from './SvgTex.astro';
+import { texMix } from './tex';
 const PW = 310, PH = 392;
 const yEmb = 48;
 const yF = (l: number) => 48 + l * 62;          // l = 1..4 → 110, 172, 234, 296
@@ -37,10 +39,10 @@ const srcC: Record<number, number[]> = {
   5: [cSrcY.emb, cSrcY.b1, cSrcY.b2],
 };
 const cLabels = [
-  { y: cSrcY.f1, t: 'b₁⁽¹⁾ = f₁', partial: true },
-  { y: cSrcY.b1, t: 'b₁ = f₁ + f₂', partial: false },
-  { y: cSrcY.f3, t: 'b₂⁽¹⁾ = f₃', partial: true },
-  { y: cSrcY.b2, t: 'b₂ = f₃ + f₄', partial: false },
+  { y: cSrcY.f1, t: '$b_1^{(1)} = f_1$', partial: true },
+  { y: cSrcY.b1, t: '$b_1 = f_1 + f_2$', partial: false },
+  { y: cSrcY.f3, t: '$b_2^{(1)} = f_3$', partial: true },
+  { y: cSrcY.b2, t: '$b_2 = f_3 + f_4$', partial: false },
 ];
 ---
 
@@ -59,13 +61,13 @@ const cLabels = [
 
         <!-- embedding -->
         <rect class="src emb" x={ox(p) + SRC_X} y={yEmb} width={SRC_W} height="26" rx="6" />
-        <text class="t" x={ox(p) + SRC_X + SRC_W / 2} y={yEmb + 17} text-anchor="middle">Embedding h₁</text>
+        <SvgTex x={ox(p) + SRC_X + SRC_W / 2} y={yEmb + 13} w={SRC_W} size={12} weight={600} src="Embedding $h_1$" />
 
         <!-- 子层框 -->
         {[1, 2, 3, 4].map((l) => (
           <g>
             <rect class="f" x={ox(p) + F_X} y={yF(l)} width={F_W} height={F_H} rx="6" />
-            <text class="t" x={ox(p) + F_X + F_W / 2} y={yF(l) + 18} text-anchor="middle">{`f${String.fromCharCode(0x2080 + l)}`}</text>
+            <SvgTex x={ox(p) + F_X + F_W / 2} y={yF(l) + F_H / 2} w={F_W} size={12.5} weight={600} src={`$f_${l}$`} />
             <line class="edge" x1={ox(p) + A_X + 14} y1={yF(l) + F_H / 2} x2={ox(p) + F_X - 2} y2={yF(l) + F_H / 2} marker-end="url(#ar-arrow)" />
           </g>
         ))}
@@ -86,7 +88,7 @@ const cLabels = [
         </g>
       ))}
       <line class="edge" x1={ox(0) + A_X} y1={yOut - 2} x2={ox(0) + F_X - 2} y2={yOut} marker-end="url(#ar-arrow)" />
-      <text class="note" x={ox(0) + SRC_X} y={yF(2) + 4}>hₗ = h₁ + Σ fᵢ</text>
+      <SvgTex x={ox(0) + SRC_X} y={yF(2)} w={140} size={10.5} align="start" color="var(--muted)" src="$h_l = h_1 + \sum_i f_i$" />
       <text class="note" x={ox(0) + SRC_X} y={yF(2) + 20}>所有人拿到同一个和，</text>
       <text class="note" x={ox(0) + SRC_X} y={yF(2) + 34}>权重固定为 1</text>
     </g>
@@ -100,7 +102,7 @@ const cLabels = [
           {srcB(l).map((ys) => <path class="edge fan" d={fan(1, ys, yF(l) + F_H / 2)} marker-end="url(#ar-arrow)" />)}
           <path class="edge back" d={back(1, l, yF(l) + F_H + 22)} marker-end="url(#ar-arrow)" />
           <rect class="src" x={ox(1) + SRC_X} y={yF(l) + F_H + 11} width={SRC_W} height="22" rx="5" />
-          <text class="t small" x={ox(1) + SRC_X + SRC_W / 2} y={yF(l) + F_H + 26} text-anchor="middle">{`f${String.fromCharCode(0x2080 + l)}(h${String.fromCharCode(0x2080 + l)}) 的输出`}</text>
+          <SvgTex x={ox(1) + SRC_X + SRC_W / 2} y={yF(l) + F_H + 22} w={SRC_W} h={20} size={10.5} weight={500} src={`$f_${l}(h_${l})$ 的输出`} />
         </g>
       ))}
       <circle class="alpha" cx={ox(1) + A_X} cy={yOut} r="13" />
@@ -121,7 +123,7 @@ const cLabels = [
       {cLabels.map((c) => (
         <g>
           <rect class:list={['src', { partial: c.partial }]} x={ox(2) + SRC_X} y={c.y - 11} width={SRC_W} height="22" rx="5" />
-          <text class="t small" x={ox(2) + SRC_X + SRC_W / 2} y={c.y + 4} text-anchor="middle">{c.t}</text>
+          <SvgTex x={ox(2) + SRC_X + SRC_W / 2} y={c.y} w={SRC_W} h={20} size={10.5} weight={500} src={c.t} />
         </g>
       ))}
       <circle class="alpha" cx={ox(2) + A_X} cy={yOut} r="13" />
@@ -135,7 +137,7 @@ const cLabels = [
     </g>
   </svg>
   <figcaption>
-    左列是每个 α 能取回的来源。(a) 每层拿到同一个固定和；(b) 每个子层前的 α 用自己的伪 query <i>w<sub>l</sub></i> 对 embedding 和所有先前子层输出做 softmax；(c) 块内子层输出先求和（虚线框是正在累加的 partial sum），α 只在 embedding、已完成的块和当前块 partial sum 之间分配权重。
+    左列是每个 α 能取回的来源。(a) 每层拿到同一个固定和；(b) 每个子层前的 α 用自己的伪 query <Fragment set:html={texMix('$w_l$')} /> 对 embedding 和所有先前子层输出做 softmax；(c) 块内子层输出先求和（虚线框是正在累加的 partial sum），α 只在 embedding、已完成的块和当前块 partial sum 之间分配权重。
   </figcaption>
 </figure>
 

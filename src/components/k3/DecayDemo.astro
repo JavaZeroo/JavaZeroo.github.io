@@ -4,6 +4,7 @@
  * Kimi Linear：g = −e^A · softplus(z)（无下界）；Kimi K3：g = g_min · sigmoid(e^A z)（下界 g_min = −5）。
  * 滑块调每头的 log 尺度 A。
  */
+import { texMix } from './tex';
 ---
 
 <div class="demo decay-demo">
@@ -13,7 +14,7 @@
       <input type="range" min="-200" max="200" value="0" data-a />
     </label>
     <label>
-      <input type="checkbox" data-mode /> 纵轴改看 α = e<sup>g</sup>
+      <input type="checkbox" data-mode /> 纵轴改看 <Fragment set:html={texMix('$\\alpha = e^{g}$')} />
     </label>
   </div>
   <svg viewBox="0 0 640 320" data-plot>
@@ -25,9 +26,9 @@
     <text class="ax" data-ylabel x="8" y="16"></text>
   </svg>
   <div class="legend">
-    <span class="lin">Kimi Linear：g = −e^A · softplus(z)</span>
-    <span class="k3">Kimi K3：g = −5 · σ(e^A z)</span>
-    <span class="bd">g_min = −5（α 最小 e^−5 ≈ 0.0067）</span>
+    <span class="lin" set:html={texMix('Kimi Linear：$g = -e^{A}\\,\\operatorname{softplus}(z)$')} />
+    <span class="k3" set:html={texMix('Kimi K3：$g = -5\\,\\sigma(e^{A} z)$')} />
+    <span class="bd" set:html={texMix('$g_{\\min} = -5$（$\\alpha$ 最小 $e^{-5} \\approx 0.0067$）')} />
   </div>
 </div>
 
@@ -89,7 +90,7 @@
       const yb = sy(alpha ? Math.exp(-5) : -5);
       bound.setAttribute('x1', String(L)); bound.setAttribute('x2', String(W - R));
       bound.setAttribute('y1', String(yb)); bound.setAttribute('y2', String(yb));
-      ylabel.textContent = alpha ? 'α = e^g（每步保留比例）' : 'g（每步 log-decay）';
+      ylabel.textContent = alpha ? 'α（每步保留比例）' : 'g（每步 log-decay）';
 
       const ticksY = alpha ? [0, 0.25, 0.5, 0.75, 1] : [0, -2, -4, -6, -8, -10, -12];
       const ticksX = [-10, -5, 0, 5, 10];

@@ -2,26 +2,27 @@
 /**
  * 一层 Gated MLA 的内部（Kimi K3 维度）：query 低秩、KV latent 压缩、64 维头间共享键、NoPE、满秩 sigmoid 输出门。
  */
+import SvgTex from './SvgTex.astro';
 const BH = 36;
 type Box = { x: number; y: number; w: number; l: string; s?: string; kind?: 'q' | 'kv' | 'cache' | 'gate' | 'out' | 'in' | 'attn' };
 const boxes: Box[] = [
-  { x: 24, y: 176, w: 80, l: 'x_t', s: '7168', kind: 'in' },
+  { x: 24, y: 176, w: 80, l: '$x_t$', s: '7168', kind: 'in' },
   // query 路
-  { x: 150, y: 40, w: 118, l: 'Linear W_q↓', s: '7168 → 1536', kind: 'q' },
+  { x: 150, y: 40, w: 118, l: 'Linear $W_q^{\\downarrow}$', s: '7168 → 1536', kind: 'q' },
   { x: 282, y: 40, w: 84, l: 'RMSNorm', s: '1536', kind: 'q' },
-  { x: 380, y: 40, w: 150, l: 'Linear W_q↑', s: '1536 → 96 × 192', kind: 'q' },
+  { x: 380, y: 40, w: 150, l: 'Linear $W_q^{\\uparrow}$', s: '1536 → 96 × 192', kind: 'q' },
   // kv 路
-  { x: 150, y: 176, w: 118, l: 'Linear W_kv↓', s: '7168 → 512 + 64', kind: 'kv' },
+  { x: 150, y: 176, w: 118, l: 'Linear $W_{kv}^{\\downarrow}$', s: '7168 → 512 + 64', kind: 'kv' },
   { x: 282, y: 146, w: 84, l: 'RMSNorm', s: '512', kind: 'kv' },
-  { x: 380, y: 146, w: 150, l: 'Linear W_kv↑', s: '512 → 96 × (128 + 128)', kind: 'kv' },
+  { x: 380, y: 146, w: 150, l: 'Linear $W_{kv}^{\\uparrow}$', s: '512 → 96 × (128 + 128)', kind: 'kv' },
   { x: 380, y: 226, w: 150, l: '广播到 96 个头', s: '64 维，不做旋转（NoPE）', kind: 'kv' },
   // 注意力
-  { x: 600, y: 96, w: 150, l: 'softmax(q kᵀ / √192) v', s: '因果，96 头，无位置编码', kind: 'attn' },
+  { x: 600, y: 96, w: 150, l: '$\\operatorname{softmax}(q k^\\top / \\sqrt{192})\\, v$', s: '因果，96 头，无位置编码', kind: 'attn' },
   // 门
-  { x: 150, y: 320, w: 140, l: 'Linear W_g（满秩）', s: '7168 → 12288', kind: 'gate' },
+  { x: 150, y: 320, w: 140, l: 'Linear $W_g$（满秩）', s: '7168 → 12288', kind: 'gate' },
   { x: 304, y: 320, w: 84, l: 'Sigmoid', kind: 'gate' },
   // 输出
-  { x: 800, y: 176, w: 150, l: 'Linear W_o', s: '12288 → 7168', kind: 'out' },
+  { x: 800, y: 176, w: 150, l: 'Linear $W_o$', s: '12288 → 7168', kind: 'out' },
 ];
 const mid = (b: Box) => b.y + BH / 2;
 ---
@@ -45,42 +46,42 @@ const mid = (b: Box) => b.y + BH / 2;
     <line class="edge" x1="268" y1="58" x2="280" y2="58" marker-end="url(#ml-arrow)" />
     <line class="edge" x1="366" y1="58" x2="378" y2="58" marker-end="url(#ml-arrow)" />
     <path class="edge" d="M530 58 H 640 V 94" marker-end="url(#ml-arrow)" />
-    <text class="o" x="540" y="52">q_t：96 头 × (128 + 64)</text>
+    <SvgTex x={540} y={48} w={200} size={9.5} align="start" color="var(--muted)" src="$q_t$：96 头 × (128 + 64)" />
 
     <!-- kv 链：latent -->
     <path class="edge" d="M268 186 H 274 V 164 H 280" marker-end="url(#ml-arrow)" />
     <line class="edge" x1="366" y1="164" x2="378" y2="164" marker-end="url(#ml-arrow)" />
     <path class="edge" d="M530 158 H 598 V 122" marker-end="url(#ml-arrow)" />
-    <text class="o" x="536" y="150">k_nope 96 × 128</text>
+    <SvgTex x={536} y={146} w={160} size={9.5} align="start" color="var(--muted)" src="$k_{\text{nope}}$ 96 × 128" />
     <path class="edge" d="M530 172 H 560 V 210 H 640 V 134" marker-end="url(#ml-arrow)" />
-    <text class="o" x="566" y="204">v 96 × 128</text>
+    <SvgTex x={566} y={200} w={120} size={9.5} align="start" color="var(--muted)" src="$v$ 96 × 128" />
     <!-- kv 链：64 维共享 -->
     <path class="edge" d="M268 202 H 274 V 244 H 378" marker-end="url(#ml-arrow)" />
     <path class="edge" d="M530 244 H 690 V 134" marker-end="url(#ml-arrow)" />
-    <text class="o" x="536" y="258">k_shared 64，拼到每个头的 k 后面</text>
-    <text class="o" x="323" y="198" text-anchor="middle">c_t  512</text>
+    <SvgTex x={536} y={254} w={240} size={9.5} align="start" color="var(--muted)" src="$k_{\text{shared}}$ 64，拼到每个头的 $k$ 后面" />
+    <SvgTex x={323} y={194} w={90} size={9.5} color="var(--muted)" src="$c_t$  512" />
     <text class="o" x="323" y="238" text-anchor="middle">共享分量 64</text>
 
     <!-- 缓存框：latent c_t（RMSNorm 之后）+ 64 维共享分量 -->
     <rect class="cache" x="272" y="136" width="102" height="130" rx="6" />
     <text class="c" x="323" y="282" text-anchor="middle">KV cache：每 token 576 个数</text>
-    <text class="c" x="323" y="294" text-anchor="middle">= 512 维 latent c_t + 64 维共享键</text>
+    <SvgTex x={323} y={290} w={220} size={9.5} weight={600} color="var(--cat-amber)" src="= 512 维 latent $c_t$ + 64 维共享键" />
 
     <!-- 注意力 → 门 → 输出 -->
     <line class="edge" x1="750" y1="114" x2="820" y2="114" />
     <line class="edge" x1="820" y1="114" x2="820" y2="152" marker-end="url(#ml-arrow)" />
-    <text class="o" x="756" y="108">õ_t 96 × 128 = 12288</text>
+    <SvgTex x={756} y={104} w={200} size={9.5} align="start" color="var(--muted)" src="$\tilde o_t$ 96 × 128 = 12288" />
     <circle class="mul" cx="820" cy="164" r="11" /><text class="sym" x="820" y="168" text-anchor="middle">⊙</text>
     <path class="edge gate" d="M388 338 H 820 V 175" marker-end="url(#ml-arrow)" />
-    <text class="o" x="396" y="332">门 12288，∈ (0,1)，逐通道</text>
+    <SvgTex x={396} y={328} w={200} size={9.5} align="start" color="var(--muted)" src="门 12288，$\in (0,1)$，逐通道" />
     <line class="edge" x1="875" y1="212" x2="875" y2="250" marker-end="url(#ml-arrow)" />
-    <text class="t" x="875" y="268" text-anchor="middle">y_t  7168</text>
+    <SvgTex x={875} y={264} w={120} size={11} weight={600} src="$y_t$  7168" />
 
     {boxes.map((b) => (
       <g class={b.kind ?? 'q'}>
         <rect class="b" x={b.x} y={b.y} width={b.w} height={BH} rx="7" />
-        <text class="t" x={b.x + b.w / 2} y={b.y + (b.s ? 15 : 22)} text-anchor="middle">{b.l}</text>
-        {b.s && <text class="s" x={b.x + b.w / 2} y={b.y + 28} text-anchor="middle">{b.s}</text>}
+        <SvgTex x={b.x + b.w / 2} y={b.y + (b.s ? 12 : 18)} w={b.w - 4} h={18} size={11} weight={600} src={b.l} />
+        {b.s && <SvgTex x={b.x + b.w / 2} y={b.y + 26} w={b.w - 4} h={14} size={9.5} color="var(--text-2)" src={b.s} />}
       </g>
     ))}
   </svg>

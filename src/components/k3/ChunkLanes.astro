@@ -3,6 +3,7 @@
  * KDA chunkwise 形式的"双通道"图：块间通道传递状态 S，块内通道做一次带掩码的 C×C 矩阵乘。
  * 右侧把 C = 64 的下三角按 16-token 二级 tile 画出来：对角 tile 是 Kimi Linear 的瓶颈，K3 把它也搬上 Tensor Core。
  */
+import SvgTex from './SvgTex.astro';
 const T = 4, TS = 34, GX = 640, GY = 88; // 4×4 tile 网格
 ---
 
@@ -15,56 +16,56 @@ const T = 4, TS = 34, GX = 640, GY = 88; // 4×4 tile 网格
     </defs>
 
     <!-- 块间通道 -->
-    <text class="lane" x="24" y="40">块间通道：状态 S 逐块递推（每块一次）</text>
+    <SvgTex x={24} y={36} w={420} size={12} weight={600} align="start" color="var(--text-2)" src="块间通道：状态 $S$ 逐块递推（每块一次）" />
     <rect class="st" x="24" y="60" width="80" height="40" rx="7" />
-    <text class="t" x="64" y="84" text-anchor="middle">S_[t]</text>
+    <SvgTex x={64} y={80} w={76} size={11.5} weight={600} src="$S_{[t]}$" />
     <line class="edge" x1="104" y1="80" x2="140" y2="80" marker-end="url(#cl-arrow)" />
     <rect class="op" x="142" y="60" width="118" height="40" rx="7" />
-    <text class="t" x="201" y="77" text-anchor="middle">× Diag(γ^C)</text>
+    <SvgTex x={201} y={73} w={114} size={11} weight={600} src="$\times\ \operatorname{Diag}(\gamma^{C})$" />
     <text class="s" x="201" y="92" text-anchor="middle">整块的逐通道衰减</text>
     <line class="edge" x1="260" y1="80" x2="292" y2="80" marker-end="url(#cl-arrow)" />
     <circle class="plus" cx="308" cy="80" r="13" /><text class="sym" x="308" y="85" text-anchor="middle">+</text>
     <line class="edge" x1="321" y1="80" x2="356" y2="80" marker-end="url(#cl-arrow)" />
     <rect class="st" x="358" y="60" width="90" height="40" rx="7" />
-    <text class="t" x="403" y="84" text-anchor="middle">S_[t+1]</text>
+    <SvgTex x={403} y={80} w={86} size={11.5} weight={600} src="$S_{[t+1]}$" />
     <rect class="op" x="248" y="122" width="120" height="40" rx="7" />
-    <text class="t" x="308" y="139" text-anchor="middle">{"(Γ^{i→C} ⊙ K)ᵀ Ṽ"}</text>
+    <SvgTex x={308} y={135} w={116} size={11} weight={600} src="$(\Gamma^{i\to C} \odot K)^\top \tilde V$" />
     <text class="s" x="308" y="154" text-anchor="middle">本块的写入，一次矩阵乘</text>
     <line class="edge" x1="308" y1="122" x2="308" y2="95" marker-end="url(#cl-arrow)" />
 
     <!-- 块内通道 -->
-    <text class="lane" x="24" y="206">块内通道：本块所有输出并行算（一次 C×C 掩码矩阵乘）</text>
+    <SvgTex x={24} y={202} w={520} size={12} weight={600} align="start" color="var(--text-2)" src="块内通道：本块所有输出并行算（一次 $C \times C$ 掩码矩阵乘）" />
     <rect class="op" x="24" y="226" width="130" height="40" rx="7" />
-    <text class="t" x="89" y="243" text-anchor="middle">(Γ ⊙ Q) S_[t]</text>
+    <SvgTex x={89} y={239} w={126} size={11} weight={600} src="$(\Gamma \odot Q)\, S_{[t]}$" />
     <text class="s" x="89" y="258" text-anchor="middle">读进入本块时的状态</text>
     <circle class="plus" cx="184" cy="246" r="13" /><text class="sym" x="184" y="251" text-anchor="middle">+</text>
     <line class="edge" x1="154" y1="246" x2="169" y2="246" marker-end="url(#cl-arrow)" />
     <rect class="op" x="214" y="226" width="150" height="40" rx="7" />
-    <text class="t" x="289" y="243" text-anchor="middle">A Ṽ，A = Tril[(Q⊙Γ)(K/Γ)ᵀ]</text>
+    <SvgTex x={289} y={239} w={148} size={10} weight={600} src="$A\tilde V$，$A = \operatorname{Tril}[(Q \odot \Gamma)(K/\Gamma)^\top]$" />
     <text class="s" x="289" y="258" text-anchor="middle">块内 token 之间的因果交互</text>
     <line class="edge" x1="214" y1="246" x2="199" y2="246" marker-end="url(#cl-arrow)" />
     <line class="edge" x1="364" y1="246" x2="400" y2="246" marker-end="url(#cl-arrow)" />
     <rect class="st" x="402" y="226" width="80" height="40" rx="7" />
-    <text class="t" x="442" y="250" text-anchor="middle">O_[t]</text>
+    <SvgTex x={442} y={246} w={76} size={11.5} weight={600} src="$O_{[t]}$" />
     <path class="edge dep" d="M64 100 V 180 H 89 V 224" marker-end="url(#cl-arrow)" />
-    <text class="s" x="70" y="176">S_[t] 也喂给块内通道</text>
+    <SvgTex x={70} y={172} w={160} size={9.5} align="start" color="var(--text-2)" src="$S_{[t]}$ 也喂给块内通道" />
 
     <!-- 右侧：A 矩阵的 tile -->
-    <text class="lane" x={GX} y="40">A 的下三角，C = 64，16-token 二级 tile</text>
+    <SvgTex x={GX} y={36} w={320} size={12} weight={600} align="start" color="var(--text-2)" src="$A$ 的下三角，$C = 64$，16-token 二级 tile" />
     {Array.from({ length: T }, (_, r) => Array.from({ length: r + 1 }, (_, c) => (
       <rect class:list={['tile', { diag: r === c }]} x={GX + c * TS} y={GY + r * TS} width={TS - 3} height={TS - 3} rx="3" />
     )))}
     <path class="brace" d={`M${GX - 6} ${GY} h-5 V ${GY + T * TS - 3} h5`} />
-    <text class="s" x={GX - 16} y={GY + T * TS / 2} text-anchor="end">查询 i</text>
-    <text class="s" x={GX + T * TS / 2} y={GY + T * TS + 12} text-anchor="middle">键 j ≤ i</text>
+    <SvgTex x={GX - 16} y={GY + T * TS / 2 - 3} w={60} size={9.5} align="end" color="var(--text-2)" src="查询 $i$" />
+    <SvgTex x={GX + T * TS / 2} y={GY + T * TS + 9} w={80} size={9.5} color="var(--text-2)" src="键 $j \le i$" />
     <rect class="tile" x={GX + T * TS + 30} y={GY + 10} width="14" height="14" rx="2" />
-    <text class="s" x={GX + T * TS + 50} y={GY + 21}>非对角 tile：exp(g_i − g_s)·exp(g_s − g_j)，</text>
-    <text class="s" x={GX + T * TS + 50} y={GY + 34}>两个因子都 ≤ 1，直接 BF16 矩阵乘</text>
+    <SvgTex x={GX + T * TS + 50} y={GY + 17} w={300} size={9.5} align="start" color="var(--text-2)" src="非对角 tile：$\exp(g_i - g_s)\cdot\exp(g_s - g_j)$，" />
+    <SvgTex x={GX + T * TS + 50} y={GY + 30} w={300} size={9.5} align="start" color="var(--text-2)" src="两个因子都 $\le 1$，直接 BF16 矩阵乘" />
     <rect class="tile diag" x={GX + T * TS + 30} y={GY + 56} width="14" height="14" rx="2" />
-    <text class="s" x={GX + T * TS + 50} y={GY + 67}>对角 tile：exp(g_s − g_j) 可能 ≫ 1</text>
+    <SvgTex x={GX + T * TS + 50} y={GY + 63} w={300} size={9.5} align="start" color="var(--text-2)" src="对角 tile：$\exp(g_s - g_j)$ 可能 $\gg 1$" />
     <text class="s" x={GX + T * TS + 50} y={GY + 80}>Kimi Linear：逐位置对、FP32，是瓶颈</text>
-    <text class="s hl" x={GX + T * TS + 50} y={GY + 93}>K3：16 步累计 log-decay 大于 −80，</text>
-    <text class="s hl" x={GX + T * TS + 50} y={GY + 106}>e^80 在 BF16 范围内，也走矩阵乘</text>
+    <SvgTex x={GX + T * TS + 50} y={GY + 89} w={300} size={9.5} weight={600} align="start" color="var(--cat-emerald)" src="K3：16 步累计 log-decay 大于 $-80$，" />
+    <SvgTex x={GX + T * TS + 50} y={GY + 102} w={300} size={9.5} weight={600} align="start" color="var(--cat-emerald)" src="$e^{80}$ 在 BF16 范围内，也走矩阵乘" />
   </svg>
 </figure>
 

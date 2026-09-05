@@ -3,6 +3,7 @@
  * Kimi K3 的 93 层怎么排：KDA / Gated MLA 交错，以及 Attention Residuals 的分块边界。
  * 层号按论文与 config.json 的 1-indexed 口径（full_attn_layers = 4, 8, …, 92, 93）。
  */
+import SvgTex from './SvgTex.astro';
 interface Props {
   /** 是否画出 AttnRes 的 12 层分块 */
   showBlocks?: boolean;
@@ -45,13 +46,11 @@ const blocks = Array.from({ length: 8 }, (_, n) => ({
       return (
         <g class="blk">
           <path d={`M${x1} ${y} v6 H${x2} v-6`} />
-          <text x={(x1 + x2) / 2} y={y + 20} text-anchor="middle">
-            {b.to - b.from + 1 === 12 ? `b${String.fromCharCode(0x2080 + b.n)}` : `尾块（${b.to - b.from + 1} 层）`}
-          </text>
+          <SvgTex x={(x1 + x2) / 2} y={y + 16} w={x2 - x1} h={18} size={10.5} color="var(--cat-amber)" src={b.to - b.from + 1 === 12 ? `$b_${b.n}$` : `尾块（${b.to - b.from + 1} 层）`} />
         </g>
       );
     })}
-    {showBlocks && <text class="lbl" x={X0} y={Y0 + H + 88}>AttnRes 分块：每 12 个 decoder layer 求和成一个 bₙ；embedding 记作 b₀；7 个满块 + 1 个 9 层尾块 + b₀ = 9 个来源</text>}
+    {showBlocks && <SvgTex x={X0} y={Y0 + H + 84} w={700} size={10.5} align="start" color="var(--text-2)" src="AttnRes 分块：每 12 个 decoder layer 求和成一个 $b_n$；embedding 记作 $b_0$；7 个满块 + 1 个 9 层尾块 + $b_0$ = 9 个来源" />}
   </svg>
   {caption && <figcaption>{caption}</figcaption>}
 </figure>

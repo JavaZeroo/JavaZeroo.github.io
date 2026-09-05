@@ -4,6 +4,7 @@
  * 左：按原始分数 Top-1，负载 (4,3,1,0)。右：每列取 (1 − k/n) 分位数当偏置后，负载 (2,2,2,2)。
  * 分数是为了复现论文里的负载模式手工设的。
  */
+import { texMix } from './tex';
 const m = 8, n = 4, k = 1;
 // s[i][j]：token i 对 expert j 的分数
 const s = [
@@ -39,7 +40,7 @@ const panels = [
 ---
 
 <figure class="qb">
-  <svg viewBox="0 0 640 300" role="img" aria-label="Quantile Balancing 前后的路由">
+  <svg viewBox="0 0 700 300" role="img" aria-label="Quantile Balancing 前后的路由">
     <defs>
       <marker id="qb-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
         <path d="M0 0 L10 5 L0 10 z" />
@@ -71,7 +72,7 @@ const panels = [
       );
     })}
   </svg>
-  <figcaption>m = 8 个 token，n = 4 个 expert，k = 1，目标负载 q = mk/n = 2。左边按原始分数路由，E1 过热、E4 一个都没有。右边每个 expert 的偏置取自本列 margin 的第 (q+1) 大值，一步就到 2/2/2/2。红色是被 QB 改动的边。分数是示意用的手工数据。</figcaption>
+  <figcaption set:html={texMix('$m = 8$ 个 token，$n = 4$ 个 expert，$k = 1$，目标负载 $q = mk/n = 2$。左边按原始分数路由，E1 过热、E4 一个都没有。右边每个 expert 的偏置取自本列 margin 的第 $(q+1)$ 大值，一步就到 2/2/2/2。红色是被 QB 改动的边。分数是示意用的手工数据。')} />
 </figure>
 
 <style>

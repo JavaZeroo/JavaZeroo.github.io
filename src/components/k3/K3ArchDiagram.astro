@@ -4,6 +4,7 @@
  * 每篇文章通过 `highlight` 点亮自己讲的那一组模块，其余淡化。
  * 方块可点击跳到对应文章（LINKS 里为 null 的还没写）。
  */
+import SvgTex from './SvgTex.astro';
 type Group = 'embed' | 'vision' | 'kda' | 'mla' | 'moe' | 'attnres' | 'output' | 'mtp';
 
 interface Props {
@@ -58,9 +59,9 @@ const boxes: Box[] = [
   { id: 'shuffle', group: 'vision', x: 600, y: 52, w: 150, h: BOX_H, label: '2×2 Pixel-shuffle', sub: '+ 时间池化 · token ÷4', title: 'merge_type = sd2_tpool' },
   { id: 'proj', group: 'vision', x: 770, y: 52, w: 150, h: BOX_H, label: 'Projector', sub: '4096 → 4096 → 7168', title: 'PatchMergerMLPV2，GELU，RMSNorm' },
   // AttnRes 来源
-  { id: 'src0', group: 'attnres', x: 40, y: rowY(2), w: 170, h: 30, label: 'b₀ = Embedding', title: '词嵌入永远是一个来源' },
-  { id: 'src1', group: 'attnres', x: 40, y: rowY(2) + 42, w: 170, h: 30, label: 'b₁ … bₙ₋₁', sub: '已完成的块（每块 12 层之和）', title: '每个块的输出是块内所有子层输出之和' },
-  { id: 'src2', group: 'attnres', x: 40, y: rowY(2) + 84, w: 170, h: 30, label: 'bₙ⁽ⁱ⁾ 当前块 partial sum', title: '本块里已经算完的子层之和，相当于块内的普通残差流' },
+  { id: 'src0', group: 'attnres', x: 40, y: rowY(2), w: 170, h: 30, label: '$b_0$ = Embedding', title: '词嵌入永远是一个来源' },
+  { id: 'src1', group: 'attnres', x: 40, y: rowY(2) + 42, w: 170, h: 30, label: '$b_1 \\dots b_{n-1}$', sub: '已完成的块（每块 12 层之和）', title: '每个块的输出是块内所有子层输出之和' },
+  { id: 'src2', group: 'attnres', x: 40, y: rowY(2) + 84, w: 170, h: 30, label: '$b_n^{(i)}$ 当前块 partial sum', title: '本块里已经算完的子层之和，相当于块内的普通残差流' },
   // 主干
   ...rows.map((r) => ({ id: `row${r.i}`, group: r.group, x: MOD_X, y: rowY(r.i), w: MOD_W, h: BOX_H, label: r.label, sub: r.sub, title: r.title })),
   // 输出
@@ -156,7 +157,9 @@ const grp = { x: 262, y: rowY(2) - 4, w: 300, h: 3 * ROW_H + BOX_H + 18 };
         <g class={cls(b.group)}>
           {b.title && <title>{b.title}</title>}
           <rect x={b.x} y={b.y} width={b.w} height={b.h} rx="8" />
-          <text class="t" x={b.x + b.w / 2} y={b.y + (b.sub ? 14 : b.h / 2 + 5)} text-anchor="middle">{b.label}</text>
+          {b.label.includes('$')
+            ? <SvgTex x={b.x + b.w / 2} y={b.y + (b.sub ? 10 : b.h / 2)} w={b.w - 4} h={20} size={13} weight={600} src={b.label} />
+            : <text class="t" x={b.x + b.w / 2} y={b.y + (b.sub ? 14 : b.h / 2 + 5)} text-anchor="middle">{b.label}</text>}
           {b.sub && <text class="s" x={b.x + b.w / 2} y={b.y + 27} text-anchor="middle">{b.sub}</text>}
         </g>
       );

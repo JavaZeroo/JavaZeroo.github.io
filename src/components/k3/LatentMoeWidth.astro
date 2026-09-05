@@ -3,18 +3,19 @@
  * Stable LatentMoE 的"宽度收窄"图：7168 → 3584 → (16 个 expert：3584 → 3072 → 3584) → RMSNorm → 7168，
  * 旁边并联 2 个全宽 shared expert。矩形的高度按维度画，直观看出 routed 路在窄的地方。
  */
+import SvgTex from './SvgTex.astro';
 const scale = 0.019; // 维度 → 像素
 const H = (d: number) => d * scale;
 const cy = 170;
 type Stage = { x: number; w: number; d: number; l: string; s?: string; kind: 'x' | 'proj' | 'expert' | 'norm' | 'out' };
 const stages: Stage[] = [
-  { x: 24,  w: 30, d: 7168, l: 'x', s: '7168', kind: 'x' },
-  { x: 110, w: 40, d: 3584, l: 'W↓', s: '7168→3584', kind: 'proj' },
+  { x: 24,  w: 30, d: 7168, l: '$x$', s: '7168', kind: 'x' },
+  { x: 110, w: 40, d: 3584, l: '$W^{\\downarrow}$', s: '7168→3584', kind: 'proj' },
   { x: 236, w: 40, d: 3072, l: '中间', s: '3072', kind: 'expert' },
-  { x: 350, w: 40, d: 3584, l: 'Σ pᵢ Eᵢ(z)', s: '3584', kind: 'expert' },
+  { x: 350, w: 40, d: 3584, l: '$\\sum_i p_i E_i(z)$', s: '3584', kind: 'expert' },
   { x: 460, w: 40, d: 3584, l: 'RMSNorm', s: 'K3 新增', kind: 'norm' },
-  { x: 570, w: 40, d: 7168, l: 'W↑', s: '3584→7168', kind: 'proj' },
-  { x: 690, w: 30, d: 7168, l: 'y', s: '7168', kind: 'out' },
+  { x: 570, w: 40, d: 7168, l: '$W^{\\uparrow}$', s: '3584→7168', kind: 'proj' },
+  { x: 690, w: 30, d: 7168, l: '$y$', s: '7168', kind: 'out' },
 ];
 const rect = (s: Stage) => ({ x: s.x, y: cy - H(s.d) / 2, w: s.w, h: H(s.d) });
 ---
@@ -37,8 +38,8 @@ const rect = (s: Stage) => ({ x: s.x, y: cy - H(s.d) / 2, w: s.w, h: H(s.d) });
       return (
         <g class={s.kind}>
           <rect class="st" x={r.x} y={r.y} width={r.w} height={r.h} rx="4" />
-          <text class="t" x={r.x + r.w / 2} y={r.y - 18} text-anchor="middle">{s.l}</text>
-          {s.s && <text class="s" x={r.x + r.w / 2} y={r.y - 6} text-anchor="middle">{s.s}</text>}
+          <SvgTex x={r.x + r.w / 2} y={r.y - 22} w={120} h={20} size={11.5} weight={600} src={s.l} />
+          {s.s && <SvgTex x={r.x + r.w / 2} y={r.y - 9} w={120} h={14} size={9.5} color="var(--text-2)" src={s.s} />}
         </g>
       );
     })}
@@ -46,13 +47,13 @@ const rect = (s: Stage) => ({ x: s.x, y: cy - H(s.d) / 2, w: s.w, h: H(s.d) });
     <text class="note" x="293" y={cy + H(3584) / 2 + 18} text-anchor="middle">16 个 routed expert（从 896 个里选）</text>
     <text class="note" x="293" y={cy + H(3584) / 2 + 32} text-anchor="middle">每个：3584 → 3072 → 3584，SiTU-GLU</text>
     <text class="note" x="293" y={cy + H(3584) / 2 + 46} text-anchor="middle">在 latent 空间里 dispatch、计算、加权求和</text>
-    <text class="note" x="130" y={cy + H(3584) / 2 + 18} text-anchor="middle">z = W↓x</text>
+    <SvgTex x={130} y={cy + H(3584) / 2 + 14} w={120} size={10} color="var(--muted)" src="$z = W^{\downarrow} x$" />
     <text class="note" x="130" y={cy + H(3584) / 2 + 32} text-anchor="middle">一层只有一个</text>
     <text class="note" x="590" y={cy + H(7168) / 2 + 18} text-anchor="middle">一层只有一个</text>
 
     <!-- router -->
     <path class="edge dash" d={`M54 ${cy - H(7168) / 2 - 10} V 34 H 293 V ${cy - H(3072) / 2 - 36}`} marker-end="url(#lw-arrow)" />
-    <text class="note" x="170" y="28" text-anchor="middle">router 看的是全宽 x：sigmoid(W_r x)，896 个分数，加偏置选 16</text>
+    <SvgTex x={170} y={24} w={340} size={10} color="var(--muted)" src="router 看的是全宽 $x$：$\operatorname{sigmoid}(W_r x)$，896 个分数，加偏置选 16" />
 
     <!-- shared 路 -->
     <path class="edge" d={`M54 ${cy + H(7168) / 2 + 6} V 318 H 340`} marker-end="url(#lw-arrow)" />

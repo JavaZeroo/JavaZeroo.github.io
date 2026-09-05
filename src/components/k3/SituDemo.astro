@@ -3,12 +3,13 @@
  * 交互：GLU / SwiGLU / SiTU-GLU 在标量输入 x 上的响应（门和上支同一个 x）。
  * 滑块调 β₁（门的软截断）和 β₂（上支的软截断）。
  */
+import { texMix } from './tex';
 ---
 
 <div class="demo situ-demo">
   <div class="ctl">
-    <label>β₁（门）= <output data-b1-out>4</output><input type="range" min="1" max="20" value="4" data-b1 /></label>
-    <label>β₂（上支）= <output data-b2-out>25</output><input type="range" min="5" max="100" value="25" data-b2 /></label>
+    <label><Fragment set:html={texMix('$\\beta_1$（门）=')} /> <output data-b1-out>4</output><input type="range" min="1" max="20" value="4" data-b1 /></label>
+    <label><Fragment set:html={texMix('$\\beta_2$（上支）=')} /> <output data-b2-out>25</output><input type="range" min="5" max="100" value="25" data-b2 /></label>
     <label>横轴范围 <select data-range><option value="10">−10 … 10（看原点附近）</option><option value="100" selected>−10 … 100（看饱和）</option></select></label>
   </div>
   <svg viewBox="0 0 640 320" data-plot>
@@ -21,10 +22,10 @@
     <text class="ax" x="8" y="16">f(x)</text>
   </svg>
   <div class="legend">
-    <span class="glu">GLU：σ(x)·x</span>
-    <span class="swi">SwiGLU：x·σ(x)·x</span>
-    <span class="situ">SiTU-GLU：β₁tanh(x/β₁)·σ(x) · β₂tanh(x/β₂)</span>
-    <span class="bd">上界 β₁β₂ = <output data-bound-out>100</output></span>
+    <span class="glu" set:html={texMix('GLU：$\\sigma(x)\\cdot x$')} />
+    <span class="swi" set:html={texMix('SwiGLU：$x\\,\\sigma(x)\\cdot x$')} />
+    <span class="situ" set:html={texMix('SiTU-GLU：$\\beta_1\\tanh(x/\\beta_1)\\,\\sigma(x)\\cdot\\beta_2\\tanh(x/\\beta_2)$')} />
+    <span class="bd">上界 <Fragment set:html={texMix('$\\beta_1\\beta_2$')} /> = <output data-bound-out>100</output></span>
   </div>
 </div>
 
