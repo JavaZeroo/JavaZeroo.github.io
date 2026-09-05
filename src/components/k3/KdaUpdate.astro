@@ -1,0 +1,78 @@
+---
+/**
+ * KDA 状态更新（论文 Eq. 1）的图解：S_t = (I − β k kᵀ) · Diag(α) · S_{t−1} + β k vᵀ。
+ * 三步：① 逐通道衰减 ② 沿 k 方向擦除 ③ 写入新的 k→v 关联。
+ */
+const M = 72; // 矩阵边长
+const y0 = 70;
+const items: { x: number; label: string; sub: string; kind: 'mat' | 'diag' | 'house' | 'rank1' }[] = [
+  { x: 40,  label: 'S_t', sub: '新状态', kind: 'mat' },
+  { x: 190, label: 'I − β_t k_t k_tᵀ', sub: '② 擦除', kind: 'house' },
+  { x: 340, label: 'Diag(α_t)', sub: '① 衰减', kind: 'diag' },
+  { x: 490, label: 'S_{t−1}', sub: '旧状态', kind: 'mat' },
+  { x: 680, label: 'β_t k_t v_tᵀ', sub: '③ 写入', kind: 'rank1' },
+];
+const ops = [
+  { x: 150, t: '=' }, { x: 300, t: '·' }, { x: 450, t: '·' }, { x: 640, t: '+' },
+];
+---
+
+<figure class="upd">
+  <svg viewBox="0 0 800 250" role="img" aria-label="KDA 状态更新的三步图解">
+    <defs>
+      <pattern id="kda-diag" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+        <line x1="0" y1="0" x2="0" y2="8" class="hatch" />
+      </pattern>
+    </defs>
+    {items.map((it) => (
+      <g>
+        <rect class:list={['m', it.kind]} x={it.x} y={y0} width={M} height={M} rx="4" />
+        {it.kind === 'diag' && Array.from({ length: 6 }, (_, i) => (
+          <rect class="cell" x={it.x + 6 + i * 10} y={y0 + 6 + i * 10} width="8" height="8" />
+        ))}
+        {it.kind === 'mat' && Array.from({ length: 6 }, (_, r) => (
+          <line class="row" x1={it.x + 6} y1={y0 + 10 + r * 10} x2={it.x + M - 6} y2={y0 + 10 + r * 10} />
+        ))}
+        {it.kind === 'rank1' && (
+          <g>
+            <rect class="cell k" x={it.x - 22} y={y0} width="10" height={M} rx="2" />
+            <rect class="cell v" x={it.x} y={y0 - 22} width={M} height="10" rx="2" />
+            <text class="tiny" x={it.x - 17} y={y0 + M + 14} text-anchor="middle">k_t</text>
+            <text class="tiny" x={it.x + M / 2} y={y0 - 28} text-anchor="middle">v_tᵀ</text>
+          </g>
+        )}
+        {it.kind === 'house' && (
+          <g>
+            <line class="proj" x1={it.x + 10} y1={y0 + M - 10} x2={it.x + M - 10} y2={y0 + 10} />
+            <text class="tiny" x={it.x + M - 4} y={y0 + 8}>k_t</text>
+          </g>
+        )}
+        <text class="lbl" x={it.x + M / 2} y={y0 + M + 30} text-anchor="middle">{it.label}</text>
+        <text class="sub" x={it.x + M / 2} y={y0 + M + 47} text-anchor="middle">{it.sub}</text>
+      </g>
+    ))}
+    {ops.map((o) => <text class="op" x={o.x} y={y0 + M / 2 + 8} text-anchor="middle">{o.t}</text>)}
+
+    <text class="note" x="40" y="30">从右往左读：先把旧状态每一行按 α_t 各自衰减，再把落在 k_t 方向上的内容擦掉 β_t 的比例，最后写入 β_t 倍的新关联 k_t → v_t。</text>
+    <text class="note" x="40" y="232">读出：õ_t = S_tᵀ q_t。行 = 键通道（d_k = 128，各自的衰减率），列 = 值通道（d_v = 128）。</text>
+  </svg>
+</figure>
+
+<style>
+  .upd { margin: 2rem 0; padding: 0.8rem 0.6rem 0.4rem; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); overflow-x: auto; }
+  .upd svg { display: block; width: 100%; min-width: 640px; height: auto; font-family: var(--font-sans); }
+  .m { fill: color-mix(in srgb, var(--cat-cyan) 10%, var(--bg-2)); stroke: var(--cat-cyan); stroke-width: 1.4; }
+  .m.house { fill: color-mix(in srgb, var(--cat-rose) 10%, var(--bg-2)); stroke: var(--cat-rose); }
+  .m.diag { fill: color-mix(in srgb, var(--cat-amber) 10%, var(--bg-2)); stroke: var(--cat-amber); }
+  .m.rank1 { fill: color-mix(in srgb, var(--cat-emerald) 10%, var(--bg-2)); stroke: var(--cat-emerald); }
+  .cell { fill: var(--cat-amber); opacity: 0.85; }
+  .cell.k, .cell.v { fill: var(--cat-emerald); }
+  .row { stroke: var(--cat-cyan); stroke-width: 3; opacity: 0.55; stroke-linecap: round; }
+  .proj { stroke: var(--cat-rose); stroke-width: 2; stroke-dasharray: 4 3; }
+  .hatch { stroke: var(--cat-amber); stroke-width: 1; }
+  .op { fill: var(--text); font-size: 22px; }
+  .lbl { fill: var(--text); font-size: 12.5px; font-weight: 600; }
+  .sub { fill: var(--text-2); font-size: 11px; }
+  .tiny { fill: var(--text-2); font-size: 10px; }
+  .note { fill: var(--muted); font-size: 11px; }
+</style>

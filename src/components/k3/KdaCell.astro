@@ -1,0 +1,110 @@
+---
+/**
+ * 一层 KDA 的内部：五路投影（q / k / v / β / α）、递推、逐头 RMSNorm、满秩 sigmoid 门、输出投影。
+ * 维度按 Kimi K3：d = 7168，96 头，头维 128，96 × 128 = 12288。
+ */
+const X0 = 150, BW = 142, GAP = 10, BH = 36;
+const bx = (i: number) => X0 + i * (BW + GAP);
+type Kind = 'q' | 'k' | 'v' | 'beta' | 'alpha' | 'gate';
+const rows: { y: number; kind: Kind; out: string; boxes: { l: string; s?: string }[] }[] = [
+  { y: 36,  kind: 'q',     out: 'q_t  96 × 128', boxes: [{ l: 'Linear W_q', s: '7168 → 12288' }, { l: 'ShortConv(4) + Swish' }, { l: 'L2Norm', s: '逐头' }] },
+  { y: 96,  kind: 'k',     out: 'k_t  96 × 128', boxes: [{ l: 'Linear W_k', s: '7168 → 12288' }, { l: 'ShortConv(4) + Swish' }, { l: 'L2Norm', s: '逐头' }] },
+  { y: 156, kind: 'v',     out: 'v_t  96 × 128', boxes: [{ l: 'Linear W_v', s: '7168 → 12288' }, { l: 'ShortConv(4) + Swish' }] },
+  { y: 226, kind: 'beta',  out: 'β_t  96 个标量', boxes: [{ l: 'Linear W_β', s: '7168 → 96' }, { l: 'Sigmoid' }] },
+  { y: 286, kind: 'alpha', out: 'α_t = e^{g}  96 × 128', boxes: [{ l: 'Linear W_α↓', s: '7168 → 128' }, { l: 'Linear W_α↑ + b_α', s: '128 → 12288' }, { l: 'g = g_min · σ(e^A z)', s: '有下界，g_min = −5' }] },
+  { y: 372, kind: 'gate',  out: '', boxes: [{ l: 'Linear W_g（满秩）', s: '7168 → 12288' }, { l: 'Sigmoid' }] },
+];
+const REC = { x: 640, y: 60, w: 170, h: 260 };
+const OUT = { x: 850, w: 150 };
+---
+
+<figure class="cell">
+  <svg viewBox="0 0 1020 430" role="img" aria-label="KDA 层内部结构">
+    <defs>
+      <marker id="kc-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M0 0 L10 5 L0 10 z" />
+      </marker>
+    </defs>
+
+    <!-- 输入 -->
+    <rect class="in" x="24" y="190" width="90" height={BH} rx="7" />
+    <text class="t" x="69" y="208" text-anchor="middle">x_t</text>
+    <text class="s" x="69" y="220" text-anchor="middle">7168</text>
+    <line class="bus" x1="126" y1={36 + BH / 2} x2="126" y2={372 + BH / 2} />
+    <line class="edge" x1="114" y1="208" x2="126" y2="208" />
+
+    {rows.map((r) => (
+      <g class={r.kind}>
+        <line class="edge" x1="126" y1={r.y + BH / 2} x2={X0 - 2} y2={r.y + BH / 2} marker-end="url(#kc-arrow)" />
+        {r.boxes.map((b, i) => (
+          <g>
+            <rect class="b" x={bx(i)} y={r.y} width={BW} height={BH} rx="7" />
+            <text class="t" x={bx(i) + BW / 2} y={r.y + (b.s ? 15 : 22)} text-anchor="middle">{b.l}</text>
+            {b.s && <text class="s" x={bx(i) + BW / 2} y={r.y + 28} text-anchor="middle">{b.s}</text>}
+            {i < r.boxes.length - 1 && <line class="edge" x1={bx(i) + BW} y1={r.y + BH / 2} x2={bx(i + 1) - 2} y2={r.y + BH / 2} marker-end="url(#kc-arrow)" />}
+          </g>
+        ))}
+        {r.kind !== 'gate' && (
+          <g>
+            <path class="edge" d={`M${bx(r.boxes.length - 1) + BW} ${r.y + BH / 2} H ${REC.x - 2}`} marker-end="url(#kc-arrow)" />
+            <text class="o" x={bx(r.boxes.length - 1) + BW + 6} y={r.y + BH / 2 - 6}>{r.out}</text>
+          </g>
+        )}
+      </g>
+    ))}
+
+    <!-- 递推 -->
+    <rect class="rec" x={REC.x} y={REC.y} width={REC.w} height={REC.h} rx="10" />
+    <text class="t" x={REC.x + REC.w / 2} y={REC.y + 26} text-anchor="middle">KDA 递推</text>
+    <text class="s" x={REC.x + REC.w / 2} y={REC.y + 48} text-anchor="middle">{"S_t = (I − β k kᵀ) Diag(α) S_{t−1}"}</text>
+    <text class="s" x={REC.x + REC.w / 2} y={REC.y + 62} text-anchor="middle">+ β k vᵀ</text>
+    <text class="s" x={REC.x + REC.w / 2} y={REC.y + 84} text-anchor="middle">õ_t = S_tᵀ q_t</text>
+    <rect class="state" x={REC.x + 30} y={REC.y + 110} width={REC.w - 60} height="90" rx="6" />
+    <text class="t" x={REC.x + REC.w / 2} y={REC.y + 150} text-anchor="middle">S</text>
+    <text class="s" x={REC.x + REC.w / 2} y={REC.y + 166} text-anchor="middle">96 头 × (128 × 128)</text>
+    <text class="s" x={REC.x + REC.w / 2} y={REC.y + 222} text-anchor="middle">训练 / prefill：chunkwise</text>
+    <text class="s" x={REC.x + REC.w / 2} y={REC.y + 238} text-anchor="middle">decode：逐 token 递推</text>
+
+    <!-- 输出链 -->
+    <line class="edge" x1={REC.x + REC.w} y1="140" x2={OUT.x - 2} y2="140" marker-end="url(#kc-arrow)" />
+    <rect class="b out" x={OUT.x} y="122" width={OUT.w} height={BH} rx="7" />
+    <text class="t" x={OUT.x + OUT.w / 2} y="137" text-anchor="middle">逐头 RMSNorm</text>
+    <text class="s" x={OUT.x + OUT.w / 2} y="150" text-anchor="middle">128 维，每头独立</text>
+
+    <circle class="mul" cx={OUT.x + OUT.w / 2} cy="212" r="13" />
+    <text class="sym" x={OUT.x + OUT.w / 2} y="217" text-anchor="middle">⊙</text>
+    <line class="edge" x1={OUT.x + OUT.w / 2} y1="158" x2={OUT.x + OUT.w / 2} y2="197" marker-end="url(#kc-arrow)" />
+    <path class="edge gate" d={`M${bx(1) + BW} ${372 + BH / 2} H ${OUT.x + OUT.w / 2 - 40} V 212 H ${OUT.x + OUT.w / 2 - 15}`} marker-end="url(#kc-arrow)" />
+    <text class="o" x={bx(1) + BW + 6} y={372 + BH / 2 - 6}>输出门  96 × 128，∈ (0,1)</text>
+
+    <line class="edge" x1={OUT.x + OUT.w / 2} y1="225" x2={OUT.x + OUT.w / 2} y2="262" marker-end="url(#kc-arrow)" />
+    <rect class="b out" x={OUT.x} y="264" width={OUT.w} height={BH} rx="7" />
+    <text class="t" x={OUT.x + OUT.w / 2} y="279" text-anchor="middle">Linear W_o</text>
+    <text class="s" x={OUT.x + OUT.w / 2} y="292" text-anchor="middle">12288 → 7168</text>
+    <line class="edge" x1={OUT.x + OUT.w / 2} y1="300" x2={OUT.x + OUT.w / 2} y2="330" marker-end="url(#kc-arrow)" />
+    <text class="t" x={OUT.x + OUT.w / 2} y="348" text-anchor="middle">y_t  7168</text>
+  </svg>
+  <figcaption>一层 KDA。粉色的那一行是 K3 的两个改动所在：衰减映射换成有下界的 scaled sigmoid，输出门从低秩改成满秩。</figcaption>
+</figure>
+
+<style>
+  .cell { margin: 2rem 0; padding: 0.8rem 0.6rem 0.6rem; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); overflow-x: auto; }
+  .cell svg { display: block; width: 100%; min-width: 760px; height: auto; font-family: var(--font-sans); }
+  .cell marker path { fill: var(--text-2); }
+  .edge { fill: none; stroke: var(--text-2); stroke-width: 1.3; }
+  .edge.gate { stroke: var(--cat-rose); }
+  .bus { stroke: var(--text-2); stroke-width: 2.2; opacity: 0.5; }
+  .in { fill: color-mix(in srgb, var(--muted) 18%, var(--bg-2)); stroke: var(--muted); stroke-width: 1.3; }
+  .b { fill: color-mix(in srgb, var(--cat-cyan) 12%, var(--bg-2)); stroke: var(--cat-cyan); stroke-width: 1.3; }
+  .beta .b { fill: color-mix(in srgb, var(--cat-indigo) 12%, var(--bg-2)); stroke: var(--cat-indigo); }
+  .alpha .b, .gate .b { fill: color-mix(in srgb, var(--cat-rose) 12%, var(--bg-2)); stroke: var(--cat-rose); }
+  .b.out { fill: color-mix(in srgb, var(--cat-emerald) 12%, var(--bg-2)); stroke: var(--cat-emerald); }
+  .rec { fill: color-mix(in srgb, var(--cat-cyan) 8%, var(--bg-2)); stroke: var(--cat-cyan); stroke-width: 1.6; stroke-dasharray: 6 4; }
+  .state { fill: color-mix(in srgb, var(--cat-cyan) 22%, var(--bg-2)); stroke: var(--cat-cyan); stroke-width: 1.2; }
+  .mul { fill: var(--bg-2); stroke: var(--cat-emerald); stroke-width: 1.5; }
+  .sym { fill: var(--text); font-size: 14px; }
+  .t { fill: var(--text); font-size: 11px; font-weight: 600; }
+  .s { fill: var(--text-2); font-size: 9.5px; }
+  .o { fill: var(--muted); font-size: 9.5px; }
+  figcaption { margin-top: 0.6rem; font-size: 0.88rem; color: var(--text-2); text-align: center; }
+</style>

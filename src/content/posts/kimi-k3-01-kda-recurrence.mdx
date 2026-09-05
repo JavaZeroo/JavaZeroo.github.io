@@ -1,0 +1,180 @@
+---
+title: "Kimi K3 模型结构（1）：序列维度（上），从线性注意力到 KDA"
+pubDate: 2026-09-05 13:20:00
+description: "Kimi Delta Attention 的递推形式。从线性注意力、DeltaNet、Gated DeltaNet 一路走到 KDA，把状态更新公式的每一项画出来，对上 K3 的真实维度，再看 K3 在输出门上做的第一个改动。"
+categories:
+  - "📝学习"
+tags:
+  - "大模型"
+  - "Kimi K3"
+  - "模型结构"
+series: kimi-k3
+part: "序列"
+order: 1
+draft: false
+---
+
+import K3ArchDiagram from '../../components/k3/K3ArchDiagram.astro';
+import KdaUpdate from '../../components/k3/KdaUpdate.astro';
+import KdaCell from '../../components/k3/KdaCell.astro';
+
+对应论文 §2.1.1 的前半，公式 (1)、(2) 和 (6)。K3 的 93 层里有 69 层是 KDA，它来自 Kimi 团队 2025 年 10 月的 [Kimi Linear](https://arxiv.org/abs/2510.26692)。这一篇只讲递推形式，也就是「一个 token 进来，状态怎么变」；chunkwise 并行和 K3 的下界衰减放到下一篇。
+
+<K3ArchDiagram highlight="kda" caption="你现在在这里：每个重复块里的三层 KDA，以及第 1 层。" />
+
+## 为什么要线性注意力
+
+softmax 注意力的代价是 KV cache 随上下文线性增长。1M 上下文下，即便用 MLA 把每 token 每层压到 576 个数，24 层也要 27 GB 的 BF16 cache，decode 时每生成一个 token 都要把它全读一遍。
+
+线性注意力换了一种记忆方式：不存 token，存一个固定大小的矩阵 $S_t \in \mathbb{R}^{d_k \times d_v}$。每个头 128×128，不管上下文多长都是这么大。读出是 $o_t = S_t^\top q_t$。代价是记忆有损，怎么写、怎么忘、怎么擦，就成了这一族模型全部的设计空间。
+
+Kimi Linear 论文给了一个统一的视角：**把 $S$ 看成一组快速权重，每个 token 到来时对它做一步在线学习**。不同的模型只是在优化不同的目标、用不同的正则。下面按这个视角走一遍谱系。
+
+## 谱系：加、擦、忘、逐通道忘
+
+**线性注意力（2020）。** 只加不擦：
+
+$$
+S_t = S_{t-1} + k_t v_t^\top .
+$$
+
+它是对 $\mathcal{L}_t(S) = -\langle S^\top k_t, v_t\rangle$ 做梯度下降。这个目标没有下界，状态只会被不断强化，长上下文下旧关联互相干扰，永远不会被清理。
+
+**DeltaNet（2021，并行形式 2024）。** 把目标换成回归损失，让记忆去拟合「键 $k_t$ 应该映到值 $v_t$」：
+
+$$
+\mathcal{L}_t(S) = \tfrac12 \| S^\top k_t - v_t \|^2
+\quad\Longrightarrow\quad
+S_t = S_{t-1} - \beta_t \nabla_S \mathcal{L}_t(S_{t-1}) = (I - \beta_t k_t k_t^\top)\, S_{t-1} + \beta_t k_t v_t^\top .
+$$
+
+这就是经典的 delta rule：**先把 $k_t$ 方向上原来存的值擦掉 $\beta_t$ 的比例，再写入新的**。$\beta_t \in (0,1)$ 是每步的学习率，也叫写入强度。$(I - \beta_t k_t k_t^\top)$ 是一个广义 Householder 变换，后面 chunkwise 并行能做出来全靠它。DeltaNet 还缺一样东西：除非有相同的键来覆盖，否则什么都不会被忘掉。
+
+**Gated DeltaNet（2024）。** 加一个每头一个的标量遗忘门 $\alpha_t \in (0,1)$：
+
+$$
+S_t = \alpha_t (I - \beta_t k_t k_t^\top)\, S_{t-1} + \beta_t k_t v_t^\top .
+$$
+
+它是快速权重上的数据相关的权重衰减，控制记忆的寿命。问题是一个头的 128 个键通道以同一个速率衰减。
+
+**KDA。** 把标量换成对角矩阵，每个键通道有自己的遗忘率：
+
+$$
+S_t = \big(I - \beta_t k_t k_t^\top\big)\,\operatorname{Diag}(\alpha_t)\, S_{t-1} + \beta_t k_t v_t^\top,
+\qquad
+\tilde o_t = S_t^\top q_t .
+\tag{K3 Eq. 1}
+$$
+
+$\alpha_t \in (0,1)^{d_k}$，$\beta_t \in (0,1)$。Kimi Linear 给的动机是类比 RoPE：RoPE 的力量来自每个维度有自己的旋转频率，标量衰减没有这种逐维的多样性，如果要让递推层承担位置信息，逐通道的门是自然的对应物。
+
+用一句话记每一步：线性注意力是「加」，DeltaNet 是「在这个键下先擦再写」，GDN 是「先擦再写，然后所有东西以同一个速率淡出」，KDA 是「先擦再写，然后每个特征通道以自己的速率淡出」。
+
+| | 无衰减 | 标量衰减 | 逐通道（对角）衰减 |
+|---|---|---|---|
+| **无 delta rule** | 线性注意力 | RetNet、Mamba2 | GLA、HGRN2 |
+| **有 delta rule** | DeltaNet | Gated DeltaNet | **KDA** |
+
+## 公式 (1) 的图解
+
+<KdaUpdate />
+
+三个操作的顺序有讲究：先衰减，再擦除，再写入。展开后是
+
+$$
+S_t = \big(\operatorname{Diag}(\alpha_t) - \beta_t k_t k_t^\top \operatorname{Diag}(\alpha_t)\big) S_{t-1} + \beta_t k_t v_t^\top ,
+$$
+
+即一般的「对角加低秩」（DPLR）转移 $D - a_t b_t^\top$，其中 $D = \operatorname{Diag}(\alpha_t)$，$a_t = \beta_t k_t$，$b_t = k_t \odot \alpha_t$。两个低秩向量都绑在 $k_t$ 上，不像一般 DPLR 那样各自独立。这个绑定看起来是表达能力上的让步，但它让内核少算一半东西，是 Kimi Linear 的 KDA 内核比通用 DPLR 内核快约两倍的原因。下一篇细说。
+
+对状态矩阵的直觉：**行是键通道，列是值通道**。$\operatorname{Diag}(\alpha_t)$ 左乘，所以衰减是按行做的，第 $j$ 个键通道存的所有值一起以 $\alpha_{t,j}$ 的速率淡出。擦除沿 $k_t$ 这一个方向。写入是一个秩 1 的外积。
+
+## 参数化：从 $x_t$ 到 $q, k, v, \alpha, \beta$
+
+论文公式 (2)，每个头 $h$：
+
+$$
+\begin{aligned}
+q_t^h, k_t^h &= \operatorname{L_2Norm}\big(\operatorname{Swish}(\operatorname{ShortConv}(W_{q/k}^h x_t))\big) \in \mathbb{R}^{d_k} \\
+v_t^h &= \operatorname{Swish}(\operatorname{ShortConv}(W_v^h x_t)) \in \mathbb{R}^{d_v} \\
+\beta_t^h &= \operatorname{Sigmoid}(W_\beta^h x_t) \in (0,1) \\
+z_t^h &= W_\alpha^{\uparrow} W_\alpha^{\downarrow} x_t + b_\alpha^h \in \mathbb{R}^{d_k}
+\end{aligned}
+$$
+
+<KdaCell />
+
+逐项说明，维度按 K3 的 $d = 7168$、96 头、$d_k = d_v = 128$：
+
+- **ShortConv。** 深度可分的因果卷积，核大小 4（`short_conv_kernel_size`），后接 Swish，沿用 GDN 的做法。作用是给每个 token 的 q、k、v 掺进前三个 token 的信息，Kimi Linear 的消融显示去掉它 PPL 从 5.65 变 5.70。decode 时每层要为 q、k、v 各缓存最近 3 个 token 的投影，这是 KDA 除了 $S$ 之外唯一的状态。
+- **q、k 的 L2 归一化。** 让 $\|k_t\| = 1$，于是 $I - \beta_t k_t k_t^\top$ 的特征值落在 $[1-\beta_t, 1]$，递推不会爆。
+- **$\beta$。** 7168 → 96 的线性层加 sigmoid，每头一个标量。代码里叫 `b_proj`。
+- **$\alpha$ 的 logit $z$。** 低秩投影 7168 → 128 → 12288（`f_a_proj`、`f_b_proj`），加一个 12288 维的偏置 $b_\alpha$（`dt_bias`），得到每个头每个键通道一个 logit。从 logit 到 $(0,1)$ 里的 $\alpha$ 还要过一个映射，Kimi Linear 用 GDN 的负 softplus，K3 换成了有下界的 scaled sigmoid，还有一个每头一个的可学习 log 尺度 $A_h$（`A_log`）。这是 K3 的改动之一，放到下一篇讲，因为它的动机在 chunkwise 形式里。
+
+## 输出：逐头 RMSNorm、门、投影
+
+递推读出 $\tilde o_t = S_t^\top q_t$ 之后，论文公式 (6)：
+
+$$
+y_t = W_o \big[\operatorname{Sigmoid}(W_g x_t) \odot \operatorname{RMSNorm}(\tilde o_t)\big].
+$$
+
+RMSNorm 是逐头的，每头独立在 128 维上归一化。门是 sigmoid，作用在归一化之后的每个通道上，然后才是 $W_o$（12288 → 7168）。代码里归一化和门融在一个 `FusedRMSNormGated(activation='sigmoid')` 里。
+
+**K3 的改动：门从低秩改满秩。** Kimi Linear 的门是 $\operatorname{Sigmoid}(W_g^{\uparrow} W_g^{\downarrow} x_t)$，7168 → 128 → 12288，和遗忘门一样走低秩。Kimi Linear 论文自己说了原因：为了和基线做公平的参数量对比，并且「和满秩门性能相当」。K3 不需要这个约束，直接用 7168 → 12288 的满秩 $W_g$（`use_full_rank_gate = true`，代码里 `g_proj`）。MLA 那边的输出门也一起改成满秩，下下篇会看到同样的公式。
+
+```python
+# KimiDeltaAttention.forward 的收尾（HF modeling_kimi_linear.py）
+if self.use_full_rank_gate:
+    g = self.g_proj(hidden_states)                  # 7168 -> 12288
+else:
+    g = self.g_b_proj(self.g_a_proj(hidden_states)) # 7168 -> 128 -> 12288（Kimi Linear）
+g = rearrange(g, '... (h d) -> ... h d', d=self.head_dim)
+o = self.o_norm(o, g)                               # 逐头 RMSNorm，再乘 sigmoid(g)
+o = self.o_proj(rearrange(o, 'b t h d -> b t (h d)'))
+```
+
+为什么是 sigmoid 门。Kimi Linear 的消融：sigmoid 门 PPL 5.65，无门 5.67，GDN 默认的 Swish 门 5.81。sigmoid 输出在 $(0,1)$，能把某些通道彻底关掉，引用的是 Qwen 团队关于 gated attention 的工作：门带来非线性和稀疏性，并缓解 attention sink。
+
+## 每层的状态有多大
+
+一层 KDA 在 decode 时携带的状态：
+
+| 状态 | 形状 | 数量 |
+|---|---|---|
+| $S$ | 96 头 × 128 × 128 | 1,572,864 |
+| 三路 ShortConv 的窗口 | 3 × 12288 × 3 个 token | 110,592 |
+
+约 1.68M 个数，BF16 下约 3.4 MB。69 层加起来约 232 MB，**和上下文长度无关**。对照 MLA：每 token 每层 576 个数，24 层 13,824 个数，1M 上下文约 27.6 GB。KDA 全部 69 层的状态相当于大约 8K 个 token 的 MLA cache。完整的账在第 3 篇。
+
+## 递推形式能做什么：三个合成任务
+
+Kimi Linear 用三个合成任务比较了 KDA、GDN 和 Mamba2（2 层 2 头，头维 128，长度 256 到 2048）：
+
+- **Palindrome**：把随机 token 串反着输出，考精确复制。
+- **MQAR**：多查询关联回忆，已知和语言模型质量强相关。
+- **Stack**：64 个独立的栈，push 和 pop 交错，考状态跟踪。
+
+KDA 在三个任务、所有长度上准确率最高，收敛也明显比 GDN 快。Mamba2（只有衰减、没有 delta rule）三个任务全部失败。这是论文里最干净的一组证据：**先擦再写换来精确回忆和状态跟踪，逐通道衰减换来收敛速度**。
+
+## 它顺手解决了位置编码
+
+递推形式里，$q_t$ 读到 $k_i$ 写入的内容时，中间隔着 $\prod_{j=i+1}^{t} \operatorname{Diag}(\alpha_j)(I - \beta_j k_j k_j^\top)$ 这一串转移。写成打分形式：
+
+$$
+o_t = \sum_{i=1}^{t} \Big( q_t^\top \Big( \prod_{j=i+1}^{t} A_j (I - \beta_j k_j k_j^\top) \Big) k_i \Big) v_i,
+\qquad A_j = \operatorname{Diag}(\alpha_j).
+$$
+
+RoPE 的打分是 $s_{t,i} = q_t^\top \big(\prod_{j=i+1}^{t} R_j\big) k_i$，形状一样，只是 $R_j$ 是固定的分块旋转，而 $A_j$ 是数据相关、可学习、非正交的。逐通道的 $\alpha$ 对应 RoPE 逐维的频率。所以 KDA 层本身就是一个可学习的位置编码，这是 K3 把所有 MLA 层都设成 NoPE 的依据，也是它不改任何位置编码参数就能外推到 1M 的依据。第 3 篇接着讲。
+
+## 术语坑
+
+- **$\alpha$ 在两篇论文里是同一个东西**，但 Kimi Linear 写 $\alpha_t = f(\cdot)$ 没有给出 $f$，K3 把映射写全了（公式 (5)），并且改了它。
+- **头数和头维。** KDA 和 MLA 共用 `num_attention_heads = 96`、`head_dim = 128`，但 MLA 的 query 和 key 实际是 192 维（128 加 64），下下篇解释。
+- **状态是 $d_k \times d_v$ 还是转置。** 论文按 $S \in \mathbb{R}^{d_k \times d_v}$ 写，读出是 $S^\top q$；FLA 内核里有 `transpose_state_layout=True`，存的是转置，只是内存布局的事。
+
+## 下一篇
+
+递推形式一个 token 一步，训练时没法用 Tensor Core。下一篇讲 Kimi Linear 的 chunkwise 并行形式（WY 表示、UT 变换、块间递推加块内并行），然后就能看懂 K3 为什么要给衰减加一个 $-5$ 的下界，以及这个改动怎么把对角 tile 也搬上 Tensor Core。

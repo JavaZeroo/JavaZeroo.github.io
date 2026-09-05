@@ -1,0 +1,104 @@
+---
+/**
+ * 交互：衰减 logit z → 每步 log-decay g 的两种映射。
+ * Kimi Linear：g = −e^A · softplus(z)（无下界）；Kimi K3：g = g_min · sigmoid(e^A z)（下界 g_min = −5）。
+ * 滑块调每头的 log 尺度 A。
+ */
+---
+
+<div class="demo decay-demo">
+  <div class="ctl">
+    <label>
+      每头 log 尺度 <i>A</i> = <output data-a-out>0.00</output>
+      <input type="range" min="-200" max="200" value="0" data-a />
+    </label>
+    <label>
+      <input type="checkbox" data-mode /> 纵轴改看 α = e<sup>g</sup>
+    </label>
+  </div>
+  <svg viewBox="0 0 640 320" data-plot>
+    <g data-grid></g>
+    <path class="c-lin" data-lin d="" />
+    <path class="c-k3" data-k3 d="" />
+    <line class="bound" data-bound x1="0" x2="0" y1="0" y2="0" />
+    <text class="ax" data-xlabel x="620" y="312" text-anchor="end">z（衰减 logit）</text>
+    <text class="ax" data-ylabel x="8" y="16"></text>
+  </svg>
+  <div class="legend">
+    <span class="lin">Kimi Linear：g = −e^A · softplus(z)</span>
+    <span class="k3">Kimi K3：g = −5 · σ(e^A z)</span>
+    <span class="bd">g_min = −5（α 最小 e^−5 ≈ 0.0067）</span>
+  </div>
+</div>
+
+<style>
+  .decay-demo { border: 1px solid var(--border); border-radius: var(--r); padding: 1rem 1.1rem; background: var(--surface); margin: 1.5rem 0; }
+  .decay-demo .ctl { display: flex; flex-wrap: wrap; gap: 1rem 2rem; align-items: end; font-size: 0.9rem; color: var(--text-dim, var(--text-2)); }
+  .decay-demo .ctl label { display: block; }
+  .decay-demo output { font-variant-numeric: tabular-nums; color: var(--text); font-weight: 600; }
+  .decay-demo input[type='range'] { display: block; width: 260px; margin-top: 0.3rem; accent-color: var(--accent); }
+  .decay-demo svg { display: block; width: 100%; height: auto; margin-top: 0.8rem; font-family: var(--font-sans); }
+  .decay-demo .c-lin { fill: none; stroke: var(--cat-indigo); stroke-width: 2.2; }
+  .decay-demo .c-k3 { fill: none; stroke: var(--cat-emerald); stroke-width: 2.4; }
+  .decay-demo .bound { stroke: var(--cat-rose); stroke-width: 1.2; stroke-dasharray: 5 4; }
+  .decay-demo .ax, .decay-demo [data-grid] text { fill: var(--muted); font-size: 11px; }
+  .decay-demo [data-grid] line { stroke: var(--border-2); stroke-width: 1; }
+  .decay-demo .legend { display: flex; flex-wrap: wrap; gap: 0.4rem 1.4rem; margin-top: 0.6rem; font-size: 0.85rem; color: var(--text-2); }
+  .decay-demo .legend .lin::before, .decay-demo .legend .k3::before, .decay-demo .legend .bd::before { content: ''; display: inline-block; width: 18px; height: 3px; margin-right: 6px; vertical-align: middle; border-radius: 2px; }
+  .decay-demo .legend .lin::before { background: var(--cat-indigo); }
+  .decay-demo .legend .k3::before { background: var(--cat-emerald); }
+  .decay-demo .legend .bd::before { background: var(--cat-rose); }
+</style>
+
+<script>
+  document.querySelectorAll<HTMLElement>('.decay-demo').forEach((root) => {
+    const slider = root.querySelector<HTMLInputElement>('[data-a]')!;
+    const out = root.querySelector<HTMLOutputElement>('[data-a-out]')!;
+    const mode = root.querySelector<HTMLInputElement>('[data-mode]')!;
+    const lin = root.querySelector<SVGPathElement>('[data-lin]')!;
+    const k3 = root.querySelector<SVGPathElement>('[data-k3]')!;
+    const bound = root.querySelector<SVGLineElement>('[data-bound]')!;
+    const grid = root.querySelector<SVGGElement>('[data-grid]')!;
+    const ylabel = root.querySelector<SVGTextElement>('[data-ylabel]')!;
+
+    const W = 640, H = 320, L = 44, R = 16, Tp = 24, B = 40;
+    const zMin = -10, zMax = 10;
+    const sx = (z: number) => L + ((z - zMin) / (zMax - zMin)) * (W - L - R);
+    const softplus = (x: number) => (x > 30 ? x : Math.log1p(Math.exp(x)));
+    const sigmoid = (x: number) => 1 / (1 + Math.exp(-x));
+
+    const render = () => {
+      const A = Number(slider.value) / 100;
+      out.textContent = A.toFixed(2);
+      const scale = Math.exp(A);
+      const alpha = mode.checked;
+      const yMin = alpha ? 0 : -12, yMax = alpha ? 1 : 0;
+      const sy = (y: number) => Tp + (1 - (y - yMin) / (yMax - yMin)) * (H - Tp - B);
+      const f = (g: number) => (alpha ? Math.exp(g) : Math.max(g, yMin - 1));
+
+      let dl = '', dk = '';
+      for (let i = 0; i <= 200; i++) {
+        const z = zMin + (i / 200) * (zMax - zMin);
+        const gl = -scale * softplus(z);
+        const gk = -5 * sigmoid(scale * z);
+        dl += `${i ? 'L' : 'M'}${sx(z).toFixed(1)} ${sy(f(gl)).toFixed(1)} `;
+        dk += `${i ? 'L' : 'M'}${sx(z).toFixed(1)} ${sy(f(gk)).toFixed(1)} `;
+      }
+      lin.setAttribute('d', dl);
+      k3.setAttribute('d', dk);
+      const yb = sy(alpha ? Math.exp(-5) : -5);
+      bound.setAttribute('x1', String(L)); bound.setAttribute('x2', String(W - R));
+      bound.setAttribute('y1', String(yb)); bound.setAttribute('y2', String(yb));
+      ylabel.textContent = alpha ? 'α = e^g（每步保留比例）' : 'g（每步 log-decay）';
+
+      const ticksY = alpha ? [0, 0.25, 0.5, 0.75, 1] : [0, -2, -4, -6, -8, -10, -12];
+      const ticksX = [-10, -5, 0, 5, 10];
+      grid.innerHTML =
+        ticksY.map((y) => `<line x1="${L}" x2="${W - R}" y1="${sy(y)}" y2="${sy(y)}"/><text x="${L - 6}" y="${sy(y) + 4}" text-anchor="end">${y}</text>`).join('') +
+        ticksX.map((x) => `<line x1="${sx(x)}" x2="${sx(x)}" y1="${Tp}" y2="${H - B}"/><text x="${sx(x)}" y="${H - B + 16}" text-anchor="middle">${x}</text>`).join('');
+    };
+    slider.addEventListener('input', render);
+    mode.addEventListener('change', render);
+    render();
+  });
+</script>
