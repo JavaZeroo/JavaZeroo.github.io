@@ -1,7 +1,7 @@
 ---
 title: "Kimi K3 模型结构（9）：显存，把 2.8T 塞进 GPU"
 pubDate: 2026-09-05 20:30:00
-description: "系统篇第二篇。先用 config.json 的形状列出训练时每张卡上住着什么，再把 §5.2.2 的六个技巧逐个放回账本：每一个都是把某一行搬走，付一种货币。推导 MoE 反向为什么可以不存 expert 输出，1F1B 下各 rank 的在途激活为什么差 P−1 份，P2P Muon 比全量 all-gather 省在哪里。"
+description: "系统篇第二篇。先用 config.json 的形状列出训练时每张卡上住着什么，再把 §5.2.2 的六个技巧逐个放回账本：每一个都是把某一行搬走，付一种货币。推导 MoE 反向为什么可以不存 expert 输出，P2P Muon 比全量 all-gather 省在哪里。"
 categories:
   - "📝学习"
 tags:
@@ -17,7 +17,6 @@ draft: false
 
 import K3ArchDiagram from '../../components/k3/K3ArchDiagram.astro';
 import MemoryLedger from '../../components/k3/MemoryLedger.astro';
-import PpTimeline from '../../components/k3/PpTimeline.astro';
 import MoeBackwardDep from '../../components/k3/MoeBackwardDep.astro';
 import DualSlot from '../../components/k3/DualSlot.astro';
 
@@ -56,13 +55,9 @@ $$
 
 「朴素」列是所有优化关掉的估算，「K3」列按开关算。默认参数下两列差一个数量级，差距几乎全在激活和 Muon 的完整参数缓冲上。下面按 §5.2.2 的六个小节，逐个看每个开关搬走了什么、付了什么。
 
-## 在途激活：rank 0 最满，rank $P-1$ 最空
+## 跨 PP rank 均衡激活
 
-先解释账本里「在途份数」这一项。1F1B 的 warmup 阶段 rank $r$ 先做 $P-1-r$ 个 micro-batch 的前向，然后才开始一前一反交替。前向做完、反向还没来的 micro-batch，它的激活必须留在卡上。所以 rank $r$ 峰值时攒着 $P-r$ 份激活：rank 0 攒 $P$ 份，rank $P-1$ 只攒 1 份。切到下面的「在途激活」视图，右侧的柱子就是每个 rank 的峰值份数。
-
-<PpTimeline />
-
-把 $V$ 拉大，rank 0 的峰值份数还会涨：虚拟段让 warmup 变长，每个 rank 要为 $2(P-1)+(V-1)P$ 个 chunk 保存激活。这是 interleaved 1F1B 的固有代价，它用显存换气泡。
+先解释账本里「在途份数」这一项。1F1B 下 rank $r$ 峰值时攒着 $P-r$ 份 micro-batch 的激活，rank 0 最满、rank $P-1$ 最空，虚拟段会让这个阶梯更陡。推导在[流水线并行](/2026/09/05/llm-pipeline-1f1b/)那篇里，那篇的时间线切到「在途激活」视图能看到每个 rank 的峰值份数。
 
 这就是 §5.2.2「跨 PP rank 均衡激活」要解决的问题：显存压力集中在前面的 rank，后面的 rank 有大量空闲。K3 的做法直接：用 Mooncake Transfer Engine 把前面 rank 的激活**远程 offload 到别的 PP rank 的显存里**，让各 rank 的激活占用拉平。账本里对应的开关把「在途份数」从 rank 0 的峰值换成各 rank 的平均值。付的货币是节点间的传输带宽，藏在计算后面。
 

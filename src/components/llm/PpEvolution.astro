@@ -1,0 +1,18 @@
+---
+/** 流水线调度的演化：GPipe → 1F1B → interleaved 1F1B → zero bubble。每一步只改一件事。 */
+import FlowDiagram from '../k3/FlowDiagram.astro';
+const nodes = [
+  { id: 'a', x: 20, y: 60, w: 210, h: 78, kind: 'in', lines: ['GPipe', '先做完全部前向，再做全部反向', '每 rank 攒 $m$ 份激活'] },
+  { id: 'b', x: 280, y: 60, w: 210, h: 78, kind: 'op', lines: ['1F1B', 'warmup 之后一前一反交替', '在途激活最多 $P$ 份，气泡不变'] },
+  { id: 'c', x: 540, y: 60, w: 220, h: 78, kind: 'main', strong: true, lines: ['interleaved 1F1B', '每 rank 持 $V$ 段不连续的层', '气泡缩到 $1/V$，通信乘 $V$'] },
+  { id: 'd', x: 810, y: 60, w: 210, h: 78, kind: 'moe', lines: ['Zero Bubble', '反向拆成对输入和对权重两半', '用对权重的那一半填气泡'] },
+];
+const edges = [
+  { from: 'a', to: 'b', label: '改顺序', lx: 234, ly: 90 },
+  { from: 'b', to: 'c', label: '切细段', lx: 494, ly: 90 },
+  { from: 'c', to: 'd', label: '拆反向', lx: 764, ly: 90 },
+];
+---
+<FlowDiagram id="pp-evo" viewBox="0 0 1040 200" minWidth={760} nodes={nodes} edges={edges}
+  label="流水线调度的演化"
+  caption="四代流水线调度，每一步只改一件事：1F1B 改执行顺序压显存；interleaved 把每段切细压气泡；Zero Bubble 把反向拆成两半，用不依赖下游的那一半把剩下的气泡填掉。" />
