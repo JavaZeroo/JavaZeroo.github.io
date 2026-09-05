@@ -1,0 +1,18 @@
+---
+/** ZeRO 三级分片的演化：每一级多切一样东西。 */
+import FlowDiagram from '../k3/FlowDiagram.astro';
+const nodes = [
+  { id: 'a', x: 20, y: 60, w: 200, h: 78, kind: 'in', lines: ['普通 DP', '每卡一份完整的权重、梯度、优化器状态', '每参数 16 B（Adam）'] },
+  { id: 'b', x: 270, y: 60, w: 200, h: 78, kind: 'op', lines: ['ZeRO-1', '优化器状态按 $N$ 切', '$2 + 2 + 12/N$'] },
+  { id: 'c', x: 520, y: 60, w: 200, h: 78, kind: 'main', strong: true, lines: ['ZeRO-2', '梯度也按 $N$ 切', '$2 + 14/N$'] },
+  { id: 'd', x: 770, y: 60, w: 220, h: 78, kind: 'moe', lines: ['ZeRO-3', '权重也按 $N$ 切，用时 all-gather', '$16/N$，通信从 $2\\Psi$ 涨到 $3\\Psi$'] },
+];
+const edges = [
+  { from: 'a', to: 'b', label: '切状态', lx: 224, ly: 90 },
+  { from: 'b', to: 'c', label: '切梯度', lx: 474, ly: 90 },
+  { from: 'c', to: 'd', label: '切权重', lx: 724, ly: 90 },
+];
+---
+<FlowDiagram id="zero" viewBox="0 0 1010 200" minWidth={760} nodes={nodes} edges={edges}
+  label="ZeRO 三级分片"
+  caption="ZeRO 的三级各多切一样东西。前两级不增加通信量，第三级为了在前向和反向时凑出完整权重要多一次 all-gather。$\Psi$ 是参数量，$N$ 是数据并行的副本数。" />

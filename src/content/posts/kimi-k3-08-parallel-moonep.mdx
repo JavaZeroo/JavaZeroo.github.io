@@ -29,7 +29,7 @@ import MoonEpFill from '../../components/k3/MoonEpFill.astro';
 
 ## 并行布局：一句话
 
-论文 §5.2 开头用一句话给出了预训练的并行组合：流水线并行（PP）带虚拟段（VP）、expert 并行（EP）、ZeRO-1 数据并行（DP）、Pipeline ZeRO-2 梯度分片、上下文并行（CP，就是第 7 篇的 KCP）。MoE 层的 shared expert 在每个 EP rank 上都有一份副本；dispatch 和 combine 的 all-to-all 与计算重叠。**没有张量并行。** 这不奇怪：K3 每层的非 expert 参数只有几亿，routed expert 才是大头，而 expert 用 EP 切比用 TP 切自然得多。
+论文 §5.2 开头用一句话给出了预训练的并行组合：流水线并行（PP）带虚拟段（VP）、expert 并行（EP）、ZeRO-1 数据并行（DP）、Pipeline ZeRO-2 梯度分片（见 [ZeRO 那篇](/2026/09/05/llm-dp-zero/)）、上下文并行（CP，就是第 7 篇的 KCP）。MoE 层的 shared expert 在每个 EP rank 上都有一份副本；dispatch 和 combine 的 all-to-all 与计算重叠。**没有张量并行。** 这不奇怪：K3 每层的非 expert 参数只有几亿，routed expert 才是大头，而 expert 用 EP 切比用 TP 切自然得多。
 
 这几种并行各切什么维度、各让谁等谁，是通用知识，放在「大模型笔记」专栏里：[并行速览](/2026/09/05/llm-parallel-overview/)是一张总表，[流水线并行](/2026/09/05/llm-pipeline-1f1b/)推了气泡占比 $(P-1)/m$ 和每个 rank 在途激活 $P-r$ 份这两个后面要用的结论。这一篇默认你知道这两件事，只讲 K3 自己做的。
 
