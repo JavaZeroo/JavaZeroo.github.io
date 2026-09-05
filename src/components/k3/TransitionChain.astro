@@ -1,0 +1,76 @@
+---
+/**
+ * 两条「转移矩阵链」的并排对照：q_t 读到 k_i 时，中间隔着 i+1 … t 每一步的转移矩阵。
+ * 上：KDA，每一格是 (I − β_j k_j k_jᵀ) Diag(α_j)，数据相关，格子颜色随位置变化。
+ * 下：RoPE，每一格是同一个固定旋转 R，格子全部同色。
+ */
+const N = 5;                 // 画 5 步：j = i+1 … t
+const X0 = 200, STEP = 82, BW = 58, BH = 42;
+const rows = [
+  { y: 40, name: 'KDA', tag: '数据相关、非正交、逐通道衰减', kind: 'kda' },
+  { y: 150, name: 'RoPE', tag: '固定、正交、逐维频率', kind: 'rope' },
+];
+const idx = ['i+1', 'i+2', '…', 't−1', 't'];
+// KDA 每一格的「衰减程度」，只是示意：越靛越保留，越淡越衰减
+const shade = [0.85, 0.35, 0.6, 0.25, 0.7];
+---
+
+<figure class="chain">
+  <svg viewBox="0 0 660 230" role="img" aria-label="KDA 与 RoPE 的打分都是转移矩阵累乘，区别在格子是否随数据变化">
+    <defs>
+      <marker id="tc-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M0 0 L10 5 L0 10 z" />
+      </marker>
+    </defs>
+
+    {rows.map((r, ri) => (
+      <g class={r.kind}>
+        <text class="name" x="14" y={r.y + BH / 2 - 2}>{r.name}</text>
+        <text class="tag" x="14" y={r.y + BH / 2 + 13}>{r.tag}</text>
+
+        <!-- k_i 进，q_t 出 -->
+        <text class="end" x={X0 - 28} y={r.y + BH / 2 + 4} text-anchor="middle">k_i</text>
+        <line class="edge" x1={X0 - 16} y1={r.y + BH / 2} x2={X0 - 2} y2={r.y + BH / 2} marker-end="url(#tc-arrow)" />
+        {Array.from({ length: N }, (_, s) => {
+          const x = X0 + s * STEP;
+          const gap = s === 2;
+          return (
+            <g>
+              {gap ? (
+                <text class="dots" x={x + BW / 2} y={r.y + BH / 2 + 5} text-anchor="middle">⋯</text>
+              ) : (
+                <g>
+                  <rect class="box" x={x} y={r.y} width={BW} height={BH} rx="6" style={ri === 0 ? `--s:${shade[s]}` : undefined} />
+                  <text class="sym" x={x + BW / 2} y={r.y + BH / 2 + 5} text-anchor="middle">{ri === 0 ? 'T' : 'R'}<tspan class="sub" dy="4">{ri === 0 ? idx[s] : ''}</tspan></text>
+                </g>
+              )}
+              {s < N - 1 && <line class="edge" x1={x + BW + 2} y1={r.y + BH / 2} x2={x + STEP - 2} y2={r.y + BH / 2} marker-end="url(#tc-arrow)" />}
+            </g>
+          );
+        })}
+        <line class="edge" x1={X0 + (N - 1) * STEP + BW + 2} y1={r.y + BH / 2} x2={X0 + N * STEP - 6} y2={r.y + BH / 2} marker-end="url(#tc-arrow)" />
+        <text class="end" x={X0 + N * STEP + 10} y={r.y + BH / 2 + 4} text-anchor="middle">q_t</text>
+      </g>
+    ))}
+
+    <text class="note" x={X0} y="108">T_j = (I − β_j k_j k_jᵀ) Diag(α_j)：每一格由第 j 个 token 决定，颜色深浅示意该步保留了多少。</text>
+    <text class="note" x={X0} y="218">R：同一个分块旋转矩阵累乘 t − i 次，只和距离有关，和内容无关。</text>
+  </svg>
+</figure>
+
+<style>
+  .chain { margin: 2rem 0; padding: 0.8rem 0.6rem 0.4rem; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); overflow-x: auto; }
+  .chain svg { display: block; width: 100%; min-width: 560px; height: auto; font-family: var(--font-sans); }
+  .name { fill: var(--text); font-size: 13px; font-weight: 600; }
+  .tag { fill: var(--text-2); font-size: 10px; }
+  .end { fill: var(--text); font-size: 12px; font-family: var(--font-mono, ui-monospace, monospace); }
+  .box { stroke-width: 1.5; }
+  .kda .box { fill: color-mix(in srgb, var(--cat-amber) calc(var(--s, 0.5) * 60%), var(--bg-2)); stroke: var(--cat-amber); }
+  .rope .box { fill: color-mix(in srgb, var(--cat-indigo) 22%, var(--bg-2)); stroke: var(--cat-indigo); }
+  .sym { fill: var(--text); font-size: 13px; font-style: italic; }
+  .sub { font-size: 9px; font-style: normal; }
+  .dots { fill: var(--text-2); font-size: 16px; }
+  .edge { stroke: var(--text-2); stroke-width: 1.4; }
+  #tc-arrow path { fill: var(--text-2); }
+  .note { fill: var(--muted); font-size: 10.5px; }
+</style>

@@ -60,7 +60,7 @@ DeepSeek 原版 MLA 里，那 64 维是专门留给 RoPE 的：内容部分不�
 
 K3 的 `mla_use_nope = true`。代码里 `rotary_emb = None`，64 维的 $k^{\text{rot}}$ 直接 expand 到所有头、和 $k^{\text{nope}}$ 拼起来，**不做任何旋转**。q 那边同样。于是这 64 维退化成一个所有头共享的、每 token 一个的额外键分量。论文没有说为什么保留这个槽位而不是干脆去掉，这是从代码读出来的。
 
-为什么敢不要位置编码。上一篇结尾推过：KDA 的读出 $q_t^\top \big(\prod_{j} \operatorname{Diag}(\alpha_j)(I - \beta_j k_j k_j^\top)\big) k_i$ 和 RoPE 的 $q_t^\top \big(\prod_j R_j\big) k_i$ 形状一样，只是 $R_j$ 换成了数据相关、可学习的对角转移。KDA 层已经在做位置敏感、偏向近期的序列混合，MLA 层只管无约束的全局内容交互。论文的原话是「这个分工让扩上下文时不需要改任何位置编码参数，比如重调 RoPE 的频率基或者用 YaRN」。§3.4 说 K3 预训练从 8K 到 64K，冷却阶段从 256K 到 1M，四个阶段，全程不动位置编码，直接外推到 1M。
+为什么敢不要位置编码。第 1 篇推过：KDA 的读出 $q_t^\top \big(\prod_{j} \operatorname{Diag}(\alpha_j)(I - \beta_j k_j k_j^\top)\big) k_i$ 和 RoPE 的 $q_t^\top \big(\prod_j R_j\big) k_i$ 形状一样，只是 $R_j$ 换成了数据相关、可学习的对角转移。KDA 层已经在做位置敏感、偏向近期的序列混合，MLA 层只管无约束的全局内容交互。论文的原话是「这个分工让扩上下文时不需要改任何位置编码参数，比如重调 RoPE 的频率基或者用 YaRN」。§3.4 说 K3 预训练从 8K 到 64K，冷却阶段从 256K 到 1M，四个阶段，全程不动位置编码，直接外推到 1M。
 
 Kimi Linear 还给了实验证据：带 RoPE 的 MLA 变体在短上下文持平，128K 长上下文上更差（RULER 78.8 对 84.3），他们的解释是全局层里的 RoPE 过分强调短程顺序，让中期训练里的上下文扩展变得不灵活。
 

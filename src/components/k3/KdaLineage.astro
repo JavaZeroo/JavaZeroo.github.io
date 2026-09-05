@@ -1,0 +1,179 @@
+---
+/**
+ * 线性注意力 → KDA 的谱系流程图。
+ * 两条路径从线性注意力分出：左边「忘」（加衰减、不擦），右边「擦」（delta rule、不忘），在 KDA 汇合。
+ * RWKV-7 与 KDA 并排（同为对角衰减 + 擦除，KDA 是 a = b = k 的特例）；Longhorn、Comba 是旁支。
+ * 每个节点可点击，跳到正文对应的小节。
+ *
+ * 渲染两份 SVG：宽屏三列（主线两列 + 旁支一列），窄屏两段（主线在上，旁支列在下），CSS 按宽度切换。
+ */
+type Kind = 'root' | 'forget' | 'erase' | 'kda' | 'leaf';
+interface Spec { id: string; kind: Kind; name: string; formula: string; note?: string; badge?: string; wide?: boolean; from?: string }
+interface Node extends Spec { cx: number; y: number; w: number }
+interface Edge { d: string; kind: 'forget' | 'erase' | 'leaf' | 'kda'; label: string; lx: number; ly: number; anchor?: 'start' | 'middle' | 'end'; dashed?: boolean }
+
+const H = 66;
+const specs: Record<string, Spec> = {
+  la: { id: '线性注意力', kind: 'root', name: '线性注意力 2020', formula: 'S = S + k vᵀ', note: '只加不擦，目标无下界' },
+  ret: { id: 'retnet-和-mamba2', kind: 'forget', name: 'RetNet 2023 · Mamba2 2024', formula: 'S = α S + k vᵀ', note: 'α 每头一个标量', badge: 'Mamba2：三个合成任务全挂' },
+  dn: { id: 'deltanet', kind: 'erase', name: 'DeltaNet 2021', formula: 'S = (I − β k kᵀ) S + β k vᵀ', note: '在 k 方向先擦再写' },
+  lh: { id: 'longhorn', kind: 'leaf', name: 'Longhorn 2024', formula: 'β → β / (1 + β kᵀk)', note: '一步 SGD 换成闭式解', from: 'DeltaNet 的旁支：隐式解' },
+  gla: { id: 'gla-和-hgrn2', kind: 'forget', name: 'GLA 2023 · HGRN2 2024', formula: 'S = Diag(α) S + k vᵀ', note: 'α 每个键通道一个' },
+  gdn: { id: 'gated-deltanet', kind: 'erase', name: 'Gated DeltaNet 2024', formula: 'S = (I − β k kᵀ) α S + β k vᵀ', note: '先忘，再擦，再写', badge: '收敛慢于 KDA' },
+  cb: { id: 'comba', kind: 'leaf', name: 'Comba 2025', formula: 'S = (α − b β k kᵀ) S + β k vᵀ', note: '擦得比写得少（b < 1），读出用 q − d k', from: 'GDN 的旁支：擦除 × b' },
+  kda: { id: 'kda', kind: 'kda', name: 'KDA 2025', formula: 'S = (I − β k kᵀ) Diag(α) S + β k vᵀ', note: '先逐通道忘，再擦，再写', wide: true },
+  rw: { id: 'rwkv-7', kind: 'leaf', name: 'RWKV-7 2025', formula: 'S = (Diag(α) − (a ⊙ κ̂) κ̂ᵀ) S + k̃ vᵀ', note: '一般 DPLR：擦除键 κ̂、写入键 k̃ 各不相同', wide: true, from: 'KDA 的兄弟：放开「擦除键 = 写入键」的绑定' },
+};
+
+const left = (n: Node) => n.cx - n.w / 2;
+const right = (n: Node) => n.cx + n.w / 2;
+const down = (a: Node, b: Node) => {
+  const y1 = a.y + H, y2 = b.y, ym = (y1 + y2) / 2;
+  return `M${a.cx} ${y1} V ${ym} H ${b.cx} V ${y2 - 2}`;
+};
+const across = (a: Node, b: Node) => `M${right(a)} ${a.y + H / 2} H ${left(b) - 2}`;
+const mid = (a: Node, b: Node) => (right(a) + left(b)) / 2;
+
+/** 主线的两列布局，两种版本共用。返回节点表和竖向的边。 */
+function mainline(XL: number, XM: number, W: number, R: number[], compact = false) {
+  // compact：右列的边标签放到竖线左侧，避免窄画布右侧被裁掉
+  const rx = compact ? XM - 8 : XM + 8;
+  const ra: 'start' | 'end' = compact ? 'end' : 'start';
+  const mk = (s: Spec, cx: number, y: number): Node => ({ ...s, cx, y, w: s.wide ? W + 40 : W });
+  const xc = (XL + XM) / 2;
+  const n = {
+    la: mk(specs.la, xc, R[0]),
+    ret: mk(specs.ret, XL, R[1]), dn: mk(specs.dn, XM, R[1]),
+    gla: mk(specs.gla, XL, R[2]), gdn: mk(specs.gdn, XM, R[2]),
+    kda: mk(specs.kda, xc, R[3]),
+  };
+  const edges: Edge[] = [
+    { d: down(n.la, n.ret), kind: 'forget', label: '+ 标量衰减 α（忘）', lx: XL + 8, ly: R[1] - 14 },
+    { d: down(n.la, n.dn), kind: 'erase', label: compact ? '→ 回归目标（擦）' : '内积目标 → 回归目标（擦）', lx: rx, ly: R[1] - 14, anchor: ra },
+    { d: down(n.ret, n.gla), kind: 'forget', label: '标量 → 逐通道', lx: XL + 8, ly: R[2] - 30 },
+    { d: down(n.dn, n.gdn), kind: 'erase', label: '+ 标量衰减 α（忘）', lx: rx, ly: R[2] - 30, anchor: ra },
+    { d: down(n.gla, n.kda), kind: 'kda', label: '+ delta rule（擦）', lx: XL + 8, ly: R[3] - 32 },
+    { d: down(n.gdn, n.kda), kind: 'kda', label: '标量 → 逐通道', lx: rx, ly: R[3] - 32, anchor: ra },
+  ];
+  return { n, edges };
+}
+
+interface Layout { vb: string; nodes: Node[]; edges: Edge[]; heads: { x: number; t: string }[]; foot: { y: number; t: string }; leafHead: { y: number } | null }
+
+// ---- 宽屏：三列 ----
+const WIDE: Layout = (() => {
+  const W = 224, R = [28, 150, 290, 440], XL = 124, XM = 372, XR = 690;
+  const { n, edges } = mainline(XL, XM, W, R);
+  const leaf = (s: Spec, y: number): Node => ({ ...s, cx: XR, y, w: s.wide ? W + 40 : W });
+  const lh = leaf(specs.lh, R[1]), cb = leaf(specs.cb, R[2]), rw = leaf(specs.rw, R[3]);
+  edges.push(
+    { d: across(n.dn, lh), kind: 'leaf', label: '隐式解', lx: mid(n.dn, lh), ly: R[1] + H / 2 - 6, anchor: 'middle' },
+    { d: across(n.gdn, cb), kind: 'leaf', label: '擦除 × b', lx: mid(n.gdn, cb), ly: R[2] + H / 2 - 6, anchor: 'middle' },
+    { d: across(n.kda, rw), kind: 'leaf', label: '放开绑定', lx: mid(n.kda, rw), ly: R[3] + H / 2 - 6, anchor: 'middle', dashed: true },
+  );
+  return {
+    vb: '0 0 836 540',
+    nodes: [...Object.values(n), lh, cb, rw],
+    edges,
+    heads: [{ x: XL, t: '「忘」路径：加衰减，不擦' }, { x: XM, t: '「擦」路径：delta rule，不忘' }, { x: XR, t: '旁支' }],
+    foot: { y: 530, t: '竖边 = 主线，每条边标注「加了什么」；横边 = 旁支。虚线：KDA 是 RWKV-7 这类一般 DPLR 转移的特例。点击节点跳到对应小节。' },
+    leafHead: null,
+  };
+})();
+
+// ---- 窄屏：主线在上，旁支列在下 ----
+const NARROW: Layout = (() => {
+  const W = 224, R = [28, 150, 290, 440], XL = 124, XM = 372;
+  const { n, edges } = mainline(XL, XM, W, R, true);
+  const Y0 = 590, GAP = 98, cx = (XL + XM) / 2;
+  const leaf = (s: Spec, i: number): Node => ({ ...s, cx, y: Y0 + i * GAP, w: 440 });
+  return {
+    vb: '0 0 496 892',
+    nodes: [...Object.values(n), leaf(specs.lh, 0), leaf(specs.cb, 1), leaf(specs.rw, 2)],
+    edges,
+    heads: [{ x: XL, t: '「忘」路径：加衰减，不擦' }, { x: XM, t: '「擦」路径：delta rule，不忘' }],
+    foot: { y: 882, t: '竖边标注「加了什么」。下段是旁支，各自从主线的某个节点改了一个零件。点击节点跳到对应小节。' },
+    leafHead: { y: Y0 - 28 },
+  };
+})();
+
+const variants = [{ cls: 'wide', L: WIDE }, { cls: 'narrow', L: NARROW }];
+---
+
+<figure class="lin">
+  {variants.map(({ cls, L }) => (
+    <svg class={cls} viewBox={L.vb} role="img" aria-label="从线性注意力到 KDA 的谱系：忘路径、擦路径与旁支">
+      <defs>
+        <marker id={`lin-arrow-${cls}`} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M0 0 L10 5 L0 10 z" />
+        </marker>
+      </defs>
+
+      {L.heads.map((h) => <text class="col" x={h.x} y="14" text-anchor="middle">{h.t}</text>)}
+      {L.leafHead && (
+        <g>
+          <line class="sep" x1="16" y1={L.leafHead.y - 16} x2="480" y2={L.leafHead.y - 16} />
+          <text class="col" x="248" y={L.leafHead.y} text-anchor="middle">旁支：在主线的某个节点上改一个零件</text>
+        </g>
+      )}
+
+      {L.edges.map((e) => (
+        <g class:list={['edge', e.kind, { dashed: e.dashed }]}>
+          <path d={e.d} marker-end={`url(#lin-arrow-${cls})`} />
+          <text class="elbl" x={e.lx} y={e.ly} text-anchor={e.anchor ?? 'start'}>{e.label}</text>
+        </g>
+      ))}
+
+      {L.nodes.map((n) => (
+        <a href={`#${n.id}`}>
+          <g class:list={['node', n.kind]}>
+            <title>{`${n.name}：${n.formula}`}</title>
+            <rect x={left(n)} y={n.y} width={n.w} height={H} rx="8" />
+            <text class="name" x={n.cx} y={n.y + 18} text-anchor="middle">{n.name}</text>
+            <text class="f" x={n.cx} y={n.y + 38} text-anchor="middle">{n.formula}</text>
+            {n.note && <text class="note" x={n.cx} y={n.y + 55} text-anchor="middle">{n.note}</text>}
+            {n.badge && <text class="badge" x={n.cx} y={n.y + H + 13} text-anchor="middle">{n.badge}</text>}
+            {L.leafHead && n.from && <text class="from" x={left(n) + 4} y={n.y - 6}>{n.from}</text>}
+          </g>
+        </a>
+      ))}
+
+      <text class="foot" x="12" y={L.foot.y}>{L.foot.t}</text>
+    </svg>
+  ))}
+</figure>
+
+<style>
+  .lin { margin: 2rem 0; padding: 0.8rem 0.6rem 0.4rem; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); }
+  .lin svg { display: block; width: 100%; height: auto; font-family: var(--font-sans); }
+  .lin .narrow { display: none; }
+  @media (max-width: 640px) {
+    .lin .wide { display: none; }
+    .lin .narrow { display: block; }
+  }
+  .col { fill: var(--muted); font-size: 11px; letter-spacing: 0.04em; }
+  .sep { stroke: var(--border); stroke-width: 1; }
+  .node rect { fill: var(--bg-2); stroke-width: 1.5; }
+  .node.root rect { stroke: var(--text-2); }
+  .node.forget rect { fill: color-mix(in srgb, var(--cat-amber) 10%, var(--bg-2)); stroke: var(--cat-amber); }
+  .node.erase rect { fill: color-mix(in srgb, var(--cat-rose) 10%, var(--bg-2)); stroke: var(--cat-rose); }
+  .node.kda rect { fill: color-mix(in srgb, var(--cat-cyan) 14%, var(--bg-2)); stroke: var(--cat-cyan); stroke-width: 2.2; }
+  .node.leaf { opacity: 0.72; }
+  .node.leaf rect { stroke: var(--text-2); stroke-dasharray: 4 3; }
+  .lin a:hover .node rect, .lin a:focus-visible .node rect { stroke-width: 2.6; }
+  .lin a:focus-visible { outline: none; }
+  .name { fill: var(--text); font-size: 12.5px; font-weight: 600; }
+  .f { fill: var(--text); font-size: 11px; font-family: var(--font-mono, ui-monospace, monospace); }
+  .note { fill: var(--text-2); font-size: 10px; }
+  .from { fill: var(--text-2); font-size: 10px; }
+  .badge { fill: var(--cat-rose); font-size: 10px; }
+  .edge path { fill: none; stroke-width: 1.6; }
+  .edge.forget path { stroke: var(--cat-amber); }
+  .edge.erase path { stroke: var(--cat-rose); }
+  .edge.kda path { stroke: var(--cat-cyan); }
+  .edge.leaf path { stroke: var(--text-2); }
+  .edge.dashed path { stroke-dasharray: 5 4; }
+  marker path { fill: var(--text-2); }
+  .elbl { fill: var(--text-2); font-size: 10.5px; }
+  .foot { fill: var(--muted); font-size: 10.5px; }
+</style>
