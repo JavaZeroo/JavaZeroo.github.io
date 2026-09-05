@@ -1,0 +1,165 @@
+---
+/**
+ * 三联图：普通残差 / Full AttnRes / Block AttnRes（块大小 S = 2）。
+ * 四个子层 f₁…f₄，纵向是深度。左列是"可以被取回的东西"，中间 α 是 AttnRes 算子，右列是子层本身。
+ */
+const PW = 310, PH = 392;
+const yEmb = 48;
+const yF = (l: number) => 48 + l * 62;          // l = 1..4 → 110, 172, 234, 296
+const yOut = yF(4) + 62;                          // 358
+
+// 每个面板里的列
+const SRC_X = 26, SRC_W = 104;                    // 来源列
+const A_X = 178;                                  // α / ⊕ 的圆心 x
+const F_X = 214, F_W = 84, F_H = 28;              // 子层框
+
+const panels = ['(a) 普通残差', '(b) Full AttnRes', '(c) Block AttnRes，S = 2'];
+const ox = (p: number) => p * PW;
+
+// 曲线：从来源框右侧中点到 α 左侧
+const fan = (p: number, ySrc: number, yDst: number) =>
+  `M${ox(p) + SRC_X + SRC_W} ${ySrc} C ${ox(p) + 150} ${ySrc}, ${ox(p) + 150} ${yDst}, ${ox(p) + A_X - 15} ${yDst}`;
+
+// 子层输出送回左列的折线
+const back = (p: number, l: number, yDst: number) =>
+  `M${ox(p) + F_X + F_W / 2} ${yF(l) + F_H} V ${yF(l) + F_H + 10} H ${ox(p) + SRC_X + SRC_W / 2} V ${yDst - 11}`;
+
+// (b) 的来源：embedding 与每个子层输出
+const srcB = (l: number) => [yEmb + 13, ...Array.from({ length: l - 1 }, (_, i) => yF(i + 1) + F_H + 22)];
+// (c) 的来源：embedding、已完成的块、当前块 partial
+//   α₁: b₀ ; α₂: b₀, f₁ ; α₃: b₀, b₁ ; α₄: b₀, b₁, f₃ ; 输出: b₀, b₁, b₂
+const cSrcY = { emb: yEmb + 13, f1: yF(1) + F_H + 22, b1: yF(2) + F_H + 22, f3: yF(3) + F_H + 22, b2: yF(4) + F_H + 22 };
+const srcC: Record<number, number[]> = {
+  1: [cSrcY.emb],
+  2: [cSrcY.emb, cSrcY.f1],
+  3: [cSrcY.emb, cSrcY.b1],
+  4: [cSrcY.emb, cSrcY.b1, cSrcY.f3],
+  5: [cSrcY.emb, cSrcY.b1, cSrcY.b2],
+};
+const cLabels = [
+  { y: cSrcY.f1, t: 'b₁⁽¹⁾ = f₁', partial: true },
+  { y: cSrcY.b1, t: 'b₁ = f₁ + f₂', partial: false },
+  { y: cSrcY.f3, t: 'b₂⁽¹⁾ = f₃', partial: true },
+  { y: cSrcY.b2, t: 'b₂ = f₃ + f₄', partial: false },
+];
+---
+
+<figure class="var">
+  <svg viewBox={`0 0 ${PW * 3} ${PH}`} role="img" aria-label="普通残差、Full AttnRes、Block AttnRes 的对比">
+    <defs>
+      <marker id="ar-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M0 0 L10 5 L0 10 z" />
+      </marker>
+    </defs>
+
+    {panels.map((title, p) => (
+      <g>
+        <text class="title" x={ox(p) + PW / 2} y="22" text-anchor="middle">{title}</text>
+        {p > 0 && <line class="sep" x1={ox(p)} y1="8" x2={ox(p)} y2={PH - 8} />}
+
+        <!-- embedding -->
+        <rect class="src emb" x={ox(p) + SRC_X} y={yEmb} width={SRC_W} height="26" rx="6" />
+        <text class="t" x={ox(p) + SRC_X + SRC_W / 2} y={yEmb + 17} text-anchor="middle">Embedding h₁</text>
+
+        <!-- 子层框 -->
+        {[1, 2, 3, 4].map((l) => (
+          <g>
+            <rect class="f" x={ox(p) + F_X} y={yF(l)} width={F_W} height={F_H} rx="6" />
+            <text class="t" x={ox(p) + F_X + F_W / 2} y={yF(l) + 18} text-anchor="middle">{`f${String.fromCharCode(0x2080 + l)}`}</text>
+            <line class="edge" x1={ox(p) + A_X + 14} y1={yF(l) + F_H / 2} x2={ox(p) + F_X - 2} y2={yF(l) + F_H / 2} marker-end="url(#ar-arrow)" />
+          </g>
+        ))}
+        <text class="t out" x={ox(p) + F_X + F_W / 2} y={yOut + 5} text-anchor="middle">→ 输出</text>
+      </g>
+    ))}
+
+    <!-- (a) 普通残差：一条竖线，⊕ 节点 -->
+    <g>
+      <line class="stream" x1={ox(0) + A_X} y1={yEmb + 26} x2={ox(0) + A_X} y2={yOut} />
+      <path class="edge" d={`M${ox(0) + SRC_X + SRC_W} ${yEmb + 13} H ${ox(0) + A_X - 2}`} />
+      {[1, 2, 3, 4].map((l) => (
+        <g>
+          <circle class="plus" cx={ox(0) + A_X} cy={yF(l) + F_H / 2} r="11" />
+          <text class="sym" x={ox(0) + A_X} y={yF(l) + F_H / 2 + 5} text-anchor="middle">+</text>
+          <path class="edge" d={`M${ox(0) + F_X + F_W / 2} ${yF(l) + F_H} V ${yF(l) + F_H + 12} H ${ox(0) + A_X + 24} V ${yF(l) + F_H / 2 + 20} `} />
+          <path class="edge" d={`M${ox(0) + A_X + 24} ${yF(l) + F_H / 2 + 20} H ${ox(0) + A_X + 13}`} marker-end="url(#ar-arrow)" />
+        </g>
+      ))}
+      <line class="edge" x1={ox(0) + A_X} y1={yOut - 2} x2={ox(0) + F_X - 2} y2={yOut} marker-end="url(#ar-arrow)" />
+      <text class="note" x={ox(0) + SRC_X} y={yF(2) + 4}>hₗ = h₁ + Σ fᵢ</text>
+      <text class="note" x={ox(0) + SRC_X} y={yF(2) + 20}>所有人拿到同一个和，</text>
+      <text class="note" x={ox(0) + SRC_X} y={yF(2) + 34}>权重固定为 1</text>
+    </g>
+
+    <!-- (b) Full AttnRes -->
+    <g>
+      {[1, 2, 3, 4].map((l) => (
+        <g>
+          <circle class="alpha" cx={ox(1) + A_X} cy={yF(l) + F_H / 2} r="13" />
+          <text class="sym" x={ox(1) + A_X} y={yF(l) + F_H / 2 + 5} text-anchor="middle">α</text>
+          {srcB(l).map((ys) => <path class="edge fan" d={fan(1, ys, yF(l) + F_H / 2)} marker-end="url(#ar-arrow)" />)}
+          <path class="edge back" d={back(1, l, yF(l) + F_H + 22)} marker-end="url(#ar-arrow)" />
+          <rect class="src" x={ox(1) + SRC_X} y={yF(l) + F_H + 11} width={SRC_W} height="22" rx="5" />
+          <text class="t small" x={ox(1) + SRC_X + SRC_W / 2} y={yF(l) + F_H + 26} text-anchor="middle">{`f${String.fromCharCode(0x2080 + l)}(h${String.fromCharCode(0x2080 + l)}) 的输出`}</text>
+        </g>
+      ))}
+      <circle class="alpha" cx={ox(1) + A_X} cy={yOut} r="13" />
+      <text class="sym" x={ox(1) + A_X} y={yOut + 5} text-anchor="middle">α</text>
+      {srcB(5).map((ys) => <path class="edge fan" d={fan(1, ys, yOut)} marker-end="url(#ar-arrow)" />)}
+    </g>
+
+    <!-- (c) Block AttnRes -->
+    <g>
+      {[1, 2, 3, 4].map((l) => (
+        <g>
+          <circle class="alpha" cx={ox(2) + A_X} cy={yF(l) + F_H / 2} r="13" />
+          <text class="sym" x={ox(2) + A_X} y={yF(l) + F_H / 2 + 5} text-anchor="middle">α</text>
+          {srcC[l].map((ys) => <path class="edge fan" d={fan(2, ys, yF(l) + F_H / 2)} marker-end="url(#ar-arrow)" />)}
+          <path class="edge back" d={back(2, l, yF(l) + F_H + 22)} marker-end="url(#ar-arrow)" />
+        </g>
+      ))}
+      {cLabels.map((c) => (
+        <g>
+          <rect class:list={['src', { partial: c.partial }]} x={ox(2) + SRC_X} y={c.y - 11} width={SRC_W} height="22" rx="5" />
+          <text class="t small" x={ox(2) + SRC_X + SRC_W / 2} y={c.y + 4} text-anchor="middle">{c.t}</text>
+        </g>
+      ))}
+      <circle class="alpha" cx={ox(2) + A_X} cy={yOut} r="13" />
+      <text class="sym" x={ox(2) + A_X} y={yOut + 5} text-anchor="middle">α</text>
+      {srcC[5].map((ys) => <path class="edge fan" d={fan(2, ys, yOut)} marker-end="url(#ar-arrow)" />)}
+      <!-- 块括号 -->
+      <path class="brace" d={`M${ox(2) + F_X + F_W + 8} ${yF(1) - 4} h6 V ${yF(2) + F_H + 4} h-6`} />
+      <text class="note" x={ox(2) + F_X + F_W + 18} y={(yF(1) + yF(2) + F_H) / 2 + 4} writing-mode="tb">块 1</text>
+      <path class="brace" d={`M${ox(2) + F_X + F_W + 8} ${yF(3) - 4} h6 V ${yF(4) + F_H + 4} h-6`} />
+      <text class="note" x={ox(2) + F_X + F_W + 18} y={(yF(3) + yF(4) + F_H) / 2 + 4} writing-mode="tb">块 2</text>
+    </g>
+  </svg>
+  <figcaption>
+    左列是每个 α 能取回的来源。(a) 每层拿到同一个固定和；(b) 每个子层前的 α 用自己的伪 query <i>w<sub>l</sub></i> 对 embedding 和所有先前子层输出做 softmax；(c) 块内子层输出先求和（虚线框是正在累加的 partial sum），α 只在 embedding、已完成的块和当前块 partial sum 之间分配权重。
+  </figcaption>
+</figure>
+
+<style>
+  .var { margin: 2rem 0; padding: 0.8rem 0.6rem 0.6rem; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); overflow-x: auto; }
+  .var svg { display: block; width: 100%; min-width: 720px; height: auto; font-family: var(--font-sans); }
+  .var marker path { fill: var(--text-2); }
+  .title { fill: var(--text); font-size: 13px; font-weight: 600; }
+  .sep { stroke: var(--border-2); stroke-dasharray: 3 4; }
+  .edge { fill: none; stroke: var(--text-2); stroke-width: 1.3; }
+  .edge.fan { stroke: var(--cat-amber); opacity: 0.85; }
+  .edge.back { opacity: 0.7; }
+  .stream { stroke: var(--text-2); stroke-width: 2.6; opacity: 0.55; }
+  .f { fill: color-mix(in srgb, var(--cat-cyan) 16%, var(--bg-2)); stroke: var(--cat-cyan); stroke-width: 1.4; }
+  .src { fill: color-mix(in srgb, var(--cat-amber) 14%, var(--bg-2)); stroke: var(--cat-amber); stroke-width: 1.3; }
+  .src.emb { fill: color-mix(in srgb, var(--muted) 18%, var(--bg-2)); stroke: var(--muted); }
+  .src.partial { stroke-dasharray: 4 3; }
+  .plus { fill: var(--bg-2); stroke: var(--text-2); stroke-width: 1.4; }
+  .alpha { fill: color-mix(in srgb, var(--cat-amber) 22%, var(--bg-2)); stroke: var(--cat-amber); stroke-width: 1.6; }
+  .sym { fill: var(--text); font-size: 13px; font-weight: 700; }
+  .t { fill: var(--text); font-size: 12px; font-weight: 600; }
+  .t.small { font-size: 10.5px; font-weight: 500; }
+  .t.out { fill: var(--text-2); font-weight: 500; }
+  .note { fill: var(--muted); font-size: 10.5px; }
+  .brace { fill: none; stroke: var(--muted); stroke-width: 1.2; }
+  figcaption { margin-top: 0.7rem; font-size: 0.88rem; color: var(--text-2); line-height: 1.6; }
+</style>

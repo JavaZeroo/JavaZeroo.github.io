@@ -1,0 +1,71 @@
+---
+/**
+ * Kimi K3 的 93 层怎么排：KDA / Gated MLA 交错，以及 Attention Residuals 的分块边界。
+ * 层号按论文与 config.json 的 1-indexed 口径（full_attn_layers = 4, 8, …, 92, 93）。
+ */
+interface Props {
+  /** 是否画出 AttnRes 的 12 层分块 */
+  showBlocks?: boolean;
+  caption?: string;
+}
+const { showBlocks = true, caption } = Astro.props;
+
+const L = 93;
+const isMLA = (l: number) => l % 4 === 0 || l === 93;
+const X0 = 24, CELL = 9.4, GAP = 0.6, Y0 = 28, H = 26;
+const cx = (l: number) => X0 + (l - 1) * (CELL + GAP);
+const W = X0 * 2 + L * (CELL + GAP);
+const layers = Array.from({ length: L }, (_, i) => i + 1);
+
+// AttnRes：block_size = 12，边界在 0-indexed 的 0, 12, …, 84 → 1-indexed 的 1, 13, …, 85
+const blocks = Array.from({ length: 8 }, (_, n) => ({
+  n: n + 1,
+  from: 12 * n + 1,
+  to: Math.min(12 * n + 12, L),
+}));
+---
+
+<figure class="strip">
+  <svg viewBox={`0 0 ${W} ${showBlocks ? 122 : 78}`} role="img" aria-label="Kimi K3 93 层排布">
+    {layers.map((l) => (
+      <g>
+        <title>{`第 ${l} 层：${isMLA(l) ? 'Gated MLA' : 'KDA'}${l === 1 ? '（后接 dense FFN）' : '（后接 Stable LatentMoE）'}`}</title>
+        <rect class:list={['cell', isMLA(l) ? 'mla' : 'kda', { dense: l === 1 }]} x={cx(l)} y={Y0} width={CELL} height={H} rx="1.5" />
+      </g>
+    ))}
+    {layers.filter((l) => l === 1 || l % 12 === 0 || l === 93).map((l) => (
+      <text class="tick" x={cx(l) + CELL / 2} y={Y0 - 8} text-anchor="middle">{l}</text>
+    ))}
+    <text class="lbl" x={X0} y={Y0 + H + 16}>■ KDA ×69</text>
+    <text class="lbl mla" x={X0 + 90} y={Y0 + H + 16}>■ Gated MLA ×24（每第 4 层 + 第 93 层）</text>
+    <text class="lbl" x={X0 + 350} y={Y0 + H + 16}>虚线框 = 第 1 层，FFN 是 dense 而不是 MoE</text>
+
+    {showBlocks && blocks.map((b) => {
+      const x1 = cx(b.from), x2 = cx(b.to) + CELL, y = Y0 + H + 34;
+      return (
+        <g class="blk">
+          <path d={`M${x1} ${y} v6 H${x2} v-6`} />
+          <text x={(x1 + x2) / 2} y={y + 20} text-anchor="middle">
+            {b.to - b.from + 1 === 12 ? `b${String.fromCharCode(0x2080 + b.n)}` : `尾块（${b.to - b.from + 1} 层）`}
+          </text>
+        </g>
+      );
+    })}
+    {showBlocks && <text class="lbl" x={X0} y={Y0 + H + 88}>AttnRes 分块：每 12 个 decoder layer 求和成一个 bₙ；embedding 记作 b₀；7 个满块 + 1 个 9 层尾块 + b₀ = 9 个来源</text>}
+  </svg>
+  {caption && <figcaption>{caption}</figcaption>}
+</figure>
+
+<style>
+  .strip { margin: 2rem 0; padding: 0.8rem 0.6rem 0.4rem; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); overflow-x: auto; }
+  .strip svg { display: block; width: 100%; min-width: 640px; height: auto; font-family: var(--font-sans); }
+  .cell.kda { fill: color-mix(in srgb, var(--cat-cyan) 70%, var(--bg-2)); }
+  .cell.mla { fill: var(--cat-indigo); }
+  .cell.dense { stroke: var(--text); stroke-width: 1.2; stroke-dasharray: 2 1.5; }
+  .tick { fill: var(--muted); font-size: 9.5px; }
+  .lbl { fill: var(--text-2); font-size: 10.5px; }
+  .lbl.mla { fill: var(--cat-indigo); }
+  .blk path { fill: none; stroke: var(--cat-amber); stroke-width: 1.4; }
+  .blk text { fill: var(--cat-amber); font-size: 10.5px; }
+  figcaption { margin-top: 0.6rem; font-size: 0.88rem; color: var(--text-2); text-align: center; }
+</style>

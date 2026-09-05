@@ -1,0 +1,241 @@
+---
+/**
+ * Kimi K3 总架构图。数据驱动的 SVG：块列表 + 连线在 frontmatter 里声明，
+ * 每篇文章通过 `highlight` 点亮自己讲的那一组模块，其余淡化。
+ * 方块可点击跳到对应文章（LINKS 里为 null 的还没写）。
+ */
+type Group = 'embed' | 'vision' | 'kda' | 'mla' | 'moe' | 'attnres' | 'output' | 'mtp';
+
+interface Props {
+  /** 要点亮的模块组；不传则全部正常显示 */
+  highlight?: Group | Group[];
+  /** 图下方的说明文字 */
+  caption?: string;
+}
+const { highlight, caption } = Astro.props;
+const hl = new Set<Group>(highlight ? (Array.isArray(highlight) ? highlight : [highlight]) : []);
+const dimming = hl.size > 0;
+
+// 各篇文章的 URL。文章写好后把 null 换成路径。
+const LINKS: Record<Group, string | null> = {
+  embed: '/2026/09/05/kimi-k3-00-overview/',
+  vision: null,   // 第 6 篇
+  kda: null,      // 第 1、2 篇
+  mla: null,      // 第 3 篇
+  moe: null,      // 第 5 篇
+  attnres: '/2026/09/05/kimi-k3-04-attnres/',
+  output: '/2026/09/05/kimi-k3-00-overview/',
+  mtp: null,      // 第 6 篇
+};
+
+interface Box { id: string; group: Group; x: number; y: number; w: number; h: number; label: string; sub?: string; title?: string; }
+
+// ---- 布局常量 ----
+const STREAM_X = 300;           // 残差流（prefix sum）所在的竖线
+const ROW0 = 170, ROW_H = 54;   // 主干每一行
+const BOX_H = 34;
+const MOD_X = 352, MOD_W = 190; // 主干模块框
+const ALPHA_W = 40;
+const rowY = (i: number) => ROW0 + i * ROW_H;
+const rowC = (i: number) => rowY(i) + BOX_H / 2;
+
+// 主干各行：AttnRes 算子 α → 子层 → 回到残差流
+const rows: { i: number; group: Group; label: string; sub?: string; title: string }[] = [
+  { i: 0, group: 'kda', label: 'KDA', sub: '第 1 层', title: 'Kimi Delta Attention：96 头 × 128 维，状态 128×128/头' },
+  { i: 1, group: 'moe', label: 'Dense FFN', sub: '仅第 1 层 · 中间维 33792', title: '第一层不用 MoE，用一个稠密 SiTU-GLU FFN' },
+  { i: 2, group: 'kda', label: 'KDA', sub: '×3', title: '三层 KDA，每层后接一个 Stable LatentMoE' },
+  { i: 3, group: 'moe', label: 'Stable LatentMoE', sub: '896 选 16 + 2 shared', title: '7168 → 3584 latent → 16 个 routed expert → RMSNorm → 7168' },
+  { i: 4, group: 'mla', label: 'Gated MLA', sub: '×1 · NoPE', title: 'DeepSeek 式 MLA，无位置编码，满秩 sigmoid 输出门' },
+  { i: 5, group: 'moe', label: 'Stable LatentMoE', sub: '896 选 16 + 2 shared', title: '同上' },
+  { i: 6, group: 'mla', label: 'Gated MLA', sub: '第 93 层 · 收尾', title: '主干末尾额外放一层全局注意力' },
+  { i: 7, group: 'moe', label: 'Stable LatentMoE', sub: '第 93 层', title: '同上' },
+];
+
+const boxes: Box[] = [
+  // 输入端
+  { id: 'embed', group: 'embed', x: 218, y: 52, w: 164, h: BOX_H, label: 'Token Embedding', sub: '163840 × 7168', title: '词表 163840，隐藏维 7168' },
+  { id: 'vit', group: 'vision', x: 430, y: 52, w: 150, h: BOX_H, label: 'MoonViT-V2', sub: '27 层 · 0.4B · patch 14', title: '从零训练的视觉编码器，hidden 1024，12 头' },
+  { id: 'shuffle', group: 'vision', x: 600, y: 52, w: 150, h: BOX_H, label: '2×2 Pixel-shuffle', sub: '+ 时间池化 · token ÷4', title: 'merge_type = sd2_tpool' },
+  { id: 'proj', group: 'vision', x: 770, y: 52, w: 150, h: BOX_H, label: 'Projector', sub: '4096 → 4096 → 7168', title: 'PatchMergerMLPV2，GELU，RMSNorm' },
+  // AttnRes 来源
+  { id: 'src0', group: 'attnres', x: 40, y: rowY(2), w: 170, h: 30, label: 'b₀ = Embedding', title: '词嵌入永远是一个来源' },
+  { id: 'src1', group: 'attnres', x: 40, y: rowY(2) + 42, w: 170, h: 30, label: 'b₁ … bₙ₋₁', sub: '已完成的块（每块 12 层之和）', title: '每个块的输出是块内所有子层输出之和' },
+  { id: 'src2', group: 'attnres', x: 40, y: rowY(2) + 84, w: 170, h: 30, label: 'bₙ⁽ⁱ⁾ 当前块 partial sum', title: '本块里已经算完的子层之和，相当于块内的普通残差流' },
+  // 主干
+  ...rows.map((r) => ({ id: `row${r.i}`, group: r.group, x: MOD_X, y: rowY(r.i), w: MOD_W, h: BOX_H, label: r.label, sub: r.sub, title: r.title })),
+  // 输出
+  { id: 'norm', group: 'output', x: MOD_X, y: rowY(8), w: 100, h: BOX_H, label: 'RMSNorm', title: '最终归一化' },
+  { id: 'head', group: 'output', x: MOD_X + 116, w: 100, y: rowY(8), h: BOX_H, label: 'LM Head', sub: '→ 163840', title: '不与 embedding 共享权重' },
+  { id: 'mtp', group: 'mtp', x: MOD_X, y: rowY(9), w: 216, h: BOX_H, label: 'MTP 层 ×1', sub: '镜像主干 block · 部署时做 EAGLE-3 draft', title: '预训练时 1 层多 token 预测；post-training 微调成投机解码的 draft' },
+];
+
+// AttnRes 算子 α（每个子层前一个，输出前再一个）
+const alphas = [...rows.map((r) => r.i), 8];
+
+const cls = (g: Group) => ['blk', g, hl.has(g) ? 'hl' : ''].join(' ');
+const href = (g: Group) => LINKS[g];
+
+// 重复块的虚线框
+const grp = { x: 262, y: rowY(2) - 4, w: 300, h: 3 * ROW_H + BOX_H + 18 };
+---
+
+<figure class:list={['k3d', { dimming }]} data-highlight={[...hl].join(' ')}>
+  <svg viewBox="0 0 940 712" role="img" aria-label="Kimi K3 总架构图">
+    <defs>
+      <marker id="k3-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0 0 L10 5 L0 10 z" />
+      </marker>
+    </defs>
+
+    <!-- 标题行 -->
+    <text class="lbl" x="300" y="34" text-anchor="middle">文本 token</text>
+    <text class="lbl" x="505" y="34" text-anchor="middle">图像 / 视频</text>
+
+    <!-- 输入到残差流 -->
+    <line class="edge" x1={STREAM_X} y1={86} x2={STREAM_X} y2={rowY(0) - 2} marker-end="url(#k3-arrow)" />
+    <line class="edge" x1={580} y1={69} x2={598} y2={69} marker-end="url(#k3-arrow)" />
+    <line class="edge" x1={750} y1={69} x2={768} y2={69} marker-end="url(#k3-arrow)" />
+    <path class="edge" d={`M845 86 V 118 H ${STREAM_X + 6}`} marker-end="url(#k3-arrow)" />
+    <text class="note" x="600" y="107" text-anchor="middle">视觉 token 与文本 token 交错后进入同一条主干</text>
+
+    <!-- 残差流：prefix sum -->
+    <line class="stream" x1={STREAM_X} y1={rowY(0)} x2={STREAM_X} y2={rowY(8) + BOX_H / 2} />
+    <text class="note" x={STREAM_X - 28} y={rowC(0) - 2} text-anchor="end">残差流</text>
+    <text class="note" x={STREAM_X - 28} y={rowC(0) + 12} text-anchor="end">(prefix sum)</text>
+
+    <!-- 重复块虚线框 -->
+    <rect class="grp" x={grp.x} y={grp.y} width={grp.w} height={grp.h} rx="10" />
+    <text class="grp-lbl" x={grp.x + grp.w + 10} y={rowY(2) + 6}>重复 23 次</text>
+    <text class="grp-lbl" x={grp.x + grp.w + 10} y={rowY(2) + 22}>3 KDA : 1 Gated MLA</text>
+    <text class="note" x={grp.x + grp.w + 10} y={rowY(2) + 40}>第 2 – 92 层</text>
+    <text class="note" x={grp.x + grp.w + 10} y={rowY(2) + 54}>每 12 层是一个 AttnRes 块</text>
+
+    <!-- 每一行：α → 模块 → 回流 -->
+    {rows.map((r) => (
+      <g>
+        <line class="edge" x1={STREAM_X + ALPHA_W / 2} y1={rowC(r.i)} x2={MOD_X - 2} y2={rowC(r.i)} marker-end="url(#k3-arrow)" />
+        <path class="edge ret" d={`M${MOD_X + MOD_W} ${rowC(r.i)} H ${MOD_X + MOD_W + 22} V ${rowC(r.i) + ROW_H / 2} H ${STREAM_X + 4}`} marker-end="url(#k3-arrow)" />
+      </g>
+    ))}
+
+    <!-- AttnRes 来源 → α 的扇入（只画到第 3 行的 α，其余同理） -->
+    {[0, 42, 84].map((dy) => (
+      <path class="edge fan" d={`M210 ${rowY(2) + dy + 15} C 245 ${rowY(2) + dy + 15}, 250 ${rowC(2)}, ${STREAM_X - ALPHA_W / 2 - 2} ${rowC(2)}`} marker-end="url(#k3-arrow)" />
+    ))}
+    <text class="note" x="40" y={rowY(2) - 14}>AttnRes 来源（最多 9 个）</text>
+    <text class="note" x="40" y={rowY(2) + 130}>每个 α 前都有这一组来源</text>
+    <text class="note" x="40" y={rowY(2) + 144}>α = softmax(wₗ · RMSNorm(来源))</text>
+    <text class="note" x="40" y={rowY(2) + 158}>wₗ 是每个子层各一个的可学习向量</text>
+
+    <!-- 输出行 -->
+    <line class="edge" x1={STREAM_X + ALPHA_W / 2} y1={rowC(8)} x2={MOD_X - 2} y2={rowC(8)} marker-end="url(#k3-arrow)" />
+    <line class="edge" x1={MOD_X + 100} y1={rowC(8)} x2={MOD_X + 114} y2={rowC(8)} marker-end="url(#k3-arrow)" />
+    <line class="edge" x1={MOD_X + 216} y1={rowC(8)} x2={MOD_X + 250} y2={rowC(8)} marker-end="url(#k3-arrow)" />
+    <text class="lbl" x={MOD_X + 258} y={rowC(8) + 4}>logits</text>
+    <text class="note" x={STREAM_X - 8} y={rowC(8) + 4} text-anchor="end">输出前再聚合一次全部块</text>
+    <path class="edge mtp" d={`M${MOD_X + 50} ${rowY(8) + BOX_H} V ${rowY(9) - 2}`} marker-end="url(#k3-arrow)" />
+    <text class="note" x={MOD_X + 58} y={rowY(9) - 8}>最终隐藏状态 + 下一个 token 的 embedding</text>
+
+    <!-- α 算子 -->
+    {alphas.map((i) => {
+      const link = href('attnres');
+      const body = (
+        <g class={cls('attnres')}>
+          <title>Attention Residuals 算子：用本子层的伪 query wₗ 对来源打分，softmax 加权求和</title>
+          <rect x={STREAM_X - ALPHA_W / 2} y={rowY(i)} width={ALPHA_W} height={BOX_H} rx="8" />
+          <text class="t" x={STREAM_X} y={rowC(i) + 5} text-anchor="middle">α</text>
+        </g>
+      );
+      return link ? <a href={link}>{body}</a> : body;
+    })}
+
+    <!-- 方块 -->
+    {boxes.map((b) => {
+      const link = href(b.group);
+      const body = (
+        <g class={cls(b.group)}>
+          {b.title && <title>{b.title}</title>}
+          <rect x={b.x} y={b.y} width={b.w} height={b.h} rx="8" />
+          <text class="t" x={b.x + b.w / 2} y={b.y + (b.sub ? 14 : b.h / 2 + 5)} text-anchor="middle">{b.label}</text>
+          {b.sub && <text class="s" x={b.x + b.w / 2} y={b.y + 27} text-anchor="middle">{b.sub}</text>}
+        </g>
+      );
+      return link ? <a href={link}>{body}</a> : body;
+    })}
+  </svg>
+
+  <div class="legend">
+    <span class:list={['chip', 'kda', { hl: hl.has('kda') }]}>序列 · KDA</span>
+    <span class:list={['chip', 'mla', { hl: hl.has('mla') }]}>序列 · Gated MLA</span>
+    <span class:list={['chip', 'attnres', { hl: hl.has('attnres') }]}>深度 · AttnRes</span>
+    <span class:list={['chip', 'moe', { hl: hl.has('moe') }]}>宽度 · Stable LatentMoE</span>
+    <span class:list={['chip', 'vision', { hl: hl.has('vision') }]}>输入 · MoonViT-V2</span>
+    <span class:list={['chip', 'mtp', { hl: hl.has('mtp') || hl.has('embed') || hl.has('output') }]}>零件</span>
+  </div>
+  {caption && <figcaption>{caption}</figcaption>}
+</figure>
+
+<style>
+  .k3d {
+    margin: 2rem 0;
+    padding: 1rem 1rem 0.8rem;
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    background: var(--surface);
+    --c-kda: var(--cat-cyan);
+    --c-mla: var(--cat-indigo);
+    --c-moe: var(--cat-emerald);
+    --c-attnres: var(--cat-amber);
+    --c-vision: var(--cat-rose);
+    --c-embed: var(--muted);
+    --c-output: var(--muted);
+    --c-mtp: var(--muted);
+  }
+  .k3d svg { display: block; width: 100%; height: auto; font-family: var(--font-sans); }
+  .k3d marker path { fill: var(--text-2); }
+  .k3d .edge { fill: none; stroke: var(--text-2); stroke-width: 1.4; }
+  .k3d .edge.ret { stroke-dasharray: none; opacity: 0.75; }
+  .k3d .edge.fan { stroke: var(--c-attnres); opacity: 0.8; }
+  .k3d .edge.mtp { stroke-dasharray: 4 4; opacity: 0.7; }
+  .k3d .stream { stroke: var(--text-2); stroke-width: 3; stroke-linecap: round; opacity: 0.55; }
+  .k3d .grp { fill: none; stroke: var(--border-2); stroke-dasharray: 6 5; }
+  .k3d .grp-lbl, .k3d .lbl { fill: var(--text-2); font-size: 12px; font-weight: 600; }
+  .k3d .note { fill: var(--muted); font-size: 11px; }
+
+  .k3d .blk rect {
+    fill: color-mix(in srgb, var(--c) 16%, var(--bg-2));
+    stroke: var(--c);
+    stroke-width: 1.5;
+    transition: opacity 0.2s, stroke-width 0.15s;
+  }
+  .k3d .blk .t { fill: var(--text); font-size: 13px; font-weight: 600; }
+  .k3d .blk .s { fill: var(--text-2); font-size: 10.5px; }
+  .k3d .blk.kda { --c: var(--c-kda); }
+  .k3d .blk.mla { --c: var(--c-mla); }
+  .k3d .blk.moe { --c: var(--c-moe); }
+  .k3d .blk.attnres { --c: var(--c-attnres); }
+  .k3d .blk.vision { --c: var(--c-vision); }
+  .k3d .blk.embed { --c: var(--c-embed); }
+  .k3d .blk.output { --c: var(--c-output); }
+  .k3d .blk.mtp { --c: var(--c-mtp); }
+  .k3d a { cursor: pointer; text-decoration: none; }
+  .k3d a text { text-decoration: none; }
+  .k3d a:hover .blk rect { stroke-width: 2.5; }
+  .k3d a:focus-visible .blk rect { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* 高亮模式：没点亮的淡化 */
+  .k3d.dimming .blk:not(.hl) { opacity: 0.32; }
+  .k3d.dimming .blk.hl rect { stroke-width: 2.4; filter: drop-shadow(0 0 6px color-mix(in srgb, var(--c) 55%, transparent)); }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 0.4rem 0.6rem; margin-top: 0.8rem; }
+  .chip {
+    font-size: 0.78rem; padding: 0.15rem 0.6rem; border-radius: 999px;
+    border: 1px solid var(--c); color: var(--text-2);
+    background: color-mix(in srgb, var(--c) 12%, transparent);
+  }
+  .chip.kda { --c: var(--c-kda); } .chip.mla { --c: var(--c-mla); } .chip.moe { --c: var(--c-moe); }
+  .chip.attnres { --c: var(--c-attnres); } .chip.vision { --c: var(--c-vision); } .chip.mtp { --c: var(--c-mtp); }
+  .k3d.dimming .chip:not(.hl) { opacity: 0.45; }
+  .chip.hl { color: var(--text); font-weight: 600; }
+  figcaption { margin-top: 0.7rem; font-size: 0.88rem; color: var(--text-2); text-align: center; }
+</style>

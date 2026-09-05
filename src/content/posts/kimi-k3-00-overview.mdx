@@ -1,0 +1,163 @@
+---
+title: "Kimi K3 模型结构（0）：一张图看懂 Kimi K3"
+pubDate: 2026-09-05 12:00:00
+description: "连载开篇。用一张可点击的总架构图把 Kimi K3 的 93 层、三个维度上的三个新模块和视觉通路摆在一起，给出 K2 → K3 的结构对照表，并说明后面每一篇讲什么。"
+categories:
+  - "📝学习"
+tags:
+  - "大模型"
+  - "Kimi K3"
+  - "模型结构"
+series: kimi-k3
+part: "总览"
+order: 0
+draft: false
+---
+
+import K3ArchDiagram from '../../components/k3/K3ArchDiagram.astro';
+import K3LayerStrip from '../../components/k3/K3LayerStrip.astro';
+
+这个连载配合 [Kimi K3 技术报告](https://arxiv.org/abs/2607.24653)的 §2 "Model Architecture" 一起读。论文这一节只有八页，但每个模块背后都压着一篇独立论文，K3 又在每个模块上做了自己的改动。开篇先不进任何细节，只做三件事：把整个模型画成一张图，把层数和维度对上，告诉你后面每一篇在图上的哪个位置。
+
+## 三句话版本
+
+Kimi K3 是一个 **2.78T 总参数、104.2B 激活参数**的 MoE 模型，**93 层**，训练上下文 **1M token**，原生支持图像和视频输入。
+
+论文把结构上的改动归成三个维度，每个维度一个新模块：
+
+| 维度 | 混合的是什么 | 模块 | 来自哪篇论文 |
+|---|---|---|---|
+| **序列** | token 之间 | Kimi Delta Attention（KDA）与 Gated MLA 按 3:1 混合 | Kimi Linear（2510.26692） |
+| **深度** | 层之间 | Attention Residuals（AttnRes） | Attention Residuals（2603.15031） |
+| **宽度** | 通道之间 | Stable LatentMoE | LatentMoE（2601.18089）+ K3 自己的三个稳定化改动 |
+
+再加上输入端的视觉编码器 MoonViT-V2 和一个投影层，以及优化器 Per-Head Muon。论文的说法是，这些结构改动加上数据和训练配方的改进，让整体 scaling efficiency 相对 Kimi K2 提升了约 2.5 倍。
+
+## 总图
+
+下面这张图是论文 Figure 2 的中文可交互版。后面每一篇文章开头都会再放一次，只点亮当篇讲的模块。
+
+<K3ArchDiagram caption="Kimi K3 总架构。纵向是深度，每一行是一个子层：先经过一个 AttnRes 算子 α，再进子层，输出回到残差流。方块可点击跳到对应文章（还没写的暂时不可点）。" />
+
+怎么读这张图：
+
+- **中间那条粗竖线是残差流。** 在普通 Transformer 里它就是 $h_l$，一路往下加。在 K3 里它叫 prefix sum，只在一个 12 层的块内部起普通残差的作用，块与块之间靠 AttnRes 连接。
+- **每个子层前面有一个 α。** 这是 Attention Residuals 算子：它拿本子层专属的一个可学习向量 $w_l$ 当 query，对左边那一列「来源」做 softmax 加权求和，得到子层的输入。来源是词嵌入、之前每个块的输出之和、以及当前块已经算完的部分。一层里有两个 α，注意力前一个，FFN 前一个。
+- **子层只有四种。** KDA 和 Gated MLA 是两种注意力，Stable LatentMoE 是 FFN，第一层的 FFN 是唯一的例外，是一个稠密的 FFN。
+- **虚线框里的四行重复 23 次。** 三层 KDA 接一层 Gated MLA，每层注意力后面都跟一个 LatentMoE。加上开头的第 1 层和收尾的第 93 层，正好 93 层。
+- **顶部是输入。** 文本 token 走 embedding，图像和视频走 MoonViT-V2，经过 2×2 pixel-shuffle 把 token 数除以 4，再由一个两层 MLP 投影到 7168 维，和文本 token 交错后进同一条主干。
+- **底部是输出。** 最后一次 AttnRes 把所有块的输出聚合起来，过 RMSNorm 和 LM head。预训练时还挂了一个 MTP 层，部署时被微调成投机解码的 draft。
+
+## 93 层怎么排
+
+<K3LayerStrip caption="93 层的类型和 AttnRes 的分块边界。层号按论文和 config.json 的口径从 1 开始数。" />
+
+排布规则很机械：
+
+$$
+\underbrace{[\text{KDA},\ \text{KDA},\ \text{KDA},\ \text{MLA}]\times 23}_{92\ \text{层}}\ +\ \underbrace{\text{MLA}}_{\text{第 93 层}}
+$$
+
+所以 KDA 有 69 层，Gated MLA 有 24 层。config 里的 `full_attn_layers` 就是 4, 8, …, 92 再加一个 93。末尾多放一层全局注意力是刻意的，论文说是为了保证最后一层一定是全局注意力。
+
+每一层注意力后面都跟一个 FFN，93 层就是 186 个子层。第 1 层的 FFN 是稠密的（`first_k_dense_replace = 1`），中间维 33792，这和 DeepSeek-V3、Kimi K2 的习惯一样。其余 92 层都是 Stable LatentMoE。
+
+AttnRes 的分块是另一套刻度，每 12 个 decoder layer 一块，边界在第 1、13、25、…、85 层。这样切出来 7 个满块和一个 9 层的尾块，加上词嵌入本身，任何一个子层最多能看到 9 个来源。两套刻度是对齐的：12 是 4 的 3 倍，每个满块正好是三组 [KDA, KDA, KDA, MLA]，块的第一层总是 KDA，最后一层总是 MLA。
+
+## K2 → K3 对照表
+
+论文 Table 1 的翻译，加上几行 config.json 里有、论文表格没列的维度。
+
+| | Kimi K2 | Kimi K3 | 变化 |
+|---|---|---|---|
+| 层数 | 61 | 93 | +52% |
+| 总参数 | 1.04T | 2.78T | +167% |
+| 激活参数 | 32.6B | 104.2B | +220% |
+| 隐藏维 | 7168 | 7168 | 不变 |
+| MoE latent 维 | 无 | 3584（0.5×） | 新增 |
+| 每个 expert 中间维 | 2048 | 3072 | +50% |
+| routed expert 数 | 384 | 896 | +133% |
+| 每 token 激活 expert 数 | 8 | 16 | ×2 |
+| shared expert 数 | 1 | 2 | ×2 |
+| 注意力头数 | 64 | 96 | +50% |
+| 稠密层数 | 1 | 1 | 不变 |
+| 词表 | 160K | 160K | 不变 |
+| 训练上下文 | 128K | 1M | ×8 |
+| 注意力机制 | MLA | KDA + MLA 混合 | |
+| 注意力层组成 | 61 MLA | 69 KDA + 24 MLA | |
+| 激活函数 | SwiGLU | SiTU-GLU | |
+| MTP 层数 | 1 | 1 | 不变 |
+| 视觉编码器 | 无 | MoonViT-V2，401M，27 层，patch 14，12 头 | 新增 |
+
+config.json 里值得先记住的几个数，后面每一篇都会用到：
+
+| 字段 | 值 | 意思 |
+|---|---|---|
+| `hidden_size` | 7168 | 主干宽度 $d$ |
+| `num_attention_heads` / `head_dim` | 96 / 128 | KDA 和 MLA 共用的头数与头维 |
+| `q_lora_rank` / `kv_lora_rank` | 1536 / 512 | MLA 的 query 低秩和 KV latent 维 |
+| `qk_nope_head_dim` / `qk_rope_head_dim` / `v_head_dim` | 128 / 64 / 128 | MLA 每头的维度。64 维的 rope 位保留了，但不加旋转 |
+| `mla_use_nope` | true | MLA 层不用任何位置编码 |
+| `gate_lower_bound` | −5.0 | KDA 衰减的下界，K3 的改动之一 |
+| `use_full_rank_gate` / `mla_use_output_gate` | true / true | 两种注意力的输出门都是满秩的 |
+| `attn_res_block_size` | 12 | AttnRes 的块大小 |
+| `num_experts` / `num_experts_per_token` / `num_shared_experts` | 896 / 16 / 2 | MoE 配置 |
+| `routed_expert_hidden_size` / `moe_intermediate_size` | 3584 / 3072 | LatentMoE 的 latent 维和 expert 中间维 |
+| `latent_moe_use_norm` | true | latent 求和后加 RMSNorm，K3 的改动 |
+| `activation_situ_beta` / `activation_situ_linear_beta` | 4.0 / 25.0 | SiTU-GLU 的两个软截断参数 |
+| `topk_method` | noaux_tc | 无辅助损失的路由，偏置向量就是冻结的 Quantile Balancing 偏置 |
+| `vocab_size` | 163840 | 词表 |
+| `max_position_embeddings` | 1048576 | 1M 上下文 |
+
+## 一个 token 的一次前向
+
+把维度串起来走一遍，你会发现整个模型只有四种子层在重复。下面是一个普通 decoder layer 的结构，按 Hugging Face 建模代码的顺序画：
+
+```mermaid
+flowchart LR
+  P0[prefix sum] --> A1[α<br/>w_attn] --> N1[RMSNorm] --> ATT[KDA 或<br/>Gated MLA] --> S1[加回<br/>prefix sum]
+  S1 --> A2[α<br/>w_mlp] --> N2[RMSNorm] --> MOE[Stable LatentMoE<br/>第 1 层是 dense FFN] --> S2[加回<br/>prefix sum] --> P1[下一层]
+```
+
+四种子层各自的维度账：
+
+**KDA。** 输入 7168 维。q、k、v 各自经过一个线性层到 96×128 = 12288 维，再过一个核大小为 4 的因果短卷积和 Swish，q 和 k 再做 L2 归一化。每个头一个标量 $\beta_t$（7168 → 96，sigmoid），每个头一个 128 维的衰减向量 $\alpha_t$，由低秩投影 7168 → 128 → 12288 加每头偏置产生。每个头维护一个 128×128 的状态矩阵。输出先做逐头 RMSNorm，乘一个满秩 sigmoid 门（7168 → 12288），再经 $W_o$ 回到 7168 维。
+
+**Gated MLA。** query 走 1536 维低秩，展开成 96 个头、每头 128 + 64 维。key/value 压成一个 512 维 latent 加 64 维所有头共享的分量，KV cache 每 token 每层只存这 576 个数。每头 value 128 维。没有位置编码。输出乘满秩 sigmoid 门再经 $W_o$ 回到 7168 维。
+
+**Stable LatentMoE。** router 在 7168 维上打 896 个 sigmoid 分数，加偏置选 top-16 后归一化。token 先被一个共享的下投影压到 3584 维，16 个 expert 在 3584 维空间里各算一个 3584 → 3072 → 3584 的 SiTU-GLU，加权求和，过 RMSNorm，再由一个共享的上投影回到 7168 维。旁边并联两个全宽的 shared expert，代码里合成了一个 7168 → 6144 → 7168 的 MLP。
+
+**AttnRes α。** 每个子层前一个。参数只有一个 7168 维的向量 $w_l$ 和一个 RMSNorm 的 7168 维增益，来源最多 9 个。
+
+最后一层出来以后，输出端再做一次 AttnRes 聚合所有块，过 RMSNorm，LM head 把 7168 维映到 163840 个 logit。LM head 不和 embedding 共享权重。
+
+## 阅读地图
+
+每一篇对应论文的一个小节，标题后面括号里是它在总图上点亮的部分。
+
+| 篇 | 讲什么 | 对应论文 |
+|---|---|---|
+| 0 | 本篇。总图、层排布、维度账 | §2 开头，Table 1 |
+| 1 | 序列（上）：从线性注意力到 KDA。delta rule、逐通道衰减、K3 的满秩输出门 | §2.1.1 前半，Kimi Linear |
+| 2 | 序列（下）：KDA 的 chunkwise 并行形式，K3 的下界衰减为什么让所有 tile 都能上 Tensor Core | §2.1.1 后半，Fig. 3 |
+| 3 | 序列：Gated MLA，NoPE，3:1 的混合比，以及 1M 上下文时的 KV 账 | §2.1.2 |
+| 4 | 深度：[Attention Residuals](/2026/09/05/kimi-k3-04-attnres/)。残差流为什么是深度上的 RNN，Full 与 Block 两种形式，K3 的 9 个来源 | §2.2 |
+| 5 | 宽度：Stable LatentMoE。在 latent 空间里跑 expert，RMSNorm、SiTU-GLU、Quantile Balancing 三个稳定化改动 | §2.3，附录 B/C/D |
+| 6 | 输入端与零件：MoonViT-V2、投影、MTP 层、Per-Head Muon | §2.4，§2.5，§4.1.4 |
+| 7（可选） | 结构决定系统：FlashKDA、KDA 的上下文并行、KDA 感知的前缀缓存 | §5.1，§5.4 |
+
+## 这个连载不讲什么
+
+数据、预训练配方、post-training 的 SFT / RL / 蒸馏、评测数字，一律不讲。§5 的系统部分只挑和结构直接相关的部分放在最后一篇。读完这个连载，你应该能在不看代码的情况下写出 K3 每一层每个矩阵的形状，也能说清楚每个改动是为了解决什么问题。
+
+:::note{type="info"}
+**关于层号。** 论文和 `config.json` 的 `full_attn_layers` 从 1 开始数，Hugging Face 建模代码里的 `layer_idx` 从 0 开始。本连载正文一律用从 1 开始的口径，引用代码时会单独说明。另一个容易混的词是 "layer"：在 Attention Residuals 那篇论文里它指子层（注意力和 FFN 各算一层），在 K3 论文和 config 里指 decoder layer。K3 的「12 层块」是 12 个 decoder layer，等于 AttnRes 论文口径的 24 个子层。
+:::
+
+## 资料
+
+- Kimi K3 技术报告：[arXiv 2607.24653](https://arxiv.org/abs/2607.24653)
+- 权重、config 与建模代码：[huggingface.co/moonshotai/Kimi-K3](https://huggingface.co/moonshotai/Kimi-K3)
+- Kimi Linear（KDA）：[arXiv 2510.26692](https://arxiv.org/abs/2510.26692)
+- Attention Residuals：[arXiv 2603.15031](https://arxiv.org/abs/2603.15031)，代码 [MoonshotAI/Attention-Residuals](https://github.com/MoonshotAI/Attention-Residuals)
+- LatentMoE：[arXiv 2601.18089](https://arxiv.org/abs/2601.18089)
