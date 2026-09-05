@@ -1,0 +1,223 @@
+---
+/**
+ * 交互：interleaved 1F1B 流水线时间线（第 8、9 篇共用）。
+ * 滑块调 PP 段数 P、micro-batch 数 m、每 rank 虚拟段数 V；前向 1 个时间单位，反向 2 个。
+ * 三种视图：气泡（谁在等谁）、在途激活（每个 rank 同时攒着几份激活）、ViT 填气泡（§5.2.3）。
+ * 调度顺序按 Megatron 的 interleaved 1F1B 生成，再做一次事件模拟得到每个方块的起止时间。示意用，不是论文的 Fig. 11。
+ */
+import { texMix } from './tex';
+---
+
+<div class="demo pp-demo">
+  <div class="ctl">
+    <label>PP 段数 <i>P</i> = <output data-p-out>4</output><input type="range" min="2" max="8" value="4" data-p /></label>
+    <label>micro-batch 数 <i>m</i> = <output data-m-out>8</output><input type="range" min="1" max="4" value="2" data-m /></label>
+    <label>每 rank 虚拟段 <i>V</i> = <output data-v-out>1</output><input type="range" min="1" max="3" value="1" data-v /></label>
+    <fieldset class="modes">
+      <label><input type="radio" name="pp-mode" value="bubble" checked /> 谁在等谁</label>
+      <label><input type="radio" name="pp-mode" value="inflight" /> 在途激活</label>
+      <label><input type="radio" name="pp-mode" value="vit" /> ViT 填气泡</label>
+    </fieldset>
+  </div>
+  <svg viewBox="0 0 900 200" data-plot>
+    <defs>
+      <pattern id="pp-hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+        <line x1="0" y1="0" x2="0" y2="6" />
+      </pattern>
+    </defs>
+    <g data-body></g>
+  </svg>
+  <div class="readout" data-readout></div>
+  <div class="legend">
+    <span class="f">前向（1 单位）</span>
+    <span class="b">反向（2 单位）</span>
+    <span class="idle">气泡：这个 rank 在等别人</span>
+    <span class="vit">ViT 计算</span>
+  </div>
+  <p class="note" set:html={texMix('用同一个 micro-batch 的深浅表示它在流水线里的先后；$V > 1$ 时颜色的明暗区分同一 rank 上的不同虚拟段。1F1B 的气泡时间占比理论值是 $(P-1)/(mV+P-1)$，通常近似写成 $(P-1)/(mV)$；读数里给的是 rank 0 的模拟值。')} />
+</div>
+
+<style is:global>
+  .pp-demo { border: 1px solid var(--border); border-radius: var(--r); padding: 1rem 1.1rem; background: var(--surface); margin: 1.5rem 0; }
+  .pp-demo .ctl { display: flex; flex-wrap: wrap; gap: 0.8rem 1.8rem; align-items: end; font-size: 0.9rem; color: var(--text-2); }
+  .pp-demo .ctl > label { display: block; }
+  .pp-demo output { font-variant-numeric: tabular-nums; color: var(--text); font-weight: 600; }
+  .pp-demo input[type='range'] { display: block; width: 170px; margin-top: 0.3rem; accent-color: var(--accent); }
+  .pp-demo .modes { border: 0; padding: 0; margin: 0; display: flex; gap: 0.9rem; }
+  .pp-demo .modes label { white-space: nowrap; }
+  .pp-demo svg { display: block; width: 100%; height: auto; margin-top: 0.9rem; font-family: var(--font-sans); }
+  .pp-demo #pp-hatch line { stroke: var(--muted); stroke-width: 1; }
+  .pp-demo .blk { stroke: var(--bg-2); stroke-width: 0.8; }
+  .pp-demo .blk.f { fill: var(--cat-cyan); }
+  .pp-demo .blk.b { fill: var(--cat-indigo); }
+  .pp-demo .blk.vit { fill: var(--cat-rose); opacity: 0.85; }
+  .pp-demo .blk.dim { opacity: 0.25; }
+  .pp-demo .gap { fill: url(#pp-hatch); }
+  .pp-demo .lbl { fill: #fff; font-size: 9px; pointer-events: none; }
+  .pp-demo .rank { fill: var(--text-2); font-size: 11px; }
+  .pp-demo .ax { fill: var(--muted); font-size: 10px; }
+  .pp-demo .axl { stroke: var(--border-2); stroke-width: 1; }
+  .pp-demo .bar { fill: var(--cat-amber); }
+  .pp-demo .barlbl { fill: var(--text); font-size: 11px; font-weight: 600; }
+  .pp-demo .readout { margin-top: 0.6rem; font-size: 0.88rem; color: var(--text-2); display: flex; flex-wrap: wrap; gap: 0.3rem 1.6rem; }
+  .pp-demo .readout b { color: var(--text); font-variant-numeric: tabular-nums; }
+  .pp-demo .legend { display: flex; flex-wrap: wrap; gap: 0.4rem 1.3rem; margin-top: 0.5rem; font-size: 0.85rem; color: var(--text-2); }
+  .pp-demo .legend span::before { content: ''; display: inline-block; width: 14px; height: 10px; margin-right: 6px; vertical-align: -1px; border-radius: 2px; }
+  .pp-demo .legend .f::before { background: var(--cat-cyan); }
+  .pp-demo .legend .b::before { background: var(--cat-indigo); }
+  .pp-demo .legend .vit::before { background: var(--cat-rose); }
+  .pp-demo .legend .idle::before { background: repeating-linear-gradient(45deg, var(--muted) 0 1px, transparent 1px 4px); }
+  .pp-demo .note { margin: 0.5rem 0 0; font-size: 0.85rem; color: var(--muted); line-height: 1.6; }
+</style>
+
+<script>
+  interface Op { kind: 'F' | 'B'; mb: number; chunk: number; stage: number; rank: number; start: number; end: number }
+
+  /** Megatron interleaved 1F1B：生成每个 rank 的操作顺序，再按依赖做事件模拟。 */
+  function simulate(P: number, m: number, V: number, tf = 1, tb = 2) {
+    const S = P * V; // 全局 stage 数
+    const total = m * V; // 每个 rank 的前向步数
+    const fwdOf = (k: number, r: number): Op => {
+      const chunk = Math.floor(k / P) % V;
+      const mb = Math.floor(k / (P * V)) * P + (k % P);
+      return { kind: 'F', mb, chunk, stage: chunk * P + r, rank: r, start: 0, end: 0 };
+    };
+    const bwdOf = (k: number, r: number): Op => {
+      const chunk = V - 1 - (Math.floor(k / P) % V);
+      const mb = Math.floor(k / (P * V)) * P + (k % P);
+      return { kind: 'B', mb, chunk, stage: chunk * P + r, rank: r, start: 0, end: 0 };
+    };
+    const lists: Op[][] = [];
+    for (let r = 0; r < P; r++) {
+      const warm = Math.min(total, (P - r - 1) * 2 + (V - 1) * P);
+      const ops: Op[] = [];
+      for (let k = 0; k < warm; k++) ops.push(fwdOf(k, r));
+      for (let i = 0; i < total - warm; i++) { ops.push(fwdOf(warm + i, r)); ops.push(bwdOf(i, r)); }
+      for (let k = total - warm; k < total; k++) ops.push(bwdOf(k, r));
+      lists.push(ops);
+    }
+    const done = new Map<string, number>(); // "F:mb:stage" → end time
+    const key = (kind: string, mb: number, stage: number) => `${kind}:${mb}:${stage}`;
+    const ptr = new Array(P).fill(0);
+    const free = new Array(P).fill(0);
+    const all: Op[] = [];
+    let guard = 0;
+    for (;;) {
+      let progress = false;
+      for (let r = 0; r < P; r++) {
+        const op = lists[r][ptr[r]];
+        if (!op) continue;
+        let dep: number | undefined = 0;
+        if (op.kind === 'F') dep = op.stage === 0 ? 0 : done.get(key('F', op.mb, op.stage - 1));
+        else dep = op.stage === S - 1 ? done.get(key('F', op.mb, op.stage)) : done.get(key('B', op.mb, op.stage + 1));
+        if (dep === undefined) continue;
+        op.start = Math.max(free[r], dep);
+        op.end = op.start + (op.kind === 'F' ? tf : tb);
+        free[r] = op.end;
+        done.set(key(op.kind, op.mb, op.stage), op.end);
+        all.push(op);
+        ptr[r]++;
+        progress = true;
+      }
+      if (ptr.every((p, r) => p >= lists[r].length)) break;
+      if (!progress || ++guard > 100000) break;
+    }
+    return { ops: all, T: Math.max(...free), lists };
+  }
+
+  document.querySelectorAll<HTMLElement>('.pp-demo').forEach((root) => {
+    const q = <T extends Element>(s: string) => root.querySelector<T>(s)!;
+    const pIn = q<HTMLInputElement>('[data-p]'), mIn = q<HTMLInputElement>('[data-m]'), vIn = q<HTMLInputElement>('[data-v]');
+    const pOut = q<HTMLOutputElement>('[data-p-out]'), mOut = q<HTMLOutputElement>('[data-m-out]'), vOut = q<HTMLOutputElement>('[data-v-out]');
+    const svg = q<SVGSVGElement>('[data-plot]'), body = q<SVGGElement>('[data-body]'), readout = q<HTMLElement>('[data-readout]');
+    const mode = () => (root.querySelector<HTMLInputElement>('input[name="pp-mode"]:checked')?.value ?? 'bubble');
+
+    const render = () => {
+      const P = Number(pIn.value), V = Number(vIn.value);
+      const m = P * Number(mIn.value); // interleaved 要求 m 是 P 的倍数
+      pOut.textContent = String(P); mOut.textContent = String(m); vOut.textContent = String(V);
+      const md = mode();
+      const vit = md === 'vit';
+      const sim = simulate(P, m, V);
+      const lead = vit ? 1 : 0; // ViT 模式：前几个 micro-batch 的 ViT 前向同步先做，整体后移 1 单位
+      const T = sim.T + lead + (vit ? 1 : 0);
+
+      const L = 60, R = md === 'inflight' ? 120 : 16, top = 22, rowH = 26, gapH = 6;
+      const W = 900, H = top + P * (rowH + gapH) + 44;
+      const unit = (W - L - R) / T;
+      const x = (t: number) => L + t * unit;
+      const y = (r: number) => top + r * (rowH + gapH);
+      svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+
+      let s = '';
+      // 时间轴
+      const step = T > 60 ? 10 : T > 30 ? 5 : T > 12 ? 2 : 1;
+      for (let t = 0; t <= T; t += step) s += `<line class="axl" x1="${x(t)}" x2="${x(t)}" y1="${top - 4}" y2="${y(P) - gapH + 4}"/><text class="ax" x="${x(t)}" y="${H - 26}" text-anchor="middle">${t}</text>`;
+      s += `<text class="ax" x="${L}" y="${H - 8}">时间，单位是一次前向的时长；反向记 2 个单位</text>`;
+
+      // 每个 rank：气泡与方块
+      const byRank: Op[][] = Array.from({ length: P }, () => []);
+      sim.ops.forEach((o) => byRank[o.rank].push(o));
+      const peak: number[] = [];
+      for (let r = 0; r < P; r++) {
+        const ops = byRank[r].sort((a, b) => a.start - b.start);
+        s += `<text class="rank" x="${L - 8}" y="${y(r) + rowH / 2 + 4}" text-anchor="end">rank ${r}</text>`;
+        // 空隙
+        let t = 0;
+        const gaps: [number, number][] = [];
+        ops.forEach((o) => { if (o.start + lead > t) gaps.push([t, o.start + lead]); t = o.end + lead; });
+        if (t < T) gaps.push([t, T]);
+        gaps.forEach(([a, b]) => { s += `<rect class="gap" x="${x(a)}" y="${y(r)}" width="${x(b) - x(a)}" height="${rowH}"/>`; });
+        // ViT 模式：同步的头一块 + 塞进空隙里的块
+        if (vit) {
+          s += `<rect class="blk vit" x="${x(0)}" y="${y(r)}" width="${x(1) - x(0) - 1}" height="${rowH}"/>`;
+          if (unit > 26) s += `<text class="lbl" x="${x(0.5)}" y="${y(r) + rowH / 2 + 3}" text-anchor="middle">ViT F</text>`;
+          gaps.forEach(([a, b]) => {
+            if (a === 0 && b <= 1) return;
+            const a2 = Math.max(a, 1);
+            const isTail = b >= T;
+            for (let u = a2; u + 1 <= b + 1e-9; u += 1) {
+              s += `<rect class="blk vit" x="${x(u) + 1}" y="${y(r) + 4}" width="${unit - 2}" height="${rowH - 8}" rx="2"/>`;
+              if (unit > 26) s += `<text class="lbl" x="${x(u + 0.5)}" y="${y(r) + rowH / 2 + 3}" text-anchor="middle">ViT ${isTail ? 'B' : 'F'}</text>`;
+            }
+          });
+        }
+        // 在途激活：每个时刻 rank 上「前向做完、反向没做」的份数
+        let inflight = 0, pk = 0;
+        const events = ops.map((o) => ({ t: o.end, d: o.kind === 'F' ? 1 : -1 })).sort((a, b) => a.t - b.t);
+        events.forEach((e) => { inflight += e.d; pk = Math.max(pk, inflight); });
+        peak.push(pk);
+        // 方块
+        ops.forEach((o) => {
+          const shade = 1 - (o.mb / Math.max(1, m - 1)) * 0.55 - (V > 1 ? o.chunk * 0.12 : 0);
+          const dim = md === 'inflight' && o.kind === 'B';
+          s += `<rect class="blk ${o.kind === 'F' ? 'f' : 'b'}${dim ? ' dim' : ''}" x="${x(o.start + lead)}" y="${y(r)}" width="${x(o.end + lead) - x(o.start + lead) - 1}" height="${rowH}" style="opacity:${dim ? 0.25 : shade.toFixed(2)}"/>`;
+          const w = (o.end - o.start) * unit;
+          if (w > 18) s += `<text class="lbl" x="${x(o.start + lead) + w / 2}" y="${y(r) + rowH / 2 + 3}" text-anchor="middle">${o.mb}${V > 1 ? '·' + o.chunk : ''}</text>`;
+        });
+      }
+      if (md === 'inflight') {
+        const mx = Math.max(...peak);
+        for (let r = 0; r < P; r++) {
+          const bw = (peak[r] / mx) * (R - 50);
+          s += `<rect class="bar" x="${W - R + 8}" y="${y(r) + 5}" width="${bw}" height="${rowH - 10}" rx="2"/><text class="barlbl" x="${W - R + 12 + bw}" y="${y(r) + rowH / 2 + 4}">${peak[r]} 份</text>`;
+        }
+        s += `<text class="ax" x="${W - R + 8}" y="${top - 8}">峰值在途激活</text>`;
+      }
+      body.innerHTML = s;
+
+      const idle0 = T - lead - byRank[0].reduce((a, o) => a + (o.end - o.start), 0);
+      const ideal = (m * V * 3) / 1; // rank 0 忙碌时间 = m·V 次前向 + m·V 次反向
+      const parts = [
+        `总时长 <b>${T}</b> 单位（理想无气泡 <b>${ideal}</b>）`,
+        `rank 0 气泡占比 模拟 <b>${(idle0 / (T - lead) * 100).toFixed(0)}%</b>，理论 <b>(P−1)/(mV+P−1) = ${(((P - 1) / (m * V + P - 1)) * 100).toFixed(0)}%</b>`,
+      ];
+      if (md === 'inflight') parts.push(`峰值在途激活：rank 0 <b>${peak[0]}</b> 份，rank ${P - 1} <b>${peak[P - 1]}</b> 份${V === 1 ? '（V = 1 时 rank r 的峰值 = P − r）' : ''}`);
+      if (vit) parts.push(`红色是 ViT 的前向 / 反向：头一块同步做，其余塞进各 rank 的空隙（示意）`);
+      readout.innerHTML = parts.join('<span></span>');
+    };
+    [pIn, mIn, vIn].forEach((el) => el.addEventListener('input', render));
+    root.querySelectorAll('input[name="pp-mode"]').forEach((el) => el.addEventListener('change', render));
+    render();
+  });
+</script>

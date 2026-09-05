@@ -19,7 +19,7 @@ import K3ArchDiagram from '../../components/k3/K3ArchDiagram.astro';
 import PrefixCache from '../../components/k3/PrefixCache.astro';
 import KcpFlow from '../../components/k3/KcpFlow.astro';
 
-对应论文 §5.1、§5.2.2 的一部分、§5.2.3 和 §5.4。这一篇不讲新的结构，讲结构的后果：一个模块换掉之后，训练和推理系统里哪些东西跟着变。只挑和结构直接相关的部分，MoonEP、RL 基础设施、fleet 调度不在范围内。
+对应论文 §5.1、§5.2.2 的一部分、§5.2.3 和 §5.4。这一篇不讲新的结构，讲结构的后果：一个模块换掉之后，训练和推理系统里哪些东西跟着变。只挑和结构直接相关的部分，MoonEP、显存、RL 基础设施和集群调度放在第 8 到 10 篇。
 
 <K3ArchDiagram highlight={['kda', 'attnres', 'moe']} caption="这一篇覆盖三个新模块各自逼出来的系统工作。" />
 
@@ -91,7 +91,7 @@ rank 级的更新 $S \leftarrow M_{[j]} S + \widetilde S_{[j]}$ 是可结合的�
 
 **routed expert 的解码内核。** 小 batch 时 group GEMM 退化成对权重矩阵的访存受限流式读取，以 tile 为中心的常规内核为计算密集设计、预处理开销大，不适合。K3 的 MoE 解码内核建立在 WarpDecode 的 **token 中心**设计上：每个 warp 负责一个输出神经元，直接从内存流式读取对应的权重。再把每个 warp 细分成 lane team，各自处理一个不相交的 expert 子集，最后 warp 内归约。权重布局离线一次性重排，大幅减少运行时 MXFP4 反量化的开销。
 
-**训练侧一句话。** §5.2.1 的 MoonEP 做「完美平衡」的 expert 并行训练：从当前 micro-batch 的 router 输出规划冗余 expert 并预取，融合的 permute/unpermute 算子让 token 直接落到远端 rank 的 expert 分组位置，routed expert 的 GEMM 用感知负载的调度器，shared expert 的 GEMM 放到单独的流上重叠。这和 QB 是一对：QB 让负载在统计上平衡，MoonEP 让每一步的执行形状固定。细节超出本连载范围。
+**训练侧一句话。** §5.2.1 的 MoonEP 做「完美平衡」的 expert 并行训练：从当前 micro-batch 的 router 输出规划冗余 expert 并预取，融合的 permute/unpermute 算子让 token 直接落到远端 rank 的 expert 分组位置，routed expert 的 GEMM 用感知负载的调度器，shared expert 的 GEMM 放到单独的流上重叠。这和 QB 是一对：QB 让负载在统计上平衡，MoonEP 让每一步的执行形状固定。它的冗余 expert 上界定理和整条执行路径在[第 8 篇](/2026/09/05/kimi-k3-08-parallel-moonep/)里展开。
 
 ## 混合架构的前缀缓存
 
@@ -112,6 +112,8 @@ rank 级的更新 $S \leftarrow M_{[j]} S + \widetilde S_{[j]}$ 是可结合的�
 
 ## 视觉编码器的两件事
 
+这两件事在[第 8 篇](/2026/09/05/kimi-k3-08-parallel-moonep/)的流水线时间线上有图，这里只记结论。
+
 - **动态上下文并行。** 长上下文多模态训练里，大图和长视频让编码器计算时间大增、设备间负载失衡。大图沿 patch 维切到多个设备，注意力通过跨 CP rank 收集 KV（gather-KV）来算；每个 CP 组再分成若干子组，多张大图负载均衡地分配过去，避免通信占比随规模增长。
 - **把 ViT 算进流水线气泡。** K2.5 引入的 Decoupled Encoder Process 把 ViT 和文本训练分成独立阶段。K3 进一步观察到，交错 1F1B 下前几个 micro-batch 的文本前向全排在最开头，最后几个 micro-batch 的文本反向全排在最末尾。于是前几个 micro-batch 的 ViT 前向同步地提前做，其余塞进流水线气泡，反向类似。大部分 ViT 计算被藏进气泡，视觉编码器的有效开销基本消失。
 
@@ -119,4 +121,4 @@ rank 级的更新 $S \leftarrow M_{[j]} S + \widetilde S_{[j]}$ 是可结合的�
 
 七篇下来，K3 的每个矩阵形状都应该能默写了。回头看，这个模型的结构改动可以用一句话概括：**在三个维度上，把「固定权重的累加」换成「数据相关的选择」**。序列上，KDA 用 delta rule 和逐通道衰减选择记什么忘什么，MLA 每四层做一次无损的全局选择；深度上，AttnRes 用 softmax 在块之间选择读哪一层；宽度上，LatentMoE 在 896 个 expert 里选 16 个，并且为了让选择本身可训练，加了三样稳定化的东西。系统那边的每一项工作，都是在为这些选择付账。
 
-本连载没有覆盖的部分：数据与预训练配方（§3）、post-training 的 SFT、RL、多教师蒸馏（§4）、MoonEP 的细节、RL 与沙箱基础设施（§5.3）、评测（§6）。其中并行和训练系统的部分会在「大模型笔记」专栏后面的章节里接着写。
+结构部分到此为止。§5 剩下的并行、显存和状态管理，在系统篇的三篇里接着讲：[第 8 篇](/2026/09/05/kimi-k3-08-parallel-moonep/)训练并行与 MoonEP、[第 9 篇](/2026/09/05/kimi-k3-09-memory/)显存账本、[第 10 篇](/2026/09/05/kimi-k3-10-rl-serving/)RL 与服务。本连载不覆盖数据与预训练配方（§3）、post-training（§4）和评测（§6）。

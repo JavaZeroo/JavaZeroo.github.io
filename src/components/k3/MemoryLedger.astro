@@ -1,0 +1,128 @@
+---
+/**
+ * 交互：K3 训练时每张卡的显存账本（第 9 篇）。
+ * 所有形状来自 config.json；并行度（P、V、R、N）和 micro-batch 长度 S 是滑块，论文没给真实值。
+ * 「朴素」列是所有优化关掉的估算，「K3」列按右侧开关计算。激活的每层保存量是按张量形状粗算的，只保证数量级。
+ */
+import { texMix } from './tex';
+---
+
+<div class="demo ledger">
+  <div class="ctl">
+    <label>PP 段数 <i>P</i> = <output data-o="P">8</output><input type="range" min="1" max="16" value="8" data-i="P" /></label>
+    <label>虚拟段 <i>V</i> = <output data-o="V">4</output><input type="range" min="1" max="6" value="4" data-i="V" /></label>
+    <label>EP 大小 <i>R</i> = <output data-o="R">32</output><input type="range" min="0" max="4" value="2" data-i="R" /></label>
+    <label>权重副本数 <i>N</i>（DP） = <output data-o="N">8</output><input type="range" min="1" max="64" value="8" data-i="N" /></label>
+    <label>micro-batch token 数 <i>S</i> = <output data-o="S">8192</output><input type="range" min="0" max="3" value="1" data-i="S" /></label>
+  </div>
+  <div class="toggles">
+    <label><input type="checkbox" data-t="fp8" checked /> 激活 block-wise FP8</label>
+    <label><input type="checkbox" data-t="offload" checked /> 激活 offload / 远程 offload</label>
+    <label><input type="checkbox" data-t="moe" checked /> MoE 反向改写 + 重算 dispatch</label>
+    <label><input type="checkbox" data-t="balance" checked /> 跨 PP rank 均衡激活</label>
+    <label><input type="checkbox" data-t="zero2" checked /> Pipeline ZeRO-2 + 梯度分片放 CPU</label>
+    <label><input type="checkbox" data-t="p2p" checked /> P2P Muon（不建完整参数缓冲）</label>
+    <label><input type="checkbox" data-t="moonep" checked /> MoonEP 固定 all-to-all 缓冲</label>
+  </div>
+  <div class="tbl-wrap">
+    <table data-table>
+      <thead><tr><th>每张卡上住着什么</th><th>怎么算</th><th class="num">朴素</th><th class="num">K3</th><th>付的货币</th></tr></thead>
+      <tbody></tbody>
+      <tfoot><tr><th>合计</th><th></th><th class="num" data-sum-a></th><th class="num" data-sum-b></th><th></th></tr></tfoot>
+    </table>
+  </div>
+  <p class="note" set:html={texMix('形状来自 config.json：$d = 7168$，93 层，69 层 KDA、24 层 MLA、92 层 MoE，896 个 expert 各 $3\\times 3584\\times 3072$。激活按「反向要用的张量」逐层粗算：KDA 层约 70k 个值 / token，MLA 层约 75k，MoE 层约 245k（其中 16 个 expert 的分发副本和输出各 57k）。优化器按 Muon 记 FP32 主权重 + FP32 动量，梯度按 FP32。$N$ 是同一份权重的副本数，ZeRO 按它分片。数量级可信，个位数不可信。')} />
+</div>
+
+<style is:global>
+  .ledger { border: 1px solid var(--border); border-radius: var(--r); padding: 1rem 1.1rem; background: var(--surface); margin: 1.5rem 0; }
+  .ledger .ctl { display: flex; flex-wrap: wrap; gap: 0.6rem 1.6rem; font-size: 0.88rem; color: var(--text-2); }
+  .ledger .ctl label { display: block; }
+  .ledger output { font-variant-numeric: tabular-nums; color: var(--text); font-weight: 600; }
+  .ledger input[type='range'] { display: block; width: 150px; margin-top: 0.25rem; accent-color: var(--accent); }
+  .ledger .toggles { display: flex; flex-wrap: wrap; gap: 0.3rem 1.2rem; margin-top: 0.8rem; font-size: 0.86rem; color: var(--text-2); }
+  .ledger .tbl-wrap { overflow-x: auto; margin-top: 0.8rem; }
+  .ledger table { width: 100%; min-width: 640px; border-collapse: collapse; font-size: 0.85rem; }
+  .ledger th, .ledger td { padding: 0.35rem 0.5rem; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
+  .ledger th.num, .ledger td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .ledger td.how { color: var(--muted); font-size: 0.8rem; }
+  .ledger td.pay { color: var(--text-2); font-size: 0.8rem; }
+  .ledger tfoot th { border-top: 2px solid var(--border-2); border-bottom: 0; }
+  .ledger td.gone { color: var(--cat-emerald); font-weight: 600; }
+  .ledger td.grew { color: var(--cat-rose); font-weight: 600; }
+  .ledger .note { margin: 0.6rem 0 0; font-size: 0.83rem; color: var(--muted); line-height: 1.6; }
+</style>
+
+<script>
+  const GB = 1024 ** 3;
+  const d = 7168, L = 93, nKda = 69, nMla = 24, nMoe = 92, E = 896, K = 16;
+  const expertParams = 3 * 3584 * 3072; // 一个 routed expert
+  const kdaParams = 3 * d * 12288 + 3 * 12288 * 4 + d * 128 + 128 * 12288 + d * 96 + 2 * d * 12288;
+  const mlaParams = d * 1536 + 1536 * 96 * 192 + d * 576 + 512 * 96 * 256 + 2 * d * 12288;
+  const moeNonExpert = 2 * d * 3584 + d * E + 3 * d * 6144; // W↓、W↑、router、两个 shared expert
+  const dense0 = 3 * d * 33792;
+  const embed = 163840 * d * 2; // embedding + lm head
+  const nonExpertTotal = embed + nKda * kdaParams + nMla * mlaParams + nMoe * moeNonExpert + dense0;
+  const expertTotal = nMoe * E * expertParams;
+  // 每 token 每层反向要保存的值的个数（粗算）
+  const actKda = 70e3, actMla = 75e3, actMoe = 245e3, actMoeSaved = 2 * K * 3584, actDense = 108e3;
+  const actPerTokenAll = (moeOpt: boolean) => nKda * actKda + nMla * actMla + nMoe * (actMoe - (moeOpt ? actMoeSaved : 0)) + actDense;
+  const attnResPerToken = 9 * d; // 块代表
+
+  const R_OPTS = [8, 16, 32, 56, 112], S_OPTS = [4096, 8192, 16384, 65536];
+  const fmt = (b: number) => (b >= 100 * GB ? (b / GB).toFixed(0) : b >= 10 * GB ? (b / GB).toFixed(1) : (b / GB).toFixed(2)) + ' GB';
+
+  document.querySelectorAll<HTMLElement>('.ledger').forEach((root) => {
+    const inp = (k: string) => root.querySelector<HTMLInputElement>(`[data-i="${k}"]`)!;
+    const out = (k: string) => root.querySelector<HTMLOutputElement>(`[data-o="${k}"]`)!;
+    const tog = (k: string) => root.querySelector<HTMLInputElement>(`[data-t="${k}"]`)!.checked;
+    const tbody = root.querySelector('tbody')!;
+    const sumA = root.querySelector<HTMLElement>('[data-sum-a]')!, sumB = root.querySelector<HTMLElement>('[data-sum-b]')!;
+
+    const render = () => {
+      const P = +inp('P').value, V = +inp('V').value, R = R_OPTS[+inp('R').value], N = +inp('N').value, S = S_OPTS[+inp('S').value];
+      out('P').textContent = String(P); out('V').textContent = String(V); out('R').textContent = String(R); out('N').textContent = String(N); out('S').textContent = String(S);
+      const o = { fp8: tog('fp8'), offload: tog('offload'), moe: tog('moe'), balance: tog('balance'), zero2: tog('zero2'), p2p: tog('p2p'), moonep: tog('moonep') };
+      const perGpuNonExpert = nonExpertTotal / P, perGpuExpert = expertTotal / (P * R), perGpuParams = perGpuNonExpert + perGpuExpert;
+      const localExperts = E / R;
+      // 在途 micro-batch 份数（以「一个 rank 的全部层」为 1 份）
+      const peakChunks = (r: number) => (V === 1 ? P - r : 2 * (P - r - 1) + (V - 1) * P + 1);
+      const inflight0 = peakChunks(0) / V;
+      const inflightAvg = Array.from({ length: P }, (_, r) => peakChunks(r)).reduce((a, b) => a + b, 0) / P / V;
+      const layersPerGpu = L / P;
+
+      type Row = { name: string; how: string; a: number; b: number; pay: string };
+      const rows: Row[] = [];
+      rows.push({ name: '权重（BF16）：非 expert', how: `${(nonExpertTotal / 1e9).toFixed(1)}B 参数 / P × 2 B`, a: perGpuNonExpert * 2, b: perGpuNonExpert * 2, pay: '' });
+      rows.push({ name: '权重（BF16）：routed expert', how: `${(expertTotal / 1e12).toFixed(2)}T / (P × R) × 2 B`, a: perGpuExpert * 2, b: perGpuExpert * 2, pay: '' });
+      rows.push({ name: 'MoonEP 冗余 expert 槽位', how: `E/R = ${localExperts} 个 × ${(expertParams / 1e6).toFixed(0)}M × 2 B × (92/P 层)`, a: 0, b: localExperts * expertParams * 2 * (nMoe / P), pay: '显存换「规划永远有解」（第 8 篇）' });
+      rows.push({ name: '优化器：FP32 主权重 + Muon 动量', how: '每卡参数 × 8 B / N（ZeRO-1）', a: (perGpuParams * 8) / N, b: (perGpuParams * 8) / N, pay: '' });
+      const gradNaive = perGpuParams * 4;
+      const gradZ2 = 2 * (perGpuParams / V) * 4; // 两个 VPP chunk 的 double grad buffer
+      rows.push({ name: '梯度（FP32）', how: o.zero2 ? `V = ${V} 个 chunk 里只留 2 个的 double buffer；分片 /N 放 CPU` : '每卡参数 × 4 B', a: gradNaive, b: o.zero2 ? gradZ2 : gradNaive, pay: 'PCIe 带宽（reduce 完累加到 CPU 分片）' });
+      rows.push({ name: 'Muon 完整参数缓冲', how: 'Newton–Schulz 要整矩阵；朴素 all-gather 要一份完整参数', a: perGpuParams * 2, b: o.p2p ? 0 : perGpuParams * 2, pay: 'P2P 只拉自己负责的矩阵' });
+      const perTok = actPerTokenAll(o.moe) / P; // 本卡所有层的每 token 值数
+      const bytesPer = o.fp8 ? 1 : 2;
+      const actNaive = S * (actPerTokenAll(false) / P) * 2 * inflight0;
+      const inflightUsed = o.balance ? inflightAvg : inflight0;
+      const actK3 = o.offload ? S * (perTok / layersPerGpu) * 2 * bytesPer : S * perTok * bytesPer * inflightUsed;
+      rows.push({
+        name: '激活（反向要保存的张量）',
+        how: o.offload ? '只驻留当前层和预取的下一层；其余在 CPU / 别的 rank' : `S × 每 token 值数 × ${bytesPer} B × 在途 ${inflightUsed.toFixed(1)} 份`,
+        a: actNaive, b: actK3, pay: [o.fp8 && '精度', o.offload && 'PCIe / 网络带宽', o.moe && '一次逐元素乘加 + 重算 dispatch', o.balance && 'Mooncake 远程传输'].filter(Boolean).join('，'),
+      });
+      rows.push({ name: 'AttnRes 块代表', how: '9 个来源 × d × S × 2 B × 在途份数（每份只在边界层生成一次）', a: S * attnResPerToken * 2 * inflight0, b: S * attnResPerToken * 2 * (o.balance ? inflightAvg : inflight0), pay: '' });
+      const a2a = S * K * 3584 * 2;
+      rows.push({ name: 'all-to-all 通信缓冲', how: o.moonep ? 'S × K × 3584 × 2 B（固定）' : '最坏情况 S × K × R × 3584 × 2 B', a: a2a * R, b: o.moonep ? a2a : a2a * R, pay: '' });
+
+      tbody.innerHTML = rows.map((r) => {
+        const cls = r.b === 0 && r.a > 0 ? 'gone' : r.b > r.a ? 'grew' : '';
+        return `<tr><td>${r.name}</td><td class="how">${r.how}</td><td class="num">${fmt(r.a)}</td><td class="num ${cls}">${r.b === 0 ? '0' : fmt(r.b)}</td><td class="pay">${r.pay}</td></tr>`;
+      }).join('');
+      sumA.textContent = fmt(rows.reduce((s, r) => s + r.a, 0));
+      sumB.textContent = fmt(rows.reduce((s, r) => s + r.b, 0));
+    };
+    root.querySelectorAll('input').forEach((el) => el.addEventListener('input', render));
+    render();
+  });
+</script>

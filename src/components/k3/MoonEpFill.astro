@@ -1,0 +1,151 @@
+---
+/**
+ * 交互：MoonEP 定理 1 的「填充」构造（附录 E）。
+ * R = 4 个 EP rank，E = 8 个 expert（每 rank 本地 2 个），每 rank 本地 S·K = 6 份 token。
+ * router 把 24 份 token 分给 8 个 expert；欠载 rank 从一个过载 rank 一次补满到 6，搬来的 token 属于哪个 expert，
+ * 那个 expert 就成为本 rank 的冗余 expert。演示冗余数从不超过 E/R = 2，以及定理 2 的最坏例子。
+ */
+import { texMix } from './tex';
+---
+
+<div class="demo ep-demo">
+  <div class="ctl">
+    <button type="button" data-rand>随机 router 输出</button>
+    <button type="button" data-worst>最坏情况（定理 2）</button>
+    <button type="button" data-step>下一步</button>
+    <button type="button" data-all>一次做完</button>
+  </div>
+  <svg viewBox="0 0 700 320" data-plot>
+    <defs>
+      <pattern id="ep-hatch" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+        <line x1="0" y1="0" x2="0" y2="5" />
+      </pattern>
+    </defs>
+    <g data-body></g>
+  </svg>
+  <div class="log" data-log></div>
+  <p class="note" set:html={texMix('每根柱子是一个 rank 上要算的 token 份数，颜色是 token 属于哪个 expert；实心是本地 expert，斜线是从别的 rank 搬来的、需要在本 rank 放一份冗余副本的 expert。虚线是平衡值 $S\\times K = 6$。上限 $E/R = 2$。')} />
+</div>
+
+<style is:global>
+  .ep-demo { border: 1px solid var(--border); border-radius: var(--r); padding: 1rem 1.1rem; background: var(--surface); margin: 1.5rem 0; }
+  .ep-demo .ctl { display: flex; flex-wrap: wrap; gap: 0.5rem 0.7rem; }
+  .ep-demo button { font: inherit; font-size: 0.85rem; padding: 0.3rem 0.8rem; border: 1px solid var(--border-2); border-radius: 6px; background: var(--bg-2); color: var(--text); cursor: pointer; }
+  .ep-demo button:hover { border-color: var(--accent); }
+  .ep-demo button:disabled { opacity: 0.45; cursor: default; }
+  .ep-demo svg { display: block; width: 100%; height: auto; margin-top: 0.8rem; font-family: var(--font-sans); }
+  .ep-demo #ep-hatch line { stroke: rgba(255,255,255,0.85); stroke-width: 1.4; }
+  .ep-demo .seg { stroke: var(--bg-2); stroke-width: 1; }
+  .ep-demo .seg.moved { stroke: var(--text); stroke-width: 1.2; }
+  .ep-demo .target { stroke: var(--cat-rose); stroke-width: 1.3; stroke-dasharray: 5 4; }
+  .ep-demo .rank { fill: var(--text); font-size: 12px; font-weight: 600; }
+  .ep-demo .sub { fill: var(--text-2); font-size: 11px; }
+  .ep-demo .sub.bad { fill: var(--cat-rose); font-weight: 600; }
+  .ep-demo .sub.ok { fill: var(--cat-emerald); font-weight: 600; }
+  .ep-demo .ax { fill: var(--muted); font-size: 10px; }
+  .ep-demo .exl { fill: #fff; font-size: 9.5px; pointer-events: none; }
+  .ep-demo .arrow { fill: none; stroke: var(--text-2); stroke-width: 1.4; marker-end: url(#ep-arr); }
+  .ep-demo .log { margin-top: 0.6rem; font-size: 0.86rem; color: var(--text-2); line-height: 1.6; min-height: 3.2em; }
+  .ep-demo .log b { color: var(--text); }
+  .ep-demo .note { margin: 0.4rem 0 0; font-size: 0.85rem; color: var(--muted); line-height: 1.6; }
+</style>
+
+<script>
+  const R = 4, E = 8, SK = 6, EPR = E / R;
+  const COLORS = ['hsl(200 70% 45%)', 'hsl(215 65% 60%)', 'hsl(275 55% 55%)', 'hsl(290 50% 65%)', 'hsl(150 55% 40%)', 'hsl(160 50% 55%)', 'hsl(28 80% 50%)', 'hsl(40 85% 55%)'];
+  const home = (e: number) => Math.floor(e / EPR);
+
+  interface Seg { e: number; n: number; from: number } // from = 搬来的源 rank；本地为 -1
+  interface State { ranks: Seg[][]; filled: boolean[]; log: string[]; done: boolean }
+
+  const fromLoads = (load: number[]): State => ({
+    ranks: Array.from({ length: R }, (_, r) => Array.from({ length: EPR }, (_, i) => ({ e: r * EPR + i, n: load[r * EPR + i], from: -1 })).filter((s) => s.n > 0)),
+    filled: new Array(R).fill(false),
+    log: [],
+    done: false,
+  });
+  const total = (segs: Seg[]) => segs.reduce((a, s) => a + s.n, 0);
+  const redundant = (segs: Seg[]) => new Set(segs.filter((s) => s.from >= 0).map((s) => s.e)).size;
+
+  function randomLoads(): number[] {
+    // 偏斜的随机分配：每份 token 按随机权重落到某个 expert，总数 R·SK = 24
+    const w = Array.from({ length: E }, () => Math.pow(Math.random(), 2.2) + 0.05);
+    const load = new Array(E).fill(0);
+    for (let t = 0; t < R * SK; t++) {
+      let x = Math.random() * w.reduce((a, b) => a + b, 0);
+      for (let e = 0; e < E; e++) { x -= w[e]; if (x <= 0) { load[e]++; break; } }
+    }
+    return load;
+  }
+  const worstLoads = (): number[] => { const load = new Array(E).fill(0); const per = (R * SK) / (E - EPR); for (let e = EPR; e < E; e++) load[e] = per; return load; };
+
+  /** 定理 1 的一步：挑一个欠载 rank，从一个过载 rank 一次补满。 */
+  function step(st: State): boolean {
+    const loads = st.ranks.map(total);
+    const under = loads.findIndex((l, r) => l < SK && !st.filled[r]);
+    if (under < 0) { st.done = true; return false; }
+    let over = -1;
+    loads.forEach((l, r) => { if (l > SK && (over < 0 || l > loads[over])) over = r; });
+    if (over < 0) { st.done = true; return false; }
+    let need = SK - loads[under];
+    const moved: string[] = [];
+    // 按 expert 整体优先：先搬 token 最多的 expert，减少涉及的 expert 数
+    const src = st.ranks[over].filter((s) => s.from < 0).sort((a, b) => b.n - a.n);
+    for (const s of src) {
+      if (need <= 0) break;
+      const k = Math.min(s.n, need);
+      s.n -= k; need -= k;
+      st.ranks[under].push({ e: s.e, n: k, from: over });
+      moved.push(`E${s.e} 的 ${k} 份`);
+    }
+    st.ranks[over] = st.ranks[over].filter((s) => s.n > 0);
+    st.filled[under] = true;
+    const after = total(st.ranks[over]);
+    st.log.push(`rank ${under} 欠 ${SK - loads[under]} 份，从 rank ${over}（${loads[over]} 份）搬来 ${moved.join('、')} → rank ${under} 补到 ${SK}，冗余 expert <b>${redundant(st.ranks[under])}</b> 个；rank ${over} 变成 ${after} 份${after < SK ? '（欠载，之后再补）' : after === SK ? '（正好平衡）' : '（仍过载）'}`);
+    return true;
+  }
+
+  document.querySelectorAll<HTMLElement>('.ep-demo').forEach((root) => {
+    const body = root.querySelector<SVGGElement>('[data-body]')!;
+    const logEl = root.querySelector<HTMLElement>('[data-log]')!;
+    const btnStep = root.querySelector<HTMLButtonElement>('[data-step]')!;
+    const btnAll = root.querySelector<HTMLButtonElement>('[data-all]')!;
+    let st = fromLoads(randomLoads());
+
+    const render = () => {
+      const colW = 150, x0 = 70, base = 270, unit = 9;
+      let s = `<defs><marker id="ep-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="var(--text-2)"/></marker></defs>`;
+      for (let t = 0; t <= 24; t += 6) s += `<line class="target" style="stroke:var(--border-2);stroke-dasharray:none" x1="${x0 - 20}" x2="${x0 + R * colW - 40}" y1="${base - t * unit}" y2="${base - t * unit}"/><text class="ax" x="${x0 - 26}" y="${base - t * unit + 4}" text-anchor="end">${t}</text>`;
+      s += `<line class="target" x1="${x0 - 20}" x2="${x0 + R * colW - 40}" y1="${base - SK * unit}" y2="${base - SK * unit}"/>`;
+      s += `<text class="ax" x="${x0 + R * colW - 34}" y="${base - SK * unit + 4}">S × K = ${SK}</text>`;
+      st.ranks.forEach((segs, r) => {
+        const cx = x0 + r * colW + 30;
+        let y = base;
+        const ordered = [...segs.filter((g) => g.from < 0), ...segs.filter((g) => g.from >= 0)];
+        ordered.forEach((g) => {
+          const h = g.n * unit;
+          y -= h;
+          s += `<rect class="seg${g.from >= 0 ? ' moved' : ''}" x="${cx}" y="${y}" width="56" height="${h}" fill="${COLORS[g.e]}"/>`;
+          if (g.from >= 0) s += `<rect x="${cx}" y="${y}" width="56" height="${h}" fill="url(#ep-hatch)" pointer-events="none"/>`;
+          if (h >= 12) s += `<text class="exl" x="${cx + 28}" y="${y + h / 2 + 3.5}" text-anchor="middle">E${g.e}${g.from >= 0 ? '←r' + g.from : ''} ×${g.n}</text>`;
+        });
+        const tot = total(segs), red = redundant(segs);
+        s += `<text class="rank" x="${cx + 28}" y="${base + 18}" text-anchor="middle">rank ${r}</text>`;
+        s += `<text class="sub" x="${cx + 28}" y="${base + 33}" text-anchor="middle">本地 E${r * EPR}、E${r * EPR + 1}</text>`;
+        const cls = tot === SK ? 'ok' : 'bad';
+        s += `<text class="sub ${cls}" x="${cx + 28}" y="${base - tot * unit - 6}" text-anchor="middle">${tot} 份</text>`;
+        s += `<text class="sub${red > EPR ? ' bad' : ''}" x="${cx + 28}" y="${base + 48}" text-anchor="middle">冗余 ${red} / ${EPR}</text>`;
+      });
+      body.innerHTML = s;
+      logEl.innerHTML = st.log.length ? st.log.map((l, i) => `<div>${i + 1}. ${l}</div>`).join('') : '点「下一步」执行一次填充。';
+      if (st.done) logEl.innerHTML += `<div><b>完成：</b>每个 rank 都是 ${SK} 份，最多冗余 ${Math.max(...st.ranks.map(redundant))} 个 expert ≤ E/R = ${EPR}。</div>`;
+      btnStep.disabled = st.done; btnAll.disabled = st.done;
+    };
+    const check = () => { if (!st.ranks.some((g) => total(g) !== SK)) { st.done = true; if (!st.log.length) st.log.push('router 输出已经平衡，不需要冗余 expert。'); } };
+    root.querySelector('[data-rand]')!.addEventListener('click', () => { st = fromLoads(randomLoads()); check(); render(); });
+    root.querySelector('[data-worst]')!.addEventListener('click', () => { st = fromLoads(worstLoads()); st.log.push(`最坏情况：rank 0 的两个 expert 一份 token 都没收到，另外 ${E - EPR} 个 expert 平分 ${R * SK} 份。rank 0 要收 ${SK} 份远端 token，每个 expert 只有 ${(R * SK) / (E - EPR)} 份，至少涉及 ⌈E(R−1)/R²⌉ = ${Math.ceil((E * (R - 1)) / (R * R))} 个 expert。`); render(); });
+    btnStep.addEventListener('click', () => { step(st); check(); render(); });
+    btnAll.addEventListener('click', () => { while (step(st)) {} check(); render(); });
+    check(); render();
+  });
+</script>

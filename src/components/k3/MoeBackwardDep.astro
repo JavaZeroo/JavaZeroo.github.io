@@ -1,0 +1,28 @@
+---
+/**
+ * MoE 反向对 router 概率梯度的依赖（第 9 篇）：
+ * 原来 ∂L/∂p_e = ⟨dy, o_e⟩ 要保存 expert 输出 o_e；改写成 ⟨W_down^T dy, a_e⟩ 只要中间激活 a_e 和上游梯度。
+ */
+import FlowDiagram from './FlowDiagram.astro';
+const nodes = [
+  { id: 'x', x: 20, y: 70, w: 120, h: 50, kind: 'in', lines: ['$x_e$', 'dispatch 后的输入'] },
+  { id: 'g1', x: 180, y: 70, w: 150, h: 50, kind: 'moe', lines: ['gate / up GEMM', '+ SiTU-GLU'] },
+  { id: 'a', x: 370, y: 70, w: 120, h: 50, kind: 'moe', strong: true, lines: ['$a_e$', 'act_output，保存'] },
+  { id: 'g2', x: 530, y: 70, w: 130, h: 50, kind: 'moe', lines: ['$W^{\\mathrm{down}}_e$ GEMM'] },
+  { id: 'o', x: 700, y: 70, w: 120, h: 50, kind: 'comm', lines: ['$o_e$', 'output，不再保存'] },
+  { id: 'y', x: 860, y: 70, w: 160, h: 50, kind: 'out', lines: ['$y=\\sum_e p_e\\, o_e$', 'combine'] },
+  { id: 'dy', x: 860, y: 190, w: 160, h: 46, kind: 'in', lines: ['$\\partial L/\\partial y$', 'doutput，上游梯度'] },
+  { id: 'old', x: 560, y: 190, w: 240, h: 46, kind: 'comm', lines: ['原来：$\\partial L/\\partial p_e = \\langle dy,\\ o_e\\rangle$', '要 $o_e$'] },
+  { id: 'new', x: 180, y: 190, w: 330, h: 46, kind: 'moe', strong: true, lines: ['改写：$\\partial L/\\partial p_e = \\langle (W^{\\mathrm{down}}_e)^{\\top} dy,\\ a_e\\rangle$', '只要 $a_e$ 和 $dy$，多一次逐元素乘加'] },
+];
+const edges = [
+  { from: 'x', to: 'g1' }, { from: 'g1', to: 'a' }, { from: 'a', to: 'g2' }, { from: 'g2', to: 'o' }, { from: 'o', to: 'y' },
+  { from: 'dy', to: 'old', orient: 'h' as const, path: 'M860 213 H 802' },
+  { from: 'old', to: 'new', orient: 'h' as const, path: 'M560 213 H 512', label: '等价' },
+  { from: 'o', to: 'old', dashed: true, path: 'M760 120 V 188' },
+  { from: 'a', to: 'new', dashed: true, path: 'M430 120 V 188' },
+];
+---
+<FlowDiagram id="moe-bwd" viewBox="0 0 1040 260" minWidth={760} nodes={nodes} edges={edges}
+  label="MoE 反向对 router 概率梯度的两种算法"
+  caption="上面是一个 expert 的前向。router 概率 $p_e$ 的梯度原本要用 expert 输出 $o_e$，改写之后只用中间激活 $a_e$ 和上游梯度，$o_e$ 这一行从激活账本里消失。" />

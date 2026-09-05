@@ -1,0 +1,22 @@
+---
+/** 集群级调度（第 10 篇）：会话按一致性哈希钉到主、备两个集群；请求按类别走各自的预算。 */
+import FlowDiagram from './FlowDiagram.astro';
+const nodes = [
+  { id: 'req', x: 20, y: 96, w: 130, h: 52, kind: 'in', lines: ['请求', '带会话 id 和长度'] },
+  { id: 'cls', x: 190, y: 96, w: 170, h: 52, kind: 'op', lines: ['按类别扣预算', '短请求 / 长上下文各一份'] },
+  { id: 'hash', x: 400, y: 96, w: 170, h: 52, kind: 'op', strong: true, lines: ['一致性哈希', '会话 → 主集群 + 备集群'] },
+  { id: 'pri', x: 630, y: 30, w: 200, h: 56, kind: 'main', strong: true, lines: ['主集群', '持有这个会话的前缀缓存'] },
+  { id: 'sec', x: 630, y: 160, w: 200, h: 56, kind: 'comm', lines: ['备集群', '没有缓存，故障时重 prefill'] },
+  { id: 'hit', x: 870, y: 30, w: 170, h: 56, kind: 'out', lines: ['命中前缀', '只 prefill 增量（约 4K）'] },
+  { id: 'miss', x: 870, y: 160, w: 170, h: 56, kind: 'op', lines: ['重 prefill', '整个前缀（约 400K）'] },
+];
+const edges = [
+  { from: 'req', to: 'cls' }, { from: 'cls', to: 'hash' },
+  { from: 'hash', to: 'pri', orient: 'h' as const, label: '正常' },
+  { from: 'hash', to: 'sec', orient: 'h' as const, dashed: true, label: '主集群故障' },
+  { from: 'pri', to: 'hit' }, { from: 'sec', to: 'miss' },
+];
+---
+<FlowDiagram id="fleet" viewBox="0 0 1060 240" minWidth={760} nodes={nodes} edges={edges}
+  label="集群级调度：预算准入与缓存亲和"
+  caption="两条集群级策略串在一条路径上。预算准入让长上下文的突发最多吃掉自己那份容量；缓存亲和让会话跟着前缀缓存走，备集群由一致性哈希均匀分散，单个集群故障时的重 prefill 摊到整个集群池上。" />

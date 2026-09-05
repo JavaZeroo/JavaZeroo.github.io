@@ -1,0 +1,64 @@
+---
+/**
+ * 1M 上下文 RL 里各种状态住在哪一层（第 10 篇）：GPU HBM / CPU DRAM / NVMe / 远端，以及触发搬家的时机。
+ * 纯 SVG，标签走 SvgTex。
+ */
+import SvgTex from './SvgTex.astro';
+import { texMix } from './tex';
+const tiers = [
+  { y: 30, label: 'GPU HBM', sub: '最快、最小', kind: 't0' },
+  { y: 120, label: 'CPU DRAM', sub: '外部 KV 池住这里', kind: 't1' },
+  { y: 210, label: 'NVMe', sub: '训练态在 rollout 期间的落脚点', kind: 't2' },
+];
+const items = [
+  // 每个状态：在 GPU 层的方块 + 往下搬的箭头和触发条件
+  { x: 200, w: 150, label: '活跃解码的 KV 块', sub: '留在 GPU', down: null },
+  { x: 380, w: 170, label: '闲置的可复用前缀', sub: 'MLA KV + KDA checkpoint', down: { to: 1, when: '被驱逐时才写回（write-back）', back: '下次复用前预取' } },
+  { x: 580, w: 150, label: '权重 + 优化器状态', sub: '训练一轮结束后', down: { to: 2, when: '下到 NVMe，腾出 DRAM', back: 'rollout 结束后回来' } },
+  { x: 760, w: 170, label: '参考模型权重', sub: '本来放不下 GPU', down: { to: 1, when: '常驻 CPU', back: '按 chunk 流进梯度缓冲的槽位' } },
+];
+---
+<figure class="sh">
+  <svg viewBox="0 0 960 300" role="img" aria-label="RL 期间各种状态所在的存储层次">
+    <defs>
+      <marker id="sh-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" /></marker>
+    </defs>
+    {tiers.map((t) => (
+      <g class={`tier ${t.kind}`}>
+        <rect x="20" y={t.y} width="920" height="70" rx="10" />
+        <SvgTex x={34} y={t.y + 24} size={12.5} weight={600} align="start" src={t.label} />
+        <SvgTex x={34} y={t.y + 46} size={10} align="start" color="var(--text-2)" src={t.sub} />
+      </g>
+    ))}
+    {items.map((it) => (
+      <g>
+        <rect class="item" x={it.x} y={44} width={it.w} height={42} rx="7" />
+        <SvgTex x={it.x + it.w / 2} y={58} size={11} weight={600} src={it.label} />
+        <SvgTex x={it.x + it.w / 2} y={76} size={9.5} color="var(--text-2)" src={it.sub} />
+        {it.down && (
+          <g>
+            <path class="edge" d={`M ${it.x + it.w / 2 - 14} 86 V ${tiers[it.down.to].y + 22}`} marker-end="url(#sh-arr)" />
+            <path class="edge back" d={`M ${it.x + it.w / 2 + 14} ${tiers[it.down.to].y + 22} V 88`} marker-end="url(#sh-arr)" />
+            <SvgTex x={it.x + it.w / 2} y={tiers[it.down.to].y + 38} size={9.5} src={it.down.when} />
+            <SvgTex x={it.x + it.w / 2} y={tiers[it.down.to].y + 54} size={9.5} color="var(--text-2)" src={it.down.back} />
+          </g>
+        )}
+      </g>
+    ))}
+  </svg>
+  <figcaption set:html={texMix('1M 上下文 RL 里四种状态的住处。实线是往下搬，虚线是搬回来。KV 块只在被驱逐时写回 DRAM 池，KDA 的状态和对应的 MLA KV 块一起搬，生命周期对齐；训练态在 rollout 期间让位给 KV 池，下到 NVMe。')} />
+</figure>
+
+<style>
+  .sh { margin: 2rem 0; padding: 0.8rem 0.6rem 0.6rem; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); overflow-x: auto; }
+  .sh svg { display: block; width: 100%; min-width: 720px; height: auto; font-family: var(--font-sans); }
+  .sh marker path { fill: var(--text-2); }
+  .sh .tier rect { stroke-width: 1.3; }
+  .sh .t0 rect { fill: color-mix(in srgb, var(--cat-cyan) 10%, var(--bg-2)); stroke: var(--cat-cyan); }
+  .sh .t1 rect { fill: color-mix(in srgb, var(--cat-amber) 10%, var(--bg-2)); stroke: var(--cat-amber); }
+  .sh .t2 rect { fill: color-mix(in srgb, var(--muted) 12%, var(--bg-2)); stroke: var(--muted); }
+  .sh .item { fill: var(--bg-2); stroke: var(--text-2); stroke-width: 1.3; }
+  .sh .edge { fill: none; stroke: var(--text-2); stroke-width: 1.4; }
+  .sh .edge.back { stroke-dasharray: 5 4; }
+  figcaption { margin-top: 0.6rem; font-size: 0.88rem; color: var(--text-2); line-height: 1.6; text-align: center; }
+</style>

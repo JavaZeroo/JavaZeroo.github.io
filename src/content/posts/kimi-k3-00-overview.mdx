@@ -142,10 +142,13 @@ config.json 里值得先记住的几个数，后面每一篇都会用到：
 | 5 | 宽度：[Stable LatentMoE](/2026/09/05/kimi-k3-05-stable-latentmoe/)。在 latent 空间里跑 expert，RMSNorm、SiTU-GLU、Quantile Balancing 三个稳定化改动 | §2.3，附录 B/C/D |
 | 6 | [输入端与零件](/2026/09/05/kimi-k3-06-vision-and-parts/)：MoonViT-V2、投影、MTP 层、Per-Head Muon | §2.4，§2.5，§4.1.4 |
 | 7 | [结构决定系统](/2026/09/05/kimi-k3-07-systems/)：FlashKDA、KDA 的上下文并行、KDA 感知的前缀缓存 | §5.1，§5.4 |
+| 8 | [训练并行：一步训练里谁在等谁](/2026/09/05/kimi-k3-08-parallel-moonep/)。流水线气泡、MoonEP 的 E/R 冗余定理、ViT 塞进气泡 | §5.2.1，§5.2.3，附录 E |
+| 9 | [显存：把 2.8T 塞进 GPU](/2026/09/05/kimi-k3-09-memory/)。每卡显存账本，六个技巧各搬走哪一行 | §5.2.2 |
+| 10 | [RL 与服务：状态住在哪里](/2026/09/05/kimi-k3-10-rl-serving/)。外部 KV 池、参考模型借槽位、沙箱、集群级调度 | §5.3，§5.4.3 |
 
 ## 这个连载不讲什么
 
-数据、预训练配方、post-training 的 SFT / RL / 蒸馏、评测数字，一律不讲。§5 的系统部分只挑和结构直接相关的部分放在最后一篇。读完这个连载，你应该能在不看代码的情况下写出 K3 每一层每个矩阵的形状，也能说清楚每个改动是为了解决什么问题。
+数据、预训练配方、post-training 的 SFT / RL / 蒸馏、评测数字，一律不讲。§5 的系统部分分四篇：第 7 篇讲结构直接逼出来的内核与缓存，第 8 到 10 篇讲并行、显存和状态管理。读完这个连载，你应该能在不看代码的情况下写出 K3 每一层每个矩阵的形状，也能说清楚每个改动是为了解决什么问题。
 
 :::note{type="info"}
 **关于层号。** 论文和 `config.json` 的 `full_attn_layers` 从 1 开始数，Hugging Face 建模代码里的 `layer_idx` 从 0 开始。本连载正文一律用从 1 开始的口径，引用代码时会单独说明。另一个容易混的词是 "layer"：在 Attention Residuals 那篇论文里它指子层（注意力和 FFN 各算一层），在 K3 论文和 config 里指 decoder layer。K3 的「12 层块」是 12 个 decoder layer，等于 AttnRes 论文口径的 24 个子层。

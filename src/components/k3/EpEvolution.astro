@@ -1,0 +1,18 @@
+---
+/** EP 负载均衡方案的演化（第 8 篇）：每一步只改一件事。 */
+import FlowDiagram from './FlowDiagram.astro';
+const nodes = [
+  { id: 'a', x: 20, y: 60, w: 200, h: 78, kind: 'in', lines: ['朴素 EP', 'all-to-all 把 token 送到 expert 所在 rank', '最慢的 rank 决定这一层的时间'] },
+  { id: 'b', x: 270, y: 60, w: 200, h: 78, kind: 'op', lines: ['DeepEP', '专门的 all-to-all 内核', '通信快了，不均衡还在'] },
+  { id: 'c', x: 520, y: 60, w: 210, h: 78, kind: 'comm', lines: ['ECHO / UltraEP', '预设冗余 expert 数或每 rank 上限', '没有可行方案就停训，上限要手调'] },
+  { id: 'd', x: 780, y: 60, w: 220, h: 78, kind: 'moe', strong: true, lines: ['MoonEP', '每 rank 预留 $E/R$ 个冗余槽位', '任何 router 输出都能补到完全平衡'] },
+];
+const edges = [
+  { from: 'a', to: 'b', label: '换内核', lx: 224, ly: 90 },
+  { from: 'b', to: 'c', label: '加冗余', lx: 474, ly: 90 },
+  { from: 'c', to: 'd', label: '证明上界', lx: 732, ly: 90 },
+];
+---
+<FlowDiagram id="ep-evo" viewBox="0 0 1020 200" minWidth={760} nodes={nodes} edges={edges}
+  label="EP 负载均衡方案的演化"
+  caption="从朴素 EP 到 MoonEP，每一步只改一件事。MoonEP 的新东西是一个定理：每个 rank 预留 $E/R$ 个冗余 expert 的槽位，就永远能规划出让所有 rank 计算量完全相同的方案。" />

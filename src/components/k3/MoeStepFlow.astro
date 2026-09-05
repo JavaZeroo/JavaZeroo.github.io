@@ -1,0 +1,25 @@
+---
+/** 一个 PP stage 上一层 MoE 的执行顺序（第 8 篇）：主 stream 与 shared expert 的副 stream，以及三处等待。 */
+import FlowDiagram from './FlowDiagram.astro';
+const nodes = [
+  { id: 'attn', x: 20, y: 60, w: 130, h: 52, kind: 'main', lines: ['注意力子层', 'KDA 或 MLA'] },
+  { id: 'router', x: 190, y: 60, w: 150, h: 52, kind: 'moe', lines: ['router', '打分，选 top-16'] },
+  { id: 'plan', x: 380, y: 60, w: 150, h: 52, kind: 'moe', strong: true, lines: ['规划内核', '算每个 token 的目的地'] },
+  { id: 'a2a', x: 570, y: 60, w: 150, h: 52, kind: 'comm', lines: ['dispatch', 'all-to-all，零拷贝'] },
+  { id: 'gemm', x: 760, y: 60, w: 170, h: 52, kind: 'moe', lines: ['routed expert GEMM', '静态 shape，$S\\times K$ 份'] },
+  { id: 'comb', x: 970, y: 60, w: 130, h: 52, kind: 'comm', lines: ['combine', 'all-to-all'] },
+  { id: 'next', x: 1140, y: 60, w: 110, h: 52, kind: 'main', lines: ['下一层'] },
+  { id: 'shared', x: 570, y: 170, w: 360, h: 48, kind: 'op', lines: ['shared expert GEMM（单独的 stream，和上面重叠）'] },
+];
+const edges = [
+  { from: 'attn', to: 'router' }, { from: 'router', to: 'plan' }, { from: 'plan', to: 'a2a' }, { from: 'a2a', to: 'gemm' }, { from: 'gemm', to: 'comb' }, { from: 'comb', to: 'next' },
+  { from: 'router', to: 'shared', dashed: true, path: 'M265 112 V 194 H 568' },
+  { from: 'shared', to: 'comb', dashed: true, path: 'M930 194 H 1035 V 114' },
+];
+const groups = [
+  { x: 370, y: 40, w: 580, h: 92, label: '论文 §5.2.1 改动的三段：规划、零拷贝通信、静态 shape 的 GEMM' },
+];
+---
+<FlowDiagram id="moe-step" viewBox="0 0 1270 240" minWidth={860} nodes={nodes} edges={edges} groups={groups}
+  label="一层 MoE 在一个 PP stage 上的执行顺序"
+  caption="一层 MoE 的执行顺序。三处等待分别藏在 dispatch（rank 等 rank）、GEMM 之前（host 等 device 拿 shape）和 GEMM 内部（SM 等 SM）。shared expert 在另一个 stream 上跑，把 all-to-all 的时间用掉。" />
