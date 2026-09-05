@@ -32,9 +32,11 @@ softmax 注意力的代价是 KV cache 随上下文线性增长。1M 上下文�
 
 这个设计空间看起来很散：每篇论文给一个递推式，符号还不一样。Kimi Linear 论文（Table 7）用一个统一的视角把它们收拢了：**把 $S$ 看成一组快速权重，每个 token 到来时对它做一步在线学习**。不同的模型只是在优化不同的目标函数。先把这个视角讲清楚，谱系就不用背了。
 
-## 记忆就是在线学习：目标函数从哪来
+## 记忆就是在线学习：从目标函数到递推
 
 $S$ 是一张查找表：行是键通道，列是值通道，用 $q$ 去查得到 $S^\top q$。第 $t$ 个 token 带来一对 $(k_t, v_t)$，意思是「以后拿 $k_t$ 来查，应该查到 $v_t$」。问题是：$S$ 该怎么变？
+
+这一节要走完一条完整的链：**想让记忆做什么**（拿 $k_t$ 查出来的东西要对得上 $v_t$），**把它写成一个损失** $\mathcal{L}_t(S)$，**对 $S$ 求梯度**，**代回一步梯度下降**，最后**把含 $S_{t-1}$ 的项归到一起**，得到 $S_t = A_t S_{t-1} + B_t$ 这个递推。走完你会看到，加、擦、忘三个动作只是第二步「写成什么损失」的三种选择，KDA 的公式 (1) 就是把它们拼起来。
 
 在线学习的回答：**定义一个只看这一个 token 的损失 $\mathcal{L}_t(S)$，衡量当前的 $S$ 对这一对 $(k_t, v_t)$ 服务得有多差，然后做一步梯度下降**，步长取 1：
 
@@ -42,52 +44,96 @@ $$
 S_t = S_{t-1} - \nabla_S \mathcal{L}_t(S_{t-1}) .
 $$
 
-Kimi Linear Table 7 里所有模型都写成这个形式，差别全在 $\mathcal{L}_t$ 里。$\mathcal{L}_t$ 一共只用到三种项，正好对应开头说的三个动作：加、擦、忘。每一项是什么、为什么要它、推出来的递推长什么样，下面一个一个看。
+**这一步本身就是递推。** 等号右边只有 $S_{t-1}$ 和当前 token 的 $(k_t, v_t)$，更早的 token 一个都不出现，它们的影响全部压在 $S_{t-1}$ 里。所以这是一个 RNN：状态是矩阵 $S$，输入是 $(k_t, v_t)$，读出是 $S_t^\top q_t$。标题里的「递推形式」指的就是它。只走一步、步长固定，是为了每个 token 的代价固定，一次 $d_k \times d_v$ 的更新。（不走一步而是把这一步的问题精确解掉也可以，那是谱系里 Longhorn 的做法。）
 
-**「加」对应内积目标。** 最朴素的要求是「用 $k_t$ 查出来的东西要和 $v_t$ 对齐」，写成内积：
+**递推会长成什么形状。** 下面三种目标项的梯度对 $S$ 都是线性的：要么和 $S$ 无关，要么是「某个矩阵乘 $S$」。于是每一步都能整理成
 
 $$
-\mathcal{L}_t(S) = -\langle S^\top k_t, v_t \rangle = -k_t^\top S v_t ,
-\qquad
+S_t = A_t\, S_{t-1} + B_t ,
+$$
+
+一个只依赖当前 token 的**转移矩阵** $A_t$ 乘旧状态，加一个只依赖当前 token 的**写入项** $B_t$。三个动作各自落在哪一块，是下面推导的看点：「加」只贡献 $B_t$，「擦」在 $A_t$ 里减掉一个秩 1 矩阵、同时给 $B_t$ 配一个系数，「忘」在 $A_t$ 里乘一个对角矩阵。这个线性递推是后面一切的来源：chunkwise 并行（下一篇）把一段 $A_t$ 的连乘打包成矩阵乘，位置编码（后文）就是 $A_t$ 连乘的另一种读法。
+
+**梯度怎么算。** 对矩阵求梯度只需要一招：把损失展开成对每个元素 $S_{ij}$ 的求和，对 $S_{ij}$ 求偏导，再把结果按 $(i, j)$ 摆回矩阵。会反复用到的一个事实是 $(S^\top k)_j = \sum_i S_{ij} k_i$：第 $j$ 个值通道读出的，是 $S$ 的第 $j$ 列和 $k$ 的内积。
+
+Kimi Linear Table 7 里所有模型都写成这个形式，差别全在 $\mathcal{L}_t$ 里。$\mathcal{L}_t$ 一共只用到三种项，正好对应开头说的三个动作：加、擦、忘。每一项是什么、为什么要它、梯度怎么算、代回去得到什么递推，下面一个一个看。
+
+**「加」对应内积目标。** 最朴素的要求是「用 $k_t$ 查出来的东西要和 $v_t$ 对齐」，写成内积，并按元素展开：
+
+$$
+\mathcal{L}_t(S) = -\langle S^\top k_t, v_t \rangle = -\sum_{j}\Big(\sum_i S_{ij}\, k_{t,i}\Big) v_{t,j} .
+$$
+
+对 $S_{ij}$ 求偏导只剩 $-k_{t,i} v_{t,j}$，摆回矩阵就是一个外积。代回梯度步：
+
+$$
 \nabla_S \mathcal{L}_t = -k_t v_t^\top ,
 \qquad
-S_t = S_{t-1} + k_t v_t^\top .
+S_t = S_{t-1} - \big(-k_t v_t^\top\big) = S_{t-1} + k_t v_t^\top .
 $$
 
-这就是 Hebb 规则，也是最早的线性注意力。它的问题在目标函数本身：$\mathcal{L}_t$ 对 $S$ 是线性的，**没有最小值**。往 $k_t v_t^\top$ 方向走多远都能让损失更低，所以每一步只会往上堆，永远不会有「够了」或者「原来存错了，去掉」。查的时候 $S_t^\top q = \sum_i (k_i^\top q)\, v_i$，所有历史值按相似度叠在一起，谁也清不掉。
+梯度和 $S$ 无关，所以它只贡献写入项：$A_t = I$，$B_t = k_t v_t^\top$。这就是 Hebb 规则，也是最早的线性注意力。它的问题在目标函数本身：$\mathcal{L}_t$ 对 $S$ 是线性的，**没有最小值**。往 $k_t v_t^\top$ 方向走多远都能让损失更低，所以每一步只会往上堆，永远不会有「够了」或者「原来存错了，去掉」。查的时候 $S_t^\top q = \sum_i (k_i^\top q)\, v_i$，所有历史值按相似度叠在一起，谁也清不掉。
 
 **「擦」对应回归目标。** 把「对齐」换成「查出来正好等于」：
 
 $$
-\mathcal{L}_t(S) = \tfrac{\beta_t}{2}\, \| S^\top k_t - v_t \|^2 .
+\mathcal{L}_t(S) = \tfrac{\beta_t}{2}\, \| S^\top k_t - v_t \|^2 = \tfrac{\beta_t}{2} \sum_j e_j^2 ,
+\qquad
+e_j = \sum_i S_{ij}\, k_{t,i} - v_{t,j} .
 $$
 
-记 $e_t = S^\top k_t - v_t$，这是「记忆现在对 $k_t$ 的回答」减去「应该的回答」，也就是残差。梯度是
+$e = S^\top k_t - v_t$ 是「记忆现在对 $k_t$ 的回答」减去「应该的回答」，也就是残差。$S_{ij}$ 只出现在 $e_j$ 里，链式法则给出 $\partial \mathcal{L}_t / \partial S_{ij} = \beta_t\, e_j\, k_{t,i}$，摆回矩阵是 $k_t$ 和 $e$ 的外积；再把 $e^\top = k_t^\top S - v_t^\top$ 代进去，梯度就分成了含 $S$ 和不含 $S$ 的两项：
 
 $$
-\nabla_S \mathcal{L}_t = \beta_t\, k_t\, e_t^\top = \beta_t\, k_t k_t^\top S - \beta_t\, k_t v_t^\top ,
+\nabla_S \mathcal{L}_t = \beta_t\, k_t\, e^\top = \beta_t\, k_t \big(k_t^\top S - v_t^\top\big) = \beta_t\, k_t k_t^\top S - \beta_t\, k_t v_t^\top .
 $$
 
-代进去：
+代回梯度步，把含 $S_{t-1}$ 的项归到一起，递推的形状就出来了：
 
 $$
 S_t = S_{t-1} - \beta_t k_t k_t^\top S_{t-1} + \beta_t k_t v_t^\top
-= (I - \beta_t k_t k_t^\top)\, S_{t-1} + \beta_t k_t v_t^\top .
+= \underbrace{(I - \beta_t k_t k_t^\top)}_{A_t}\, S_{t-1} + \underbrace{\beta_t k_t v_t^\top}_{B_t} .
 $$
 
 同一个式子有三种读法，都对。第一，它只写入残差 $\beta_t k_t (v_t - S_{t-1}^\top k_t)^\top$，如果记忆已经答对了，什么都不写，这是 delta rule 这个名字的来源。第二，它先把 $k_t$ 方向上原来存的东西擦掉 $\beta_t$ 的比例（$I - \beta_t k_t k_t^\top$，当 $\|k_t\| = 1$ 时是沿 $k_t$ 的一个收缩），再写入新的，这是「先擦再写」。第三，这个目标有最小值，最小值处 $S^\top k_t = v_t$ 精确成立，所以它瞄准的是**精确回忆**。$\beta_t \in (0,1)$ 是这个样本的权重，也叫写入强度：$\beta_t = 1$ 且 $\|k_t\| = 1$ 时，$k_t$ 方向上的旧内容被完全替换。
 
-**「忘」对应正则项。** 内积目标无界，回归目标也只管当前这一个键，$S$ 的 128 行终归是有限的容量，旧的绑定占着方向不走，新的进来就互相干扰。标准做法是加一个把 $S$ 往零拉的正则：
+**「忘」对应正则项。** 内积目标无界，回归目标也只管当前这一个键，$S$ 的 128 行终归是有限的容量，旧的绑定占着方向不走，新的进来就互相干扰。标准做法是加一个把 $S$ 往零拉的正则，按元素展开后每个 $S_{ij}$ 独立：
 
 $$
-\mathcal{L}_t(S) \mathrel{+}= \tfrac12\, \big\| \sqrt{1 - \alpha_t}\; S \big\|_F^2 = \tfrac{1 - \alpha_t}{2}\, \|S\|_F^2 ,
+\begin{aligned}
+\mathcal{L}_t(S) &\mathrel{+}= \tfrac12\, \big\| \sqrt{1 - \alpha_t}\; S \big\|_F^2 = \tfrac{1 - \alpha_t}{2} \sum_{ij} S_{ij}^2 , \\
+\frac{\partial \mathcal{L}_t}{\partial S_{ij}} &= (1 - \alpha_t)\, S_{ij} ,
 \qquad
-\nabla_S = (1 - \alpha_t)\, S ,
+\nabla_S \mathcal{L}_t = (1 - \alpha_t)\, S .
+\end{aligned}
 $$
 
-这一项在梯度步里贡献 $S - (1 - \alpha_t) S = \alpha_t S$，就是权重衰减。$\alpha_t \in (0,1)$ 越小忘得越多。让 $\alpha_t$ 依赖输入，模型就能逐 token 决定「前面的东西还要不要」，这是 Mamba 一系强调的选择性。再把标量换成逐通道的向量，正则写成 $\tfrac12 \|\operatorname{Diag}(\sqrt{1 - \alpha_t})\, S\|_F^2$，梯度步变成 $\operatorname{Diag}(\alpha_t) S$，第 $j$ 行有自己的正则强度。
+梯度是 $S$ 本身的倍数，代回梯度步得到 $S - (1 - \alpha_t) S = \alpha_t S$：它在 $A_t$ 里乘上一个标量 $\alpha_t$，就是权重衰减。$\alpha_t \in (0,1)$ 越小忘得越多。让 $\alpha_t$ 依赖输入，模型就能逐 token 决定「前面的东西还要不要」，这是 Mamba 一系强调的选择性。再把标量换成逐通道的向量：正则写成 $\tfrac12 \|\operatorname{Diag}(\sqrt{1 - \alpha_t})\, S\|_F^2 = \tfrac12 \sum_{ij} (1 - \alpha_{t,i}) S_{ij}^2$，第 $i$ 行有自己的系数，偏导是 $(1 - \alpha_{t,i}) S_{ij}$，梯度是 $\operatorname{Diag}(1 - \alpha_t)\, S$，梯度步变成 $\operatorname{Diag}(\alpha_t)\, S$。$A_t$ 里乘的不再是标量而是对角矩阵，第 $i$ 个键通道有自己的保留率。
 
-**一个顺序上的细节。** 把三项放进同一个目标里一步走完，得到的是 $\alpha_t S - \beta_t k_t k_t^\top S + \beta_t k_t v_t^\top$。GDN 和 KDA 实际用的不是这个，而是**先衰减、再对衰减后的状态做回归那一步**：令 $\tilde S_{t-1} = \alpha_t S_{t-1}$（或 $\operatorname{Diag}(\alpha_t) S_{t-1}$），目标是 $\tfrac{\beta_t}{2}\|\tilde S_{t-1}^\top k_t - v_t\|^2$，更新是 $S_t = \tilde S_{t-1} - \nabla_{\tilde S}\mathcal{L}_t$。两者差一项 $\beta_t (1 - \alpha_t) k_t k_t^\top S_{t-1}$：串行版本是从衰减之后剩下的东西里擦，擦的量和当前状态自洽。下一篇的 chunkwise 形式依赖这个顺序。
+**把三块拼起来。** 三种目标项、各自的梯度、以及落在递推里的位置：
+
+| 动作 | 目标项 | 梯度 $\nabla_S$ | 落在递推里的位置 |
+|---|---|---|---|
+| 加 | $-\langle S^\top k_t, v_t\rangle$ | $-k_t v_t^\top$ | $B_t = k_t v_t^\top$ |
+| 擦 | $\tfrac{\beta_t}{2}\lVert S^\top k_t - v_t\rVert^2$ | $\beta_t k_t k_t^\top S - \beta_t k_t v_t^\top$ | $A_t$ 里减 $\beta_t k_t k_t^\top$，$B_t = \beta_t k_t v_t^\top$ |
+| 忘 | $\tfrac12\lVert\operatorname{Diag}(\sqrt{1-\alpha_t})\, S\rVert_F^2$ | $\operatorname{Diag}(1-\alpha_t)\, S$ | $A_t$ 里乘 $\operatorname{Diag}(\alpha_t)$ |
+
+「加」和「擦」不会同时出现，因为回归目标的梯度里已经带着写入项 $-\beta_t k_t v_t^\top$。所以谱系里只有两种拼法：「加 + 忘」和「擦 + 忘」。以后者为例，把两项放进同一个目标里，梯度是两项之和，一步走完：
+
+$$
+\begin{aligned}
+S_t &= S_{t-1} - \big(\beta_t k_t k_t^\top S_{t-1} - \beta_t k_t v_t^\top\big) - (1 - \alpha_t) S_{t-1} \\
+&= \big(\alpha_t I - \beta_t k_t k_t^\top\big) S_{t-1} + \beta_t k_t v_t^\top .
+\end{aligned}
+$$
+
+**一个顺序上的细节。** GDN 和 KDA 实际用的不是上面这个一步到位的版本，而是**先衰减、再对衰减后的状态做回归那一步**：令 $\tilde S_{t-1} = \alpha_t S_{t-1}$（或 $\operatorname{Diag}(\alpha_t) S_{t-1}$），目标是 $\tfrac{\beta_t}{2}\|\tilde S_{t-1}^\top k_t - v_t\|^2$，更新是
+
+$$
+S_t = \tilde S_{t-1} - \nabla_{\tilde S}\mathcal{L}_t = (I - \beta_t k_t k_t^\top)\,\tilde S_{t-1} + \beta_t k_t v_t^\top .
+$$
+
+两者差一项 $\beta_t (1 - \alpha_t) k_t k_t^\top S_{t-1}$：串行版本是从衰减之后剩下的东西里擦，擦的量和当前状态自洽。下一篇的 chunkwise 形式依赖这个顺序。
 
 加、擦、忘就是这一族模型的三块积木。有了它们，谱系就只剩两个问题：**用了哪几块，衰减的粒度是标量还是逐通道**。
 
