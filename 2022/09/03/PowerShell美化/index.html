@@ -1,0 +1,166 @@
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="generator" content="Astro v7.2.10"><title>PowerShell美化 · Java不加糖的Blog</title><meta name="description" content="最近刚刚重装了系统，记录一下美化的过程"><link rel="canonical" href="https://blog.javazero.top/2022/09/03/PowerShell%E7%BE%8E%E5%8C%96/"><link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png"><link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png"><link rel="sitemap" href="/sitemap-index.xml"><link rel="alternate" type="application/rss+xml" title="Java不加糖的Blog" href="https://blog.javazero.top/atom.xml"><!-- HarmonyOS Sans SC, sliced by unicode-range; the browser fetches only the
+     slices a page actually uses. Kept out of the Vite bundle on purpose. --><link rel="stylesheet" href="/fonts/harmonyos-sans-sc/400/result.css"><link rel="stylesheet" href="/fonts/harmonyos-sans-sc/500/result.css"><link rel="stylesheet" href="/fonts/harmonyos-sans-sc/700/result.css"><meta property="og:type" content="article"><meta property="og:title" content="PowerShell美化"><meta property="og:description" content="最近刚刚重装了系统，记录一下美化的过程"><meta property="og:url" content="https://blog.javazero.top/2022/09/03/PowerShell%E7%BE%8E%E5%8C%96/"><meta property="og:site_name" content="Java不加糖的Blog"><meta property="article:published_time" content="2022-09-03T14:40:53.000Z"><meta property="og:image" content="https://blog.javazero.top/og.png"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta name="twitter:card" content="summary_large_image"><meta name="theme-color" content="#0b0f19"><meta name="astro-view-transitions-enabled" content="true"><meta name="astro-view-transitions-fallback" content="animate"><script type="module" src="/_astro/ClientRouter.astro_astro_type_script_index_0_lang.CYDbzu1r.js"></script><!-- Dark is the default. Runs before first paint, and again after every
+     client-side navigation because the router swaps <html>. --><script>
+  (() => {
+    const apply = () => {
+      let light = false;
+      try {
+        const stored = localStorage.getItem('theme');
+        light = stored ? stored === 'light' : matchMedia('(prefers-color-scheme: light)').matches;
+      } catch {}
+      document.documentElement.dataset.theme = light ? 'light' : 'dark';
+    };
+    apply();
+    document.addEventListener('astro:after-swap', apply);
+  })();
+</script><link rel="stylesheet" href="/_astro/BaseLayout.C1O3o9Oa.css"></head><body><a class="skip" href="#main">跳到正文</a><header class="site-header" data-header><div class="wide"><a class="brand" href="/"><img src="/images/avatar-64.webp" alt="" width="28" height="28">Java不加糖</a><nav class="site-nav"><a class="keep" href="/series/">专栏</a><a href="/archives/">归档</a><a href="/categories/">分类</a><a href="/tags/">标签</a><a class="keep" href="/about/">关于</a><button class="search-btn" type="button" data-search-open aria-label="搜索"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M10.5 3a7.5 7.5 0 0 1 5.96 12.06l4.24 4.24a1 1 0 0 1-1.41 1.41l-4.24-4.24A7.5 7.5 0 1 1 10.5 3Zm0 2a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11Z"/></svg><span>搜索</span><kbd>⌘K</kbd></button><button class="icon-btn" type="button" aria-label="切换深浅色主题" data-theme-toggle><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" class="icon-sun"><path d="M12 17a5 5 0 1 1 0-10 5 5 0 0 1 0 10Zm0-2a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm0-12a1 1 0 0 1 1 1v1.5a1 1 0 1 1-2 0V4a1 1 0 0 1 1-1Zm0 15.5a1 1 0 0 1 1 1V21a1 1 0 1 1-2 0v-1.5a1 1 0 0 1 1-1ZM21 12a1 1 0 0 1-1 1h-1.5a1 1 0 1 1 0-2H20a1 1 0 0 1 1 1ZM5.5 12a1 1 0 0 1-1 1H3a1 1 0 1 1 0-2h1.5a1 1 0 0 1 1 1Zm12.73-6.23a1 1 0 0 1 0 1.42l-1.06 1.06a1 1 0 1 1-1.42-1.42l1.06-1.06a1 1 0 0 1 1.42 0ZM8.25 15.75a1 1 0 0 1 0 1.42l-1.06 1.06a1 1 0 0 1-1.42-1.42l1.06-1.06a1 1 0 0 1 1.42 0Zm9.98 2.48a1 1 0 0 1-1.42 0l-1.06-1.06a1 1 0 0 1 1.42-1.42l1.06 1.06a1 1 0 0 1 0 1.42ZM8.25 8.25a1 1 0 0 1-1.42 0L5.77 7.19a1 1 0 0 1 1.42-1.42l1.06 1.06a1 1 0 0 1 0 1.42Z"/></svg><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" class="icon-moon"><path d="M12.1 3a1 1 0 0 1 .28 1.63 6.5 6.5 0 0 0 7 10.66 1 1 0 0 1 1.25 1.4A9 9 0 1 1 11.2 3.05a1 1 0 0 1 .9-.05Zm-2.4 2.6a7 7 0 1 0 8.72 11.1A8.5 8.5 0 0 1 9.7 5.6Z"/></svg></button><button class="icon-btn menu-btn" type="button" aria-label="菜单" aria-expanded="false" data-menu-toggle><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" class="icon-menu"><path d="M4 7a1 1 0 0 1 1-1h14a1 1 0 1 1 0 2H5a1 1 0 0 1-1-1Zm0 5a1 1 0 0 1 1-1h14a1 1 0 1 1 0 2H5a1 1 0 0 1-1-1Zm1 4a1 1 0 1 0 0 2h14a1 1 0 1 0 0-2H5Z"/></svg><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" class="icon-close"><path d="M6.3 6.3a1 1 0 0 1 1.4 0l4.3 4.29 4.3-4.3a1 1 0 1 1 1.4 1.42L13.42 12l4.3 4.3a1 1 0 0 1-1.42 1.4L12 13.42l-4.3 4.3a1 1 0 0 1-1.4-1.42L10.58 12l-4.3-4.3a1 1 0 0 1 0-1.4Z"/></svg></button></nav></div><!-- Small screens: the nav links live here instead. --><nav class="mobile-menu glass" data-mobile-menu hidden aria-label="移动端导航"><a href="/series/">专栏</a><a href="/archives/">归档</a><a href="/categories/">分类</a><a href="/tags/">标签</a><a href="/about/">关于</a></nav></header><script type="module">document.addEventListener(`astro:page-load`,()=>{let e=document.documentElement;document.querySelector(`[data-theme-toggle]`)?.addEventListener(`click`,()=>{let t=e.dataset.theme===`light`?`dark`:`light`;e.dataset.theme=t;try{localStorage.setItem(`theme`,t)}catch{}});let t=document.querySelector(`[data-menu-toggle]`),n=document.querySelector(`[data-mobile-menu]`);if(t&&n){let e=e=>{n.hidden=!e,t.setAttribute(`aria-expanded`,String(e))};t.addEventListener(`click`,()=>e(n.hidden!==!1)),addEventListener(`keydown`,t=>{t.key===`Escape`&&e(!1)})}let r=document.querySelector(`[data-header]`);if(r){let e=()=>r.classList.toggle(`scrolled`,window.scrollY>8);e(),addEventListener(`scroll`,e,{passive:!0})}let i=new IntersectionObserver(e=>{for(let t of e)t.isIntersecting&&(t.target.classList.add(`in`),i.unobserve(t.target))},{rootMargin:`0px 0px -8% 0px`});document.querySelectorAll(`.reveal`).forEach(e=>i.observe(e))});</script><main id="main"><div class="read-progress" data-progress></div><div class="post-shell"><article class="post-main wrap" data-article data-pagefind-body><header class="post-header"><div class="label" data-pagefind-ignore><time datetime="2022-09-03">2022.09.03</time><span>3 min</span><a href="/categories/%F0%9F%92%BBWindows/">Windows</a></div><h1 data-pagefind-meta="title" data-pagefind-weight="10">PowerShell美化</h1></header><details class="toc-mobile"><summary><span class="label">目录</span><span>4 节</span></summary><ul><li><a href="#powershell-7-安装" class="d2">PowerShell 7 安装</a></li><li><a href="#ohmyposh安装" class="d2">ohmyposh安装</a></li><li><a href="#马上就好了" class="d2">马上就好了！</a></li><li><a href="#主题当然你可以不弄" class="d2">主题！(当然你可以不弄)</a></li></ul></details><script type="module">document.addEventListener(`astro:page-load`,()=>{let e=document.querySelectorAll(`[data-toc-link]`);if(!e.length)return;let t=new Map([...e].map(e=>[e.dataset.tocLink,e])),n=[...t.keys()].map(e=>document.getElementById(e)).filter(e=>e!==null),r=()=>{let e=window.scrollY+120,r=n[0];for(let t of n)if(t.offsetTop<=e)r=t;else break;for(let[,e]of t)e.classList.remove(`active`);r&&t.get(r.id)?.classList.add(`active`)};r(),addEventListener(`scroll`,r,{passive:!0})});</script><div class="prose"><p>最近刚刚重装了系统，记录一下美化的过程</p>
+<h2 id="powershell-7-安装">PowerShell 7 安装</h2>
+<p>在这里面下载最新的PowerShell安装文件，建议使用<code>.msi</code>文件</p>
+<div class="code-block"><div class="code-head"><span class="code-lang">plaintext</span><button type="button" class="copy-btn" data-copy="" aria-label="复制代码"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg><span data-copy-label="">复制</span></button></div><pre class="astro-code astro-code-themes catppuccin-latte tokyo-night" style="--shiki-light:#4c4f69;--shiki-dark:#a9b1d6;--shiki-light-bg:#eff1f5;--shiki-dark-bg:#1a1b26; overflow-x: auto;" tabindex="0" data-language="plaintext"><code><span class="line"><span>https://docs.microsoft.com/en-us/powershell/scripting/install/installing-powershell-on-windows?view=powershell-7.2#installing-the-msi-package</span></span></code></pre></div>
+<p>下载完之后，一路下一步就行</p>
+<aside class="note note-info"><p>⚠️这里建议安装的时候，将PowerShell加入到Windows Terminal中。避免后面手动添加</p></aside>
+<h2 id="ohmyposh安装">ohmyposh安装</h2>
+<p>官方教程: <a href="https://ohmyposh.dev/docs/installation/windows">点这里</a></p>
+<p>这里我就直接用wget了</p>
+<div class="code-block"><div class="code-head"><span class="code-lang">plaintext</span><button type="button" class="copy-btn" data-copy="" aria-label="复制代码"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg><span data-copy-label="">复制</span></button></div><pre class="astro-code astro-code-themes catppuccin-latte tokyo-night" style="--shiki-light:#4c4f69;--shiki-dark:#a9b1d6;--shiki-light-bg:#eff1f5;--shiki-dark-bg:#1a1b26; overflow-x: auto;" tabindex="0" data-language="plaintext"><code><span class="line"><span>https://ohmyposh.dev/docs/installation/windows</span></span></code></pre></div>
+<p>然后要安装Nerd类型的字体(就是一种将一部分字符变成好看的符号的字体🥰)</p>
+<aside class="note note-info"><p>官方是用ohmyposh内置的安装方法。其实我更推荐下载字体文件下来双击安装。这样更熟悉一点。(拒绝离开舒适区🙅🏻)</p></aside>
+<p>当然，安装完字体后需要在Windows Terminal上设置一下
+<a href="/images/PowerShell%E7%BE%8E%E5%8C%96/terminal.jpg">设置位置</a></p>
+<h2 id="马上就好了">马上就好了！</h2>
+<p>现在一切准备就绪，只需要稍微设置一下PowerShell就行了</p>
+<p>输入：</p>
+<div class="code-block"><div class="code-head"><span class="code-lang">plaintext</span><button type="button" class="copy-btn" data-copy="" aria-label="复制代码"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg><span data-copy-label="">复制</span></button></div><pre class="astro-code astro-code-themes catppuccin-latte tokyo-night" style="--shiki-light:#4c4f69;--shiki-dark:#a9b1d6;--shiki-light-bg:#eff1f5;--shiki-dark-bg:#1a1b26; overflow-x: auto;" tabindex="0" data-language="plaintext"><code><span class="line"><span>notepad $PROFILE</span></span></code></pre></div>
+<p>把下面这行复制进去，<strong>保存!</strong>
+最后复制这个！就行了！
+<code>. $PROFILE</code></p>
+<blockquote>
+<p>这里说个题外话😁，其实就是设置Shell的配置
+用过linux可能比较熟悉</p>
+<div class="code-block"><div class="code-head"><span class="code-lang">plaintext</span><button type="button" class="copy-btn" data-copy="" aria-label="复制代码"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg><span data-copy-label="">复制</span></button></div><pre class="astro-code astro-code-themes catppuccin-latte tokyo-night" style="--shiki-light:#4c4f69;--shiki-dark:#a9b1d6;--shiki-light-bg:#eff1f5;--shiki-dark-bg:#1a1b26; overflow-x: auto;" tabindex="0" data-language="plaintext"><code><span class="line"><span>vim ~/.bashrc</span></span>
+<span class="line"><span>source ~/.bashrc</span></span></code></pre></div>
+<p>其实是一一对应的，原理都差不多</p>
+</blockquote>
+<h2 id="主题当然你可以不弄">主题！(当然你可以不弄)</h2>
+<p>这里你可以用下面这个指令看到所有的预设主题</p>
+<div class="code-block"><div class="code-head"><span class="code-lang">plaintext</span><button type="button" class="copy-btn" data-copy="" aria-label="复制代码"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg><span data-copy-label="">复制</span></button></div><pre class="astro-code astro-code-themes catppuccin-latte tokyo-night" style="--shiki-light:#4c4f69;--shiki-dark:#a9b1d6;--shiki-light-bg:#eff1f5;--shiki-dark-bg:#1a1b26; overflow-x: auto;" tabindex="0" data-language="plaintext"><code><span class="line"><span>Get-PoshThemes</span></span></code></pre></div>
+<p>选一个你喜欢的，比如说<code>jandedobbeleer</code>
+那么你就可以输入下面这个指令换成这个主题：</p>
+<div class="code-block"><div class="code-head"><span class="code-lang">plaintext</span><button type="button" class="copy-btn" data-copy="" aria-label="复制代码"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg><span data-copy-label="">复制</span></button></div><pre class="astro-code astro-code-themes catppuccin-latte tokyo-night" style="--shiki-light:#4c4f69;--shiki-dark:#a9b1d6;--shiki-light-bg:#eff1f5;--shiki-dark-bg:#1a1b26; overflow-x: auto;" tabindex="0" data-language="plaintext"><code><span class="line"><span>oh-my-posh init pwsh --config ~/.jandedobbeleer.omp.json | Invoke-Expression</span></span></code></pre></div>
+<aside class="note note-info"><p>其实可以看出来<code>~/.jandedobbeleer.omp.json</code> 这个就是<code>jandedobbeleer</code>对应的json文件，所有主题都是以json文件储存的。</p></aside>
+<p>其实你可以自己创建一个主题，这里是<a href="https://ohmyposh.dev/docs/configuration/overview">官方教程</a>，事实上他包括很多插件，eg. Spotiy；</p>
+<p>这里给出我自己的json
+你只需要复制以下代码，并且创建一个json文件。然后把上面的<code>~/.jandedobbeleer.omp.json</code>换成你的json文件就行;</p>
+<div class="code-block"><div class="code-head"><span class="code-lang">plaintext</span><button type="button" class="copy-btn" data-copy="" aria-label="复制代码"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg><span data-copy-label="">复制</span></button></div><pre class="astro-code astro-code-themes catppuccin-latte tokyo-night" style="--shiki-light:#4c4f69;--shiki-dark:#a9b1d6;--shiki-light-bg:#eff1f5;--shiki-dark-bg:#1a1b26; overflow-x: auto;" tabindex="0" data-language="plaintext"><code><span class="line"><span>{</span></span>
+<span class="line"><span>  "$schema": "https://raw.githubusercontent.com/JanDeDobbeleer/oh-my-posh/main/themes/schema.json",</span></span>
+<span class="line"><span>  "blocks": [</span></span>
+<span class="line"><span>    {</span></span>
+<span class="line"><span>      "alignment": "left",</span></span>
+<span class="line"><span>      "segments": [</span></span>
+<span class="line"><span>        {</span></span>
+<span class="line"><span>          "background": "#003543",</span></span>
+<span class="line"><span>          "foreground": "#fff",</span></span>
+<span class="line"><span>          "powerline_symbol": "\ue0b0",</span></span>
+<span class="line"><span>          "style": "powerline",</span></span>
+<span class="line"><span>          "template": " {{ if .WSL }}WSL at {{ end }}{{.Icon}}",</span></span>
+<span class="line"><span>          "type": "os"</span></span>
+<span class="line"><span>        },</span></span>
+<span class="line"><span>        {</span></span>
+<span class="line"><span>          "background": "#003543",</span></span>
+<span class="line"><span>          "foreground": "#d2ff5e",</span></span>
+<span class="line"><span>          "powerline_symbol": "\ue0b0",</span></span>
+<span class="line"><span>          "style": "powerline",</span></span>
+<span class="line"><span>          "template": "{{ .HostName }} ",</span></span>
+<span class="line"><span>          "type": "session"</span></span>
+<span class="line"><span>        },</span></span>
+<span class="line"><span>        {</span></span>
+<span class="line"><span>          "background": "#0087D8",</span></span>
+<span class="line"><span>          "foreground": "#003544",</span></span>
+<span class="line"><span>          "powerline_symbol": "\ue0b0",</span></span>
+<span class="line"><span>          "properties": {</span></span>
+<span class="line"><span>            "folder_separator_icon": "/",</span></span>
+<span class="line"><span>            "style": "full"</span></span>
+<span class="line"><span>          },</span></span>
+<span class="line"><span>          "style": "powerline",</span></span>
+<span class="line"><span>          "template": " \ue5ff {{ .Path }} ",</span></span>
+<span class="line"><span>          "type": "path"</span></span>
+<span class="line"><span>        },</span></span>
+<span class="line"><span>        {</span></span>
+<span class="line"><span>          "background": "#d2ff5e",</span></span>
+<span class="line"><span>          "background_templates": [</span></span>
+<span class="line"><span>            "{{ if or (.Working.Changed) (.Staging.Changed) }}#ff9248{{ end }}",</span></span>
+<span class="line"><span>            "{{ if and (gt .Ahead 0) (gt .Behind 0) }}#f26d50{{ end }}",</span></span>
+<span class="line"><span>            "{{ if gt .Ahead 0 }}#89d1dc{{ end }}",</span></span>
+<span class="line"><span>            "{{ if gt .Behind 0 }}#f17c37{{ end }}"</span></span>
+<span class="line"><span>          ],</span></span>
+<span class="line"><span>          "foreground": "#193549",</span></span>
+<span class="line"><span>          "powerline_symbol": "\ue0b0",</span></span>
+<span class="line"><span>          "properties": {</span></span>
+<span class="line"><span>            "fetch_stash_count": true,</span></span>
+<span class="line"><span>            "fetch_status": true</span></span>
+<span class="line"><span>          },</span></span>
+<span class="line"><span>          "style": "powerline",</span></span>
+<span class="line"><span>          "template": " {{ .HEAD }}{{ if .Staging.Changed }} \uf046 {{ .Staging.String }}{{ end }}{{ if and (.Working.Changed) (.Staging.Changed) }} |{{ end }}{{ if .Working.Changed }} \uf044 {{ .Working.String }}{{ end }}{{ if gt .StashCount 0 }} \uf692 {{ .StashCount }}{{ end }} ",</span></span>
+<span class="line"><span>          "type": "git"</span></span>
+<span class="line"><span>        }</span></span>
+<span class="line"><span>      ],</span></span>
+<span class="line"><span>      "type": "prompt"</span></span>
+<span class="line"><span>    },</span></span>
+<span class="line"><span>    {</span></span>
+<span class="line"><span>      "alignment": "right",</span></span>
+<span class="line"><span>      "segments": [</span></span>
+<span class="line"><span>        {</span></span>
+<span class="line"><span>          "background": "#0087D8",</span></span>
+<span class="line"><span>          "foreground": "#003544",</span></span>
+<span class="line"><span>          "invert_powerline": true,</span></span>
+<span class="line"><span>          "powerline_symbol": "\ue0b2",</span></span>
+<span class="line"><span>          "properties": {</span></span>
+<span class="line"><span>            "display_mode": "context",</span></span>
+<span class="line"><span>            "fetch_virtual_env": true</span></span>
+<span class="line"><span>          },</span></span>
+<span class="line"><span>          "style": "powerline",</span></span>
+<span class="line"><span>          "template": " \ue235 {{ .Venv }} ",</span></span>
+<span class="line"><span>          "type": "python"</span></span>
+<span class="line"><span>        },</span></span>
+<span class="line"><span>        {</span></span>
+<span class="line"><span>          "background": "#003543",</span></span>
+<span class="line"><span>          "foreground": "#fff",</span></span>
+<span class="line"><span>          "invert_powerline": true,</span></span>
+<span class="line"><span>          "powerline_symbol": "\ue0b2",</span></span>
+<span class="line"><span>          "style": "powerline",</span></span>
+<span class="line"><span>          "template": "&#x3C;#fff> \uf64f &#x3C;/>{{ .CurrentDate | date .Format }} ",</span></span>
+<span class="line"><span>          "type": "time"</span></span>
+<span class="line"><span>        }</span></span>
+<span class="line"><span>      ],</span></span>
+<span class="line"><span>      "type": "prompt"</span></span>
+<span class="line"><span>    },</span></span>
+<span class="line"><span>    {</span></span>
+<span class="line"><span>      "alignment": "left",</span></span>
+<span class="line"><span>      "newline": true,</span></span>
+<span class="line"><span>      "segments": [</span></span>
+<span class="line"><span>        {</span></span>
+<span class="line"><span>          "foreground": "#FFD700",</span></span>
+<span class="line"><span>          "style": "plain",</span></span>
+<span class="line"><span>          "template": " \u26a1 ",</span></span>
+<span class="line"><span>          "type": "root"</span></span>
+<span class="line"><span>        },</span></span>
+<span class="line"><span>        {</span></span>
+<span class="line"><span>          "foreground": "#f1184c",</span></span>
+<span class="line"><span>          "style": "plain",</span></span>
+<span class="line"><span>          "template": "💫",</span></span>
+<span class="line"><span>          "type": "text"</span></span>
+<span class="line"><span>        }</span></span>
+<span class="line"><span>      ],</span></span>
+<span class="line"><span>      "type": "prompt"</span></span>
+<span class="line"><span>    }</span></span>
+<span class="line"><span>  ],</span></span>
+<span class="line"><span>  "console_title_template": "PowerShell",</span></span>
+<span class="line"><span>  "final_space": true,</span></span>
+<span class="line"><span>  "transient_prompt": {</span></span>
+<span class="line"><span>    "background": "transparent",</span></span>
+<span class="line"><span>    "foreground": "#FFD700",</span></span>
+<span class="line"><span>    "template": "{{if .Root}}\u26a1 {{end}}💫 "</span></span>
+<span class="line"><span>  },</span></span>
+<span class="line"><span>  "version": 2</span></span>
+<span class="line"><span>}</span></span>
+<span class="line"><span></span></span></code></pre></div></div><footer class="post-tags"><a href="/tags/%E8%BD%AF%E4%BB%B6/">#软件</a><a href="/tags/%E5%88%86%E4%BA%AB/">#分享</a></footer><nav class="post-nav"><a href="/2022/09/01/Kaggle_RSNA/"><span class="label">← 上一篇</span><span class="t">Kaggle比赛RSNA-2022骨折检测</span></a><a class="next" href="/2022/09/21/使用代理解决企业微信可信ip问题/"><span class="label">下一篇 →</span><span class="t">使用socket代理解决企业微信可信ip问题</span></a></nav></article><nav class="toc glass" aria-label="目录"><span class="label">目录</span><ul><li><a href="#powershell-7-安装" class="d2" data-toc-link="powershell-7-安装">PowerShell 7 安装</a></li><li><a href="#ohmyposh安装" class="d2" data-toc-link="ohmyposh安装">ohmyposh安装</a></li><li><a href="#马上就好了" class="d2" data-toc-link="马上就好了">马上就好了！</a></li><li><a href="#主题当然你可以不弄" class="d2" data-toc-link="主题当然你可以不弄">主题！(当然你可以不弄)</a></li></ul></nav></div></main><footer class="site-footer"><div class="wide"><span>© 2026 Java不加糖</span><span class="links"><a href="https://github.com/JavaZeroo" rel="me noopener" target="_blank">GitHub</a><a href="https://space.bilibili.com/95945127" rel="me noopener" target="_blank">哔哩哔哩</a><a href="https://t.me/javaisme0" rel="me noopener" target="_blank">Telegram</a><a href="/atom.xml">RSS</a></span><!-- Required by the HarmonyOS Sans Fonts License Agreement ("prominent notice"). --><span class="credit">字体：HarmonyOS Sans © Huawei Device Co., Ltd. · Cascadia Code © Microsoft (OFL) · 由 <a href="https://astro.build" rel="noopener" target="_blank">Astro</a> 构建</span></div></footer><div class="search-root" data-search hidden><div class="search-panel glass" role="dialog" aria-modal="true" aria-label="站内搜索"><label class="search-input"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M10.5 3a7.5 7.5 0 0 1 5.96 12.06l4.24 4.24a1 1 0 0 1-1.41 1.41l-4.24-4.24A7.5 7.5 0 1 1 10.5 3Zm0 2a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11Z"/></svg><input type="search" placeholder="搜索文章…" autocomplete="off" data-search-input><kbd>ESC</kbd></label><ul class="search-results" data-search-results></ul></div></div><script type="module">var e;async function t(){if(e!==void 0)return e;try{e=await Function(`p`,`return import(p)`)(`/pagefind/pagefind.js`),await e.init()}catch(t){console.error(`[search] pagefind failed to load`,t),e=null}return e}document.addEventListener(`astro:page-load`,()=>{let e=document.querySelector(`[data-search]`),n=e?.querySelector(`[data-search-input]`),r=e?.querySelector(`[data-search-results]`);if(!e||!n||!r)return;let i=0,a=()=>{e.hidden=!1,n.value=``,r.innerHTML=``,n.focus(),t()},o=()=>{e.hidden=!0};document.querySelectorAll(`[data-search-open]`).forEach(e=>e.addEventListener(`click`,a)),e.addEventListener(`click`,t=>{t.target===e&&o()}),addEventListener(`keydown`,t=>{(t.metaKey||t.ctrlKey)&&t.key.toLowerCase()===`k`?(t.preventDefault(),e.hidden?a():o()):t.key===`Escape`&&!e.hidden&&o()});let s=e=>{i=0,r.innerHTML=e.length?e.map((e,t)=>`<li class="${t===0?`active`:``}"><a href="${e.url}"><div class="st">${e.meta.title??e.url}</div><div class="sx">${e.excerpt}</div></a></li>`).join(``):`<li class="search-empty">没有找到相关文章</li>`},c;n.addEventListener(`input`,()=>{clearTimeout(c),c=window.setTimeout(async()=>{let e=n.value.trim();if(!e){r.innerHTML=``;return}let i=await t();if(!i){r.innerHTML=`<li class="search-empty">搜索索引尚未生成（需要先 build）</li>`;return}let a=await i.search(e);s(await Promise.all(a.results.slice(0,8).map(e=>e.data())))},120)}),n.addEventListener(`keydown`,e=>{let t=[...r.querySelectorAll(`li`)].filter(e=>!e.classList.contains(`search-empty`));t.length&&(e.key===`ArrowDown`||e.key===`ArrowUp`?(e.preventDefault(),t[i]?.classList.remove(`active`),i=(i+(e.key===`ArrowDown`?1:t.length-1))%t.length,t[i]?.classList.add(`active`),t[i]?.scrollIntoView({block:`nearest`})):e.key===`Enter`&&t[i]?.querySelector(`a`)?.click())})});</script></body></html><script type="module">document.addEventListener(`astro:page-load`,()=>{let e=document.querySelector(`[data-progress]`),t=document.querySelector(`[data-article]`);if(e&&t){let n=()=>{let n=t.offsetTop+t.offsetHeight-innerHeight,r=n<=0?1:Math.min(Math.max(scrollY/n,0),1);e.style.width=`${r*100}%`};n(),addEventListener(`scroll`,n,{passive:!0}),addEventListener(`resize`,n)}document.querySelectorAll(`[data-copy]`).forEach(e=>{e.addEventListener(`click`,async()=>{let t=e.closest(`.code-block`)?.querySelector(`code`),n=e.querySelector(`[data-copy-label]`);if(t){try{await navigator.clipboard.writeText(t.textContent??``),e.classList.add(`copied`),n&&(n.textContent=`已复制`)}catch{n&&(n.textContent=`失败`)}setTimeout(()=>{e.classList.remove(`copied`),n&&(n.textContent=`复制`)},1600)}})})});</script>
