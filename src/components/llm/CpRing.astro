@@ -1,0 +1,78 @@
+---
+/**
+ * 上下文并行（ring attention）：左边是 4 个 rank、4 步的 KV 轮转表，每个 rank 固定持有自己的 Q 块，
+ * 每步收到一个新的 KV 块并更新在线 softmax 的 (m, l, O)；右边是因果掩码下两种切法的负载。
+ */
+import SvgTex from '../k3/SvgTex.astro';
+import { texMix } from '../k3/tex';
+const caption = '上下文并行（ring attention）。$C = 4$ 个 rank，rank $i$ 持有 $Q_i$ 不动，KV 块沿环每步传一格：第 $t$ 步 rank $i$ 拿到的是 $KV_{(i-t) \\bmod C}$，$C$ 步后每个 $Q_i$ 见过所有 KV。每一步用在线 softmax 把新块并进 $(m_i, l_i, O_i)$，结果与一次算完全一样。右：因果掩码下只有下三角的块要算，按连续段切时 rank 3 的活是 rank 0 的四倍；zigzag 把序列切成 $2C$ 段、rank $i$ 拿第 $i$ 和第 $2C\\!-\\!1\\!-\\!i$ 段，每个 rank 的格子数一样多。';
+const C = 4;
+const BLK = ['var(--cat-indigo)', 'var(--cat-cyan)', 'var(--cat-emerald)', 'var(--cat-rose)'];
+const GX = 150, GY = 74, CW = 104, RH = 52, BW = 88, BH = 36;
+// 右侧两个三角
+const n = 8, cell = 17;
+const T1X = 700, T2X = 900, TY = 100;
+const contiguous = (row: number) => Math.floor(row / 2);           // 8 段，连续两段一个 rank
+const zigzag = (row: number) => (row < C ? row : 2 * C - 1 - row);   // rank i 拿第 i 段和第 2C-1-i 段
+---
+<figure class="fig">
+  <svg viewBox="0 0 1100 360" role="img" aria-label="上下文并行：KV 轮转与因果负载">
+    <defs>
+      <marker id="cp-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" /></marker>
+    </defs>
+    <SvgTex x={24} y={36} size={11} align="start" color="var(--muted)" src="KV 块沿环轮转，$C = 4$；每格是这一步 rank 手里的 KV 块" />
+    {Array.from({ length: C }, (_, t) => (
+      <SvgTex x={GX + t * CW + BW / 2} y={GY - 14} size={10} color="var(--text-2)" src={`第 ${t} 步`} />
+    ))}
+    {Array.from({ length: C }, (_, i) => (
+      <g>
+        <SvgTex x={GX - 14} y={GY + i * RH + BH / 2 - 6} size={10.5} weight={600} align="end" src={`rank ${i}`} />
+        <SvgTex x={GX - 14} y={GY + i * RH + BH / 2 + 8} size={9} align="end" color="var(--text-2)" src={`持有 $Q_${i}$，累积 $(m_${i}, l_${i}, O_${i})$`} />
+        {Array.from({ length: C }, (_, t) => {
+          const j = (i - t + C) % C;
+          const x = GX + t * CW, y = GY + i * RH;
+          const ni = (i + 1) % C;
+          return (
+            <g>
+              <rect class="blk" x={x} y={y} width={BW} height={BH} rx="6" style={`--c:${BLK[j]}`} />
+              <SvgTex x={x + BW / 2} y={y + BH / 2} size={11} weight={600} src={`$K_${j}, V_${j}$`} />
+              {t < C - 1 && (ni !== 0
+                ? <path class="edge" d={`M${x + BW} ${y + BH / 2} C ${x + BW + 10} ${y + BH / 2}, ${x + CW - 12} ${y + RH + BH / 2}, ${x + CW - 2} ${y + RH + BH / 2}`} marker-end="url(#cp-arrow)" />
+                : <path class="edge wrap" d={`M${x + BW} ${y + BH / 2} C ${x + BW + 12} ${y + BH / 2}, ${x + CW - 12} ${GY + BH / 2}, ${x + CW - 2} ${GY + BH / 2}`} marker-end="url(#cp-arrow)" />)}
+            </g>
+          );
+        })}
+      </g>
+    ))}
+    <SvgTex x={GX + 2 * CW - 8} y={GY + C * RH + 4} size={10} color="var(--text-2)" src="每步收一块、发一块，$(S/C)\cdot 2d$ 个数，与计算重叠" />
+    <SvgTex x={GX + 2 * CW - 8} y={GY + C * RH + 24} size={10} color="var(--text-2)" src="$m' = \max(m, m_j)$，$l' = l\,e^{m - m'} + l_j\,e^{m_j - m'}$，$O' = O\,e^{m - m'} + O_j\,e^{m_j - m'}$" />
+    <SvgTex x={GX + 2 * CW - 8} y={GY + C * RH + 44} size={9.5} color="var(--muted)" src="$C$ 步走完，$O_i / l_i$ 就是完整注意力的输出" />
+
+    <!-- 右：因果负载 -->
+    <SvgTex x={T1X + n * cell / 2} y={TY - 22} size={10.5} weight={600} color="var(--text-2)" src="连续切分" />
+    <SvgTex x={T2X + n * cell / 2} y={TY - 22} size={10.5} weight={600} color="var(--text-2)" src="zigzag 切分" />
+    {Array.from({ length: n }, (_, r) => Array.from({ length: r + 1 }, (_, c) => (
+      <g>
+        <rect class="tri" x={T1X + c * cell} y={TY + r * cell} width={cell - 2} height={cell - 2} rx="2" style={`--c:${BLK[contiguous(r)]}`} />
+        <rect class="tri" x={T2X + c * cell} y={TY + r * cell} width={cell - 2} height={cell - 2} rx="2" style={`--c:${BLK[zigzag(r)]}`} />
+      </g>
+    )))}
+    <SvgTex x={T1X + n * cell / 2} y={TY + n * cell + 12} size={9.5} color="var(--text-2)" src="格子数 3 / 7 / 11 / 15" />
+    <SvgTex x={T2X + n * cell / 2} y={TY + n * cell + 12} size={9.5} color="var(--text-2)" src="格子数 9 / 9 / 9 / 9" />
+    <SvgTex x={T1X - 10} y={TY + n * cell / 2} size={9} align="end" color="var(--muted)" src="查询" />
+    <SvgTex x={(T1X + T2X + n * cell) / 2} y={TY + n * cell + 32} size={9.5} color="var(--muted)" src="行是查询块，列是键块，颜色是负责的 rank；因果掩码只算下三角" />
+    <SvgTex x={(T1X + T2X + n * cell) / 2} y={TY + n * cell + 50} size={9.5} color="var(--muted)" src="rank $i$：连续切分拿第 $2i, 2i{+}1$ 段；zigzag 拿第 $i$ 和第 $7 - i$ 段" />
+  </svg>
+  <figcaption set:html={texMix(caption)} />
+</figure>
+
+<style>
+  .fig { margin: 2rem 0; padding: 0.8rem 0.6rem 0.6rem; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); overflow-x: auto; }
+  .fig svg { display: block; width: 100%; min-width: 800px; height: auto; font-family: var(--font-sans); }
+  .fig marker path { fill: var(--text-2); }
+  .edge { fill: none; stroke: var(--text-2); stroke-width: 1.2; }
+  .edge.wrap { stroke-dasharray: 4 3; opacity: .8; }
+  .blk { fill: color-mix(in srgb, var(--c) 30%, var(--bg-2)); stroke: var(--c); stroke-width: 1.2; }
+  .tri { fill: color-mix(in srgb, var(--c) 55%, var(--bg-2)); stroke: var(--c); stroke-width: .8; }
+  figcaption { margin-top: 0.6rem; font-size: 0.88rem; color: var(--text-2); line-height: 1.6; text-align: center; }
+</style>

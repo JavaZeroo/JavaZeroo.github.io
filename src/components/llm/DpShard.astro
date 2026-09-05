@@ -1,0 +1,94 @@
+---
+/**
+ * 数据并行的两种形态：DDP（权重复制、梯度 all-reduce）和 FSDP / ZeRO-3（权重也切开，用前 all-gather，梯度 reduce-scatter）。
+ */
+import SvgTex from '../k3/SvgTex.astro';
+import { texMix } from '../k3/tex';
+const caption = '左：DDP。每卡一份完整的 $W$，各算自己 batch 分片的梯度，一次 all-reduce 之后两卡拿到同一个 $\\bar g$，做同一个更新。右：FSDP / ZeRO-3。$W$ 只存 $1/N$，前向和反向用到某一层时 all-gather 凑齐、用完即丢；梯度 reduce-scatter 后每卡只留自己那 $1/N$。两种形态的计算完全一样，差别只在 $W$ 和 $g$ 的存储。';
+const gpus = [
+  { x: 40, i: 0 }, { x: 290, i: 1 },
+];
+const gpus2 = [
+  { x: 590, i: 0 }, { x: 840, i: 1 },
+];
+---
+<figure class="fig">
+  <svg viewBox="0 0 1100 350" role="img" aria-label="数据并行：DDP 与 FSDP">
+    <defs>
+      <marker id="dp-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" /></marker>
+      <marker id="dp-arrow-c" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="var(--cat-amber)" /></marker>
+    </defs>
+
+    <!-- 左：DDP -->
+    <SvgTex x={280} y={30} size={12.5} weight={600} src="DDP：复制权重，切 batch" />
+    {gpus.map((g) => (
+      <g>
+        <rect class="dev" x={g.x} y="50" width="220" height="250" rx="10" />
+        <SvgTex x={g.x + 110} y={66} size={10.5} color="var(--muted)" src={`GPU ${g.i}`} />
+        <rect class="act" x={g.x + 20} y="86" width="80" height="44" rx="6" />
+        <SvgTex x={g.x + 60} y={100} size={11.5} weight={600} src={`$X_${g.i}$`} />
+        <SvgTex x={g.x + 60} y={118} size={9.5} color="var(--text-2)" src="$b/N$ 条序列" />
+        <rect class="wt" x={g.x + 120} y="86" width="80" height="44" rx="6" />
+        <SvgTex x={g.x + 160} y={100} size={11.5} weight={600} src="$W$" />
+        <SvgTex x={g.x + 160} y={118} size={9.5} color="var(--text-2)" src="完整一份" />
+        <line class="edge" x1={g.x + 110} y1="132" x2={g.x + 110} y2="166" marker-end="url(#dp-arrow)" />
+        <SvgTex x={g.x + 116} y={148} size={9.5} align="start" color="var(--text-2)" src="前向、反向，本地" />
+        <rect class="grad" x={g.x + 60} y="170" width="100" height="44" rx="6" />
+        <SvgTex x={g.x + 110} y={184} size={11.5} weight={600} src={`$g_${g.i}$`} />
+        <SvgTex x={g.x + 110} y={202} size={9.5} color="var(--text-2)" src={`$= \\nabla_W \\ell(X_${g.i}; W)$`} />
+        <rect class="wt" x={g.x + 40} y="248" width="140" height="36" rx="6" />
+        <SvgTex x={g.x + 110} y={266} size={10.5} weight={600} src="$W \leftarrow W - \eta\,\bar g$" />
+        <line class="edge" x1={g.x + 110} y1="216" x2={g.x + 110} y2="244" marker-end="url(#dp-arrow)" />
+      </g>
+    ))}
+    <path class="edge comm" d="M 200 192 H 350" marker-start="url(#dp-arrow-c)" marker-end="url(#dp-arrow-c)" />
+    <SvgTex x={275} y={180} size={10.5} weight={600} color="var(--cat-amber)" src="all-reduce" />
+    <SvgTex x={275} y={228} size={10} color="var(--text-2)" src="$\bar g = \tfrac{1}{N}\sum_i g_i$" />
+    <SvgTex x={275} y={318} size={10} color="var(--muted)" src="每步通信一次，量 $\approx 2\Psi$ 个数，与 batch 无关" />
+
+    <!-- 右：FSDP -->
+    <SvgTex x={830} y={30} size={12.5} weight={600} src="FSDP / ZeRO-3：权重也切开，用前凑齐" />
+    {gpus2.map((g) => (
+      <g>
+        <rect class="dev" x={g.x} y="50" width="220" height="250" rx="10" />
+        <SvgTex x={g.x + 110} y={66} size={10.5} color="var(--muted)" src={`GPU ${g.i}`} />
+        <rect class="act" x={g.x + 20} y="86" width="80" height="44" rx="6" />
+        <SvgTex x={g.x + 60} y={100} size={11.5} weight={600} src={`$X_${g.i}$`} />
+        <SvgTex x={g.x + 60} y={118} size={9.5} color="var(--text-2)" src="$b/N$ 条序列" />
+        <rect class="ghost" x={g.x + 120} y="86" width="80" height="44" rx="6" />
+        <rect class="wt" x={g.x + 120 + g.i * 40} y="86" width="40" height="44" rx="6" />
+        <SvgTex x={g.x + 140 + g.i * 40} y={108} size={11} weight={600} src={`$W_${g.i}$`} />
+        <SvgTex x={g.x + 160} y={142} size={9.5} color="var(--text-2)" src="常驻 $1/N$，虚框是用时凑齐的" />
+        <line class="edge" x1={g.x + 60} y1="132" x2={g.x + 60} y2="166" marker-end="url(#dp-arrow)" />
+        <rect class="ghost rose" x={g.x + 60} y="170" width="100" height="44" rx="6" />
+        <rect class="grad" x={g.x + 60 + g.i * 50} y="170" width="50" height="44" rx="6" />
+        <SvgTex x={g.x + 85 + g.i * 50} y={192} size={11} weight={600} src={`$g_${g.i}$`} />
+        <SvgTex x={g.x + 110} y={228} size={9.5} color="var(--text-2)" src="算出完整 $g$，只留自己的 $1/N$" />
+        <rect class="wt" x={g.x + 30} y="248" width="160" height="36" rx="6" />
+        <SvgTex x={g.x + 110} y={266} size={10.5} weight={600} src={`$W_${g.i} \\leftarrow W_${g.i} - \\eta\\,\\bar g_${g.i}$`} />
+        <line class="edge" x1={g.x + 110} y1="216" x2={g.x + 110} y2="244" marker-end="url(#dp-arrow)" />
+      </g>
+    ))}
+    <path class="edge comm" d="M 790 108 H 860" marker-start="url(#dp-arrow-c)" marker-end="url(#dp-arrow-c)" />
+    <SvgTex x={825} y={96} size={10} weight={600} color="var(--cat-amber)" src="all-gather" />
+    <path class="edge comm" d="M 750 192 H 900" marker-start="url(#dp-arrow-c)" marker-end="url(#dp-arrow-c)" />
+    <SvgTex x={825} y={180} size={10} weight={600} color="var(--cat-amber)" src="reduce-scatter" />
+    <SvgTex x={825} y={318} size={10} color="var(--muted)" src="每层前向、反向各 all-gather 一次，反向再 reduce-scatter，量 $\approx 3\Psi$" />
+  </svg>
+  <figcaption set:html={texMix(caption)} />
+</figure>
+
+<style>
+  .fig { margin: 2rem 0; padding: 0.8rem 0.6rem 0.6rem; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); overflow-x: auto; }
+  .fig svg { display: block; width: 100%; min-width: 760px; height: auto; font-family: var(--font-sans); }
+  .fig marker path { fill: var(--text-2); }
+  .edge { fill: none; stroke: var(--text-2); stroke-width: 1.4; }
+  .edge.comm { stroke: var(--cat-amber); stroke-width: 1.8; }
+  .dev { fill: color-mix(in srgb, var(--muted) 8%, var(--bg-2)); stroke: var(--border-2); stroke-width: 1.2; }
+  .act { fill: color-mix(in srgb, var(--cat-cyan) 22%, var(--bg-2)); stroke: var(--cat-cyan); stroke-width: 1.2; }
+  .wt { fill: color-mix(in srgb, var(--cat-indigo) 22%, var(--bg-2)); stroke: var(--cat-indigo); stroke-width: 1.2; }
+  .grad { fill: color-mix(in srgb, var(--cat-rose) 22%, var(--bg-2)); stroke: var(--cat-rose); stroke-width: 1.2; }
+  .ghost { fill: none; stroke: var(--cat-indigo); stroke-width: 1.1; stroke-dasharray: 4 3; opacity: .75; }
+  .ghost.rose { stroke: var(--cat-rose); }
+  figcaption { margin-top: 0.6rem; font-size: 0.88rem; color: var(--text-2); line-height: 1.6; text-align: center; }
+</style>

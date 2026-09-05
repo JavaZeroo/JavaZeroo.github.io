@@ -1,0 +1,88 @@
+---
+/**
+ * 并行总览的开篇图：一次训练里能切的维度都在哪。
+ * 左：层的堆叠（PP 切层）；中：一层里的激活 X（b×S×d）和权重 W（d×4d）；右：MoE 的 expert 堆叠（EP）。
+ * 每条彩色虚线是一种并行下刀的位置。
+ */
+import SvgTex from '../k3/SvgTex.astro';
+import { texMix } from '../k3/tex';
+const caption = '一次训练里可以下刀的六个位置。DP 切 batch，SP 和 CP 切序列，TP 切权重矩阵的行或列，PP 切层，EP 切 expert；ZeRO / FSDP 不改变计算的切法，只把权重、梯度、优化器状态的存储按 DP 组切开。后面每一节讲其中一刀。';
+---
+<figure class="fig">
+  <svg viewBox="0 0 1100 330" role="img" aria-label="并行切分的六个维度">
+    <defs>
+      <marker id="pa-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" /></marker>
+    </defs>
+
+    <!-- 左：层堆叠 -->
+    <SvgTex x={110} y={46} size={12} weight={600} color="var(--text-2)" src="$L$ 层" />
+    {['层 1', '层 2', '…', '层 $L$'].map((t, i) => (
+      <g>
+        <rect class="layer" x="40" y={68 + i * 46} width="140" height="34" rx="7" />
+        <SvgTex x={110} y={85 + i * 46} size={11.5} weight={600} src={t} />
+      </g>
+    ))}
+    <line class="cut pp" x1="24" y1="157" x2="196" y2="157" />
+    <SvgTex x={110} y={272} size={11} weight={600} color="var(--cat-rose)" src="PP：在层之间切" />
+    <path class="expand" d="M180 114 L 250 60" /><path class="expand" d="M180 148 L 250 300" />
+
+    <!-- 中：一层里的激活和权重 -->
+    <rect class="panel" x="250" y="40" width="490" height="270" rx="12" />
+    <SvgTex x={270} y={56} size={11} align="start" color="var(--muted)" src="展开一层：激活 $X \in \mathbb{R}^{b\times S\times d}$，权重 $W \in \mathbb{R}^{d\times 4d}$" />
+    <!-- 激活：batch 方向的三张叠片 -->
+    <rect class="act back" x="286" y="96" width="190" height="104" rx="5" />
+    <rect class="act back" x="298" y="108" width="190" height="104" rx="5" />
+    <rect class="act" x="310" y="120" width="190" height="104" rx="5" />
+    <SvgTex x={405} y={172} size={12} weight={600} src="$X$" />
+    <SvgTex x={405} y={242} size={10} color="var(--text-2)" src="$S$（序列）" />
+    <SvgTex x={296} y={172} size={10} align="end" color="var(--text-2)" src="$d$" />
+    <SvgTex x={280} y={86} size={10} align="start" color="var(--text-2)" src="$b$ 条序列" />
+    <path class="cut dp" d="M304 232 V 114 H 506" />
+    <SvgTex x={520} y={110} size={11} weight={600} align="start" color="var(--cat-indigo)" src="DP：切 batch" />
+    <line class="cut sp" x1="405" y1="112" x2="405" y2="232" />
+    <SvgTex x={405} y={262} size={11} weight={600} color="var(--cat-cyan)" src="SP / CP：切序列" />
+    <!-- 权重 -->
+    <rect class="wt" x="560" y="120" width="160" height="104" rx="5" />
+    <SvgTex x={640} y={172} size={12} weight={600} src="$W$" />
+    <SvgTex x={640} y={242} size={10} color="var(--text-2)" src="$4d$" />
+    <SvgTex x={552} y={172} size={10} align="end" color="var(--text-2)" src="$d$" />
+    <line class="cut tp" x1="640" y1="112" x2="640" y2="232" />
+    <line class="cut tp" x1="552" y1="172" x2="728" y2="172" />
+    <SvgTex x={640} y={100} size={11} weight={600} color="var(--cat-emerald)" src="TP：切列" />
+    <SvgTex x={640} y={262} size={11} weight={600} color="var(--cat-emerald)" src="或切行" />
+    <SvgTex x={495} y={292} size={10} color="var(--text-2)" src="ZeRO / FSDP：只切 $W$、梯度、优化器状态的存储，计算前 all-gather 凑齐" />
+
+    <!-- 右：expert 堆叠 -->
+    <SvgTex x={900} y={46} size={12} weight={600} color="var(--text-2)" src="MoE 层的 $E$ 个 expert" />
+    {['expert 1', 'expert 2', '…', 'expert $E$'].map((t, i) => (
+      <g>
+        <rect class="ex" x="830" y={68 + i * 46} width="140" height="34" rx="7" />
+        <SvgTex x={900} y={85 + i * 46} size={11.5} weight={600} src={t} />
+      </g>
+    ))}
+    <line class="cut ep" x1="814" y1="157" x2="986" y2="157" />
+    <SvgTex x={900} y={272} size={11} weight={600} color="var(--cat-amber)" src="EP：在 expert 之间切" />
+    <path class="expand" d="M740 172 L 826 130" />
+    <SvgTex x={760} y={300} size={10} align="start" color="var(--muted)" src="FFN 若是 MoE" />
+  </svg>
+  <figcaption set:html={texMix(caption)} />
+</figure>
+
+<style>
+  .fig { margin: 2rem 0; padding: 0.8rem 0.6rem 0.6rem; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); overflow-x: auto; }
+  .fig svg { display: block; width: 100%; min-width: 760px; height: auto; font-family: var(--font-sans); }
+  .panel { fill: none; stroke: var(--border-2); stroke-width: 1.2; stroke-dasharray: 6 5; }
+  .expand { fill: none; stroke: var(--border-2); stroke-width: 1; stroke-dasharray: 3 3; }
+  .layer { fill: color-mix(in srgb, var(--muted) 12%, var(--bg-2)); stroke: var(--muted); stroke-width: 1.2; }
+  .act { fill: color-mix(in srgb, var(--cat-cyan) 22%, var(--bg-2)); stroke: var(--cat-cyan); stroke-width: 1.2; }
+  .act.back { fill: color-mix(in srgb, var(--cat-cyan) 10%, var(--bg-2)); opacity: .9; }
+  .wt { fill: color-mix(in srgb, var(--cat-indigo) 22%, var(--bg-2)); stroke: var(--cat-indigo); stroke-width: 1.2; }
+  .ex { fill: color-mix(in srgb, var(--cat-emerald) 16%, var(--bg-2)); stroke: var(--cat-emerald); stroke-width: 1.2; }
+  .cut { fill: none; stroke-width: 2; stroke-dasharray: 7 5; }
+  .cut.pp { stroke: var(--cat-rose); }
+  .cut.dp { stroke: var(--cat-indigo); }
+  .cut.sp { stroke: var(--cat-cyan); }
+  .cut.tp { stroke: var(--cat-emerald); }
+  .cut.ep { stroke: var(--cat-amber); }
+  figcaption { margin-top: 0.6rem; font-size: 0.88rem; color: var(--text-2); line-height: 1.6; text-align: center; }
+</style>

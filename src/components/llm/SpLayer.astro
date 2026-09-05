@@ -1,0 +1,109 @@
+---
+/**
+ * Megatron 序列并行：一层 transformer 里，TP 切不到的 LayerNorm、dropout、残差按序列切，
+ * 进出 TP 区各用一次 all-gather / reduce-scatter，代替原来的 all-reduce。
+ * 两行：上一行注意力子层，下一行 MLP 子层。每个算子下面的小矩形是「每卡持有的激活形状」：按 S 切是半宽，按 d / 头切是半高。
+ */
+import SvgTex from '../k3/SvgTex.astro';
+import { texMix } from '../k3/tex';
+const caption = '序列并行（Megatron-SP）。虚线框里的 LayerNorm、dropout、残差按序列切，每卡只有 $S/T$ 个 token；实线框里的注意力和 MLP 按头 / 按列切，每卡有全部 token 但只有 $1/T$ 的通道。进 TP 区 all-gather（$\\bar f$），出 TP 区 reduce-scatter（$\\bar g$），两者合起来正好是原来的一次 all-reduce，通信量不变，但原本复制 $T$ 份的那部分激活也切开了。';
+type Kind = 'seq' | 'tp' | 'ag' | 'rs';
+type Item = { kind: Kind; w: number; l1: string; l2?: string };
+const rows: Item[][] = [
+  [
+    { kind: 'seq', w: 96, l1: 'LayerNorm', l2: '逐 token' },
+    { kind: 'ag', w: 0, l1: '$\\bar f$' },
+    { kind: 'tp', w: 150, l1: '注意力', l2: '按头切，每卡 $a/T$ 个头' },
+    { kind: 'rs', w: 0, l1: '$\\bar g$' },
+    { kind: 'seq', w: 124, l1: 'dropout + 残差', l2: '逐元素' },
+  ],
+  [
+    { kind: 'seq', w: 96, l1: 'LayerNorm', l2: '逐 token' },
+    { kind: 'ag', w: 0, l1: '$\\bar f$' },
+    { kind: 'tp', w: 150, l1: 'MLP', l2: '$A$ 切列，$B$ 切行' },
+    { kind: 'rs', w: 0, l1: '$\\bar g$' },
+    { kind: 'seq', w: 124, l1: 'dropout + 残差', l2: '逐元素' },
+  ],
+];
+const X0 = 150, H = 56, GAP = 40, R = 15;
+const ROWY = [70, 250];
+const SW = 44, SH = 28, SDY = 78; // 形状指示相对行顶的偏移
+type Node = Item & { x: number; w: number; y: number };
+const laid: Node[][] = rows.map((row, r) => {
+  let x = X0;
+  return row.map((c) => {
+    const w = c.kind === 'ag' || c.kind === 'rs' ? 2 * R : c.w;
+    const n = { ...c, x, w, y: ROWY[r] };
+    x += w + GAP;
+    return n;
+  });
+});
+const rowEnd = laid[0][laid[0].length - 1];
+const W = rowEnd.x + rowEnd.w + 40;
+---
+<figure class="fig">
+  <svg viewBox={`0 0 ${W} 430`} role="img" aria-label="序列并行：一层里哪里按序列切，哪里按张量切">
+    <defs>
+      <marker id="sp-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" /></marker>
+    </defs>
+    <SvgTex x={24} y={30} size={11} align="start" color="var(--muted)" src="一层 transformer，$T$ 张卡的张量并行组；上行注意力子层，下行 MLP 子层" />
+    <SvgTex x={X0 - 16} y={ROWY[0] + H / 2} size={10.5} align="end" weight={600} color="var(--text-2)" src="注意力子层" />
+    <SvgTex x={X0 - 16} y={ROWY[1] + H / 2} size={10.5} align="end" weight={600} color="var(--text-2)" src="MLP 子层" />
+    <SvgTex x={X0 - 16} y={ROWY[0] + SDY + SH / 2} size={9.5} align="end" color="var(--muted)" src="每卡持有的激活" />
+    <SvgTex x={X0 - 16} y={ROWY[1] + SDY + SH / 2} size={9.5} align="end" color="var(--muted)" src="每卡持有的激活" />
+    <line class="edge" x1={X0 - 40} y1={ROWY[0] + H / 2} x2={X0 - 2} y2={ROWY[0] + H / 2} marker-end="url(#sp-arrow)" />
+
+    {laid.map((row, r) => row.map((n, i) => {
+      const next = row[i + 1];
+      const cx = n.x + n.w / 2, cy = n.y + H / 2;
+      const sy = n.y + SDY;
+      return (
+        <g>
+          {n.kind === 'ag' || n.kind === 'rs'
+            ? <g>
+                <circle class="comm" cx={cx} cy={cy} r={R} />
+                <SvgTex x={cx} y={cy} size={11.5} weight={600} src={n.l1} />
+                <SvgTex x={cx} y={cy + R + 12} size={9} color="var(--cat-amber)" weight={600} src={n.kind === 'ag' ? 'all-gather' : 'reduce-scatter'} />
+                <SvgTex x={cx} y={cy - R - 10} size={8.5} color="var(--muted)" src={n.kind === 'ag' ? '反向 reduce-scatter' : '反向 all-gather'} />
+              </g>
+            : <g>
+                <rect class:list={['box', n.kind]} x={n.x} y={n.y} width={n.w} height={H} rx="7" />
+                <SvgTex x={cx} y={n.y + 20} size={11.5} weight={600} src={n.l1} />
+                {n.l2 && <SvgTex x={cx} y={n.y + 40} size={9.5} color="var(--text-2)" src={n.l2} />}
+              </g>}
+          {next && <line class="edge" x1={n.x + n.w} y1={cy} x2={next.x - 2} y2={cy} marker-end="url(#sp-arrow)" />}
+          {n.kind === 'seq' && <g>
+            <rect class="shape ghost" x={cx - SW / 2} y={sy} width={SW} height={SH} rx="3" />
+            <rect class="shape seq" x={cx - SW / 2} y={sy} width={SW / 2} height={SH} rx="3" />
+            <SvgTex x={cx} y={sy + SH + 12} size={9} color="var(--text-2)" src="$S/T \times d$" />
+          </g>}
+          {n.kind === 'tp' && <g>
+            <rect class="shape ghost" x={cx - SW / 2} y={sy} width={SW} height={SH} rx="3" />
+            <rect class="shape tp" x={cx - SW / 2} y={sy} width={SW} height={SH / 2} rx="3" />
+            <SvgTex x={cx} y={sy + SH + 12} size={9} color="var(--text-2)" src="$S \times d/T$（子层内部）" />
+          </g>}
+        </g>
+      );
+    }))}
+    {/* 行间连接：上行末尾 → 下行开头 */}
+    <path class="edge" d={`M${rowEnd.x + rowEnd.w} ${ROWY[0] + H / 2} H ${rowEnd.x + rowEnd.w + 18} V ${ROWY[0] + H + 100} H ${X0 - 30} V ${ROWY[1] + H / 2} H ${X0 - 2}`} marker-end="url(#sp-arrow)" />
+    <line class="edge" x1={rowEnd.x + rowEnd.w} y1={ROWY[1] + H / 2} x2={rowEnd.x + rowEnd.w + 30} y2={ROWY[1] + H / 2} marker-end="url(#sp-arrow)" />
+    <SvgTex x={W / 2} y={392} size={10} color="var(--text-2)" src="不切时每层激活 $\approx sbd\,(34 + 5as/d)$；只用 TP：$sbd\,(10 + 24/T + 5as/(dT))$，其中 10 那份（虚线框的输入）在 $T$ 张卡上是复制的" />
+    <SvgTex x={W / 2} y={412} size={10} color="var(--text-2)" src="加上 SP 之后全部除以 $T$：$sbd\,(34/T + 5as/(dT))$" />
+  </svg>
+  <figcaption set:html={texMix(caption)} />
+</figure>
+
+<style>
+  .fig { margin: 2rem 0; padding: 0.8rem 0.6rem 0.6rem; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); overflow-x: auto; }
+  .fig svg { display: block; width: 100%; min-width: 700px; height: auto; font-family: var(--font-sans); }
+  .fig marker path { fill: var(--text-2); }
+  .edge { fill: none; stroke: var(--text-2); stroke-width: 1.4; }
+  .box.seq { fill: color-mix(in srgb, var(--cat-cyan) 14%, var(--bg-2)); stroke: var(--cat-cyan); stroke-width: 1.3; stroke-dasharray: 5 4; }
+  .box.tp { fill: color-mix(in srgb, var(--cat-emerald) 16%, var(--bg-2)); stroke: var(--cat-emerald); stroke-width: 1.4; }
+  .comm { fill: color-mix(in srgb, var(--cat-amber) 26%, var(--bg-2)); stroke: var(--cat-amber); stroke-width: 1.4; }
+  .shape.ghost { fill: none; stroke: var(--border-2); stroke-width: 1; stroke-dasharray: 3 2; }
+  .shape.seq { fill: color-mix(in srgb, var(--cat-cyan) 40%, var(--bg-2)); stroke: var(--cat-cyan); stroke-width: 1; }
+  .shape.tp { fill: color-mix(in srgb, var(--cat-emerald) 40%, var(--bg-2)); stroke: var(--cat-emerald); stroke-width: 1; }
+  figcaption { margin-top: 0.6rem; font-size: 0.88rem; color: var(--text-2); line-height: 1.6; text-align: center; }
+</style>

@@ -1,0 +1,90 @@
+---
+/**
+ * 流水线并行：上半是 L 层切成 P 段、段间只传激活和激活梯度；下半是 GPipe 的时间线（P=4, m=4），
+ * 前向 1 格、反向 2 格，斜线是气泡。
+ */
+import SvgTex from '../k3/SvgTex.astro';
+import { texMix } from '../k3/tex';
+const caption = '流水线并行。上：$L$ 层切成 $P = 4$ 段，段间只传一个 $b\\,S\\,d$ 的激活（前向）和同样大小的激活梯度（反向），是所有并行里通信最少的。下：GPipe 时间线，$m = 4$ 个 micro-batch，前向 1 格、反向 2 格。斜线是气泡：stage 3 开头要等前向流到它，stage 0 结尾要等反向流回来。1F1B、虚拟段、Zero Bubble 怎么处理它，见流水线那篇。';
+const P = 4, m = 4;
+const SX = 40, SW = 200, SG = 60; // stage boxes
+// timeline
+const TX = 120, TY = 200, U = 20, RH = 26;
+type Cell = { s: number; t: number; w: number; kind: 'f' | 'b'; i: number };
+const cells: Cell[] = [];
+for (let s = 0; s < P; s++) for (let i = 0; i < m; i++) cells.push({ s, t: s + i, w: 1, kind: 'f', i });
+const T0 = P - 1 + m; // all forwards of last stage end
+for (let s = P - 1; s >= 0; s--) for (let i = 0; i < m; i++) cells.push({ s, t: T0 + 2 * (P - 1 - s) + 2 * i, w: 2, kind: 'b', i });
+const TOTAL = T0 + 2 * (P - 1) + 2 * m;
+---
+<figure class="fig">
+  <svg viewBox="0 0 1080 380" role="img" aria-label="流水线并行：切层与气泡">
+    <defs>
+      <marker id="pp-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" /></marker>
+      <marker id="pp-arrow-r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="var(--cat-rose)" /></marker>
+      <pattern id="pp-hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="6" stroke="var(--muted)" stroke-width="1.2" opacity=".55" /></pattern>
+    </defs>
+
+    {Array.from({ length: P }, (_, s) => {
+      const x = SX + s * (SW + SG);
+      return (
+        <g>
+          <rect class="dev" x={x} y="44" width={SW} height="96" rx="10" />
+          <SvgTex x={x + SW / 2} y={60} size={10.5} color="var(--muted)" src={`GPU ${s}，stage ${s}`} />
+          {[0, 1, 2].map((k) => (
+            <g>
+              <rect class="layer" x={x + 16 + k * 58} y="76" width="52" height="34" rx="6" />
+              <SvgTex x={x + 42 + k * 58} y={93} size={10} weight={600} src={`层 ${s * 3 + k + 1}`} />
+            </g>
+          ))}
+          <SvgTex x={x + SW / 2} y={128} size={9.5} color="var(--text-2)" src={`参数 $\\Psi/P$，只有这 $L/P$ 层`} />
+          {s < P - 1 && <g>
+            <line class="edge act" x1={x + SW} y1="82" x2={x + SW + SG - 2} y2="82" marker-end="url(#pp-arrow)" />
+            <line class="edge bwd" x1={x + SW + SG} y1="112" x2={x + SW + 2} y2="112" marker-end="url(#pp-arrow-r)" />
+          </g>}
+        </g>
+      );
+    })}
+    <SvgTex x={SX + SW + SG / 2} y={70} size={9} color="var(--text-2)" src="激活 $bSd$" />
+    <SvgTex x={SX + SW + SG / 2} y={126} size={9} color="var(--cat-rose)" src="梯度 $bSd$" />
+    <SvgTex x={SX + 2 * (SW + SG) + SW + SG / 2} y={70} size={9} color="var(--text-2)" src="点对点" />
+
+    <!-- 时间线 -->
+    <SvgTex x={TX} y={180} size={11} align="start" color="var(--muted)" src="GPipe 时间线，$P = 4$，$m = 4$，前向 1 格、反向 2 格。斜线：气泡" />
+    {Array.from({ length: P }, (_, s) => (
+      <g>
+        <SvgTex x={TX - 10} y={TY + s * RH + RH / 2} size={10} align="end" color="var(--text-2)" src={`stage ${s}`} />
+        <rect class="bubble" x={TX} y={TY + s * RH} width={TOTAL * U} height={RH - 3} />
+      </g>
+    ))}
+    {cells.map((c) => (
+      <g>
+        <rect class:list={['cell', c.kind]} x={TX + c.t * U} y={TY + c.s * RH} width={c.w * U - 1.5} height={RH - 3} rx="2" />
+        <SvgTex x={TX + c.t * U + (c.w * U) / 2} y={TY + c.s * RH + RH / 2 - 1.5} size={9.5} weight={600} src={`${c.kind === 'f' ? 'F' : 'B'}${c.i + 1}`} />
+      </g>
+    ))}
+    <line class="edge" x1={TX} y1={TY + P * RH + 6} x2={TX + TOTAL * U} y2={TY + P * RH + 6} marker-end="url(#pp-arrow)" />
+    <SvgTex x={TX + TOTAL * U + 8} y={TY + P * RH + 6} size={9.5} align="start" color="var(--text-2)" src="时间" />
+    <SvgTex x={TX + (P - 1) * U / 2} y={TY + P * RH + 24} size={9} color="var(--muted)" src="灌满" />
+    <SvgTex x={TX + (TOTAL - (P - 1)) * U} y={TY + P * RH + 24} size={9} color="var(--muted)" src="排空" />
+    <SvgTex x={TX + TOTAL * U / 2} y={TY + P * RH + 44} size={10} color="var(--text-2)" src={`每个 stage 忙 $m(t_f + t_b)$，总长 $(m + P - 1)(t_f + t_b)$，气泡占比 $(P-1)/(m+P-1)$`} />
+    <rect class="cell f" x={TX + 560} y={178 - 8} width="16" height="14" rx="2" /><SvgTex x={TX + 582} y={178} size={9.5} align="start" color="var(--text-2)" src="前向" />
+    <rect class="cell b" x={TX + 620} y={178 - 8} width="16" height="14" rx="2" /><SvgTex x={TX + 642} y={178} size={9.5} align="start" color="var(--text-2)" src="反向" />
+  </svg>
+  <figcaption set:html={texMix(caption)} />
+</figure>
+
+<style>
+  .fig { margin: 2rem 0; padding: 0.8rem 0.6rem 0.6rem; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); overflow-x: auto; }
+  .fig svg { display: block; width: 100%; min-width: 760px; height: auto; font-family: var(--font-sans); }
+  .fig marker path { fill: var(--text-2); }
+  .edge { fill: none; stroke: var(--text-2); stroke-width: 1.4; }
+  .edge.act { stroke: var(--cat-cyan); stroke-width: 1.8; }
+  .edge.bwd { stroke: var(--cat-rose); stroke-width: 1.6; stroke-dasharray: 5 4; }
+  .dev { fill: color-mix(in srgb, var(--muted) 8%, var(--bg-2)); stroke: var(--border-2); stroke-width: 1.2; }
+  .layer { fill: color-mix(in srgb, var(--cat-indigo) 18%, var(--bg-2)); stroke: var(--cat-indigo); stroke-width: 1.1; }
+  .bubble { fill: url(#pp-hatch); stroke: var(--border-2); stroke-width: .8; }
+  .cell.f { fill: color-mix(in srgb, var(--cat-cyan) 45%, var(--bg-2)); stroke: var(--cat-cyan); stroke-width: 1; }
+  .cell.b { fill: color-mix(in srgb, var(--cat-rose) 40%, var(--bg-2)); stroke: var(--cat-rose); stroke-width: 1; }
+  figcaption { margin-top: 0.6rem; font-size: 0.88rem; color: var(--text-2); line-height: 1.6; text-align: center; }
+</style>

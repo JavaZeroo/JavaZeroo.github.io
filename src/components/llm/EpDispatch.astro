@@ -1,0 +1,103 @@
+---
+/**
+ * expert 并行：token 按 router 的结果 all-to-all 到持有目标 expert 的 rank，算完再 all-to-all 回原位。
+ * 两个 EP rank，每 rank 两个 expert，token 的颜色 = 目标 expert（画 top-1，top-k 是每个 token 发 k 份）。
+ */
+import SvgTex from '../k3/SvgTex.astro';
+import { texMix } from '../k3/tex';
+const caption = 'expert 并行。$E = 4$ 个 expert 切到 $R = 2$ 个 rank 上，每个 token 的颜色是 router 选中的 expert。dispatch 是一次 all-to-all：把 token 送到持有它目标 expert 的 rank；每个 expert 对收到的 token 做一次普通的 FFN；combine 再一次 all-to-all 把结果送回原位，按 router 权重求和。两次 all-to-all 合起来是一个置换，反向把它们的方向调转即可。';
+const EXP = ['var(--cat-indigo)', 'var(--cat-cyan)', 'var(--cat-emerald)', 'var(--cat-rose)'];
+// 每个 rank 的 4 个 token，值 = 目标 expert
+const toks = [[0, 2, 1, 3], [2, 0, 3, 1]];
+const RY = [86, 236]; // rank 行的 y
+const TX0 = 60, TW = 26, TG = 8;
+const EX = 420, EW = 130, EH = 46;
+const OX = 780;
+// 每个 expert 收到的 token 列表 [rank, idx]
+const recv: [number, number][][] = [[], [], [], []];
+toks.forEach((row, r) => row.forEach((e, i) => recv[e].push([r, i])));
+const tokX = (i: number) => TX0 + i * (TW + TG);
+const exY = (e: number) => RY[Math.floor(e / 2)] + (e % 2) * 64 + 10;
+---
+<figure class="fig">
+  <svg viewBox="0 0 1100 390" role="img" aria-label="expert 并行的 dispatch 与 combine">
+    <defs>
+      <marker id="ep-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" /></marker>
+    </defs>
+    {RY.map((y, r) => (
+      <g>
+        <rect class="dev" x="20" y={y - 20} width="1060" height="140" rx="10" />
+        <SvgTex x={32} y={y - 6} size={10} align="start" color="var(--muted)" src={`EP rank ${r}`} />
+        <SvgTex x={TX0 + 2 * (TW + TG) - TG / 2} y={y + 6} size={9.5} color="var(--text-2)" src="router 之后的本地 token" />
+        {toks[r].map((e, i) => (
+          <g>
+            <rect class="tok" x={tokX(i)} y={y + 20} width={TW} height={TW} rx="4" style={`--c:${EXP[e]}`} />
+            <SvgTex x={tokX(i) + TW / 2} y={y + 20 + TW / 2} size={9} weight={600} src={`${r}${i}`} />
+          </g>
+        ))}
+        <SvgTex x={TX0 + 2 * (TW + TG) - TG / 2} y={y + 64} size={9} color="var(--muted)" src="颜色 = 目标 expert" />
+        {/* 本 rank 的两个 expert */}
+        {[0, 1].map((k) => {
+          const e = r * 2 + k, ey = exY(e);
+          return (
+            <g>
+              <rect class="ex" x={EX} y={ey} width={EW} height={EH} rx="7" style={`--c:${EXP[e]}`} />
+              <SvgTex x={EX + EW / 2} y={ey + 16} size={11} weight={600} src={`expert ${e}`} />
+              <SvgTex x={EX + EW / 2} y={ey + 33} size={9} color="var(--text-2)" src="FFN，权重只在本卡" />
+              {recv[e].map(([rr, ii], j) => (
+                <g>
+                  <rect class="tok" x={EX + EW + 12 + j * (TW + 4)} y={ey + 10} width={TW} height={TW} rx="4" style={`--c:${EXP[e]}`} />
+                  <SvgTex x={EX + EW + 12 + j * (TW + 4) + TW / 2} y={ey + 10 + TW / 2} size={9} weight={600} src={`${rr}${ii}`} />
+                </g>
+              ))}
+            </g>
+          );
+        })}
+        {/* 输出：回到原位 */}
+        <SvgTex x={OX + 2 * (TW + TG) - TG / 2} y={y + 6} size={9.5} color="var(--text-2)" src="回到原位，加权求和" />
+        {toks[r].map((e, i) => (
+          <g>
+            <rect class="tok out" x={OX + i * (TW + TG)} y={y + 20} width={TW} height={TW} rx="4" style={`--c:${EXP[e]}`} />
+            <SvgTex x={OX + i * (TW + TG) + TW / 2} y={y + 20 + TW / 2} size={9} weight={600} src={`${r}${i}`} />
+          </g>
+        ))}
+        <SvgTex x={OX + 2 * (TW + TG) - TG / 2} y={y + 64} size={9} color="var(--muted)" src="$y = \sum_{e\in\text{top-}k} g_e\, E_e(x)$" />
+      </g>
+    ))}
+
+    {/* dispatch 箭头：token → expert */}
+    {toks.map((row, r) => row.map((e, i) => {
+      const x0 = tokX(i) + TW, y0 = RY[r] + 20 + TW / 2;
+      const y1 = exY(e) + EH / 2, x1 = EX - 3;
+      const foreign = Math.floor(e / 2) !== r;
+      return <path class:list={['flow', { foreign }]} d={`M${x0} ${y0} C ${x0 + 120} ${y0}, ${x1 - 120} ${y1}, ${x1} ${y1}`} marker-end="url(#ep-arrow)" style={`--c:${EXP[e]}`} />;
+    }))}
+    {/* combine 箭头：expert → 原位 */}
+    {toks.map((row, r) => row.map((e, i) => {
+      const j = recv[e].findIndex(([rr, ii]) => rr === r && ii === i);
+      const x0 = EX + EW + 12 + j * (TW + 4) + TW, y0 = exY(e) + 10 + TW / 2;
+      const x1 = OX + i * (TW + TG) - 3, y1 = RY[r] + 20 + TW / 2;
+      const foreign = Math.floor(e / 2) !== r;
+      return <path class:list={['flow', { foreign }]} d={`M${x0} ${y0} C ${x0 + 90} ${y0}, ${x1 - 90} ${y1}, ${x1} ${y1}`} marker-end="url(#ep-arrow)" style={`--c:${EXP[e]}`} />;
+    }))}
+    <SvgTex x={285} y={26} size={11} weight={600} color="var(--cat-amber)" src="dispatch：all-to-all" />
+    <SvgTex x={285} y={44} size={9.5} color="var(--text-2)" src="每 token 发 $k$ 份，共 $k\,bSd$ 个数" />
+    <SvgTex x={690} y={26} size={11} weight={600} color="var(--cat-amber)" src="combine：all-to-all" />
+    <SvgTex x={690} y={44} size={9.5} color="var(--text-2)" src="原路返回，同样 $k\,bSd$ 个数" />
+    <SvgTex x={550} y={376} size={10} color="var(--muted)" src="虚线是跨 rank 的那部分：$R$ 个 rank 时平均 $(R-1)/R$ 的 token 要出卡。收到 token 最多的 rank 决定这一层的时间。" />
+  </svg>
+  <figcaption set:html={texMix(caption)} />
+</figure>
+
+<style>
+  .fig { margin: 2rem 0; padding: 0.8rem 0.6rem 0.6rem; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); overflow-x: auto; }
+  .fig svg { display: block; width: 100%; min-width: 800px; height: auto; font-family: var(--font-sans); }
+  .fig marker path { fill: var(--text-2); }
+  .dev { fill: color-mix(in srgb, var(--muted) 8%, var(--bg-2)); stroke: var(--border-2); stroke-width: 1.2; }
+  .tok { fill: color-mix(in srgb, var(--c) 45%, var(--bg-2)); stroke: var(--c); stroke-width: 1.1; }
+  .tok.out { fill: color-mix(in srgb, var(--c) 22%, var(--bg-2)); }
+  .ex { fill: color-mix(in srgb, var(--c) 14%, var(--bg-2)); stroke: var(--c); stroke-width: 1.4; }
+  .flow { fill: none; stroke: var(--c); stroke-width: 1.2; opacity: .8; }
+  .flow.foreign { stroke-dasharray: 5 4; }
+  figcaption { margin-top: 0.6rem; font-size: 0.88rem; color: var(--text-2); line-height: 1.6; text-align: center; }
+</style>

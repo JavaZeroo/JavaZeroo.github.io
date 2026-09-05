@@ -16,7 +16,7 @@ draft: false
 
 import ZeroStages from '../../components/llm/ZeroStages.astro';
 
-数据并行（DP）把 batch 切成 $N$ 份，每张卡跑一份完整的模型，每步结束把梯度 all-reduce 一次。它最简单，也最浪费：[并行速览](/2026/09/05/llm-parallel-overview/)那张表里，它是唯一一个不减少每卡显存的并行。ZeRO 就是为了把这一格补上。
+数据并行（DP）把 batch 切成 $N$ 份，每张卡跑一份完整的模型，每步结束把梯度 all-reduce 一次。它最简单，也最浪费：[并行总览](/2026/09/05/llm-parallel-overview/)里，它是唯一一个不减少每卡显存的并行。ZeRO 就是为了把这一格补上。
 
 ## 每个参数 16 字节
 

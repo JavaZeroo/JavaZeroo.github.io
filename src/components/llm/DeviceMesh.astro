@@ -1,0 +1,61 @@
+---
+/**
+ * 16 张卡的三维 device mesh：(pp=2, dp=2, tp=4)。TP 组是节点内一行（NVLink），DP 组是节点内同列，PP 组跨节点。
+ * rank = tp + 4·dp + 8·pp，变化最快的维度放在带宽最高的链路上。
+ */
+import SvgTex from '../k3/SvgTex.astro';
+import { texMix } from '../k3/tex';
+const caption = '16 张卡、两个节点上的一个三维 mesh：$(\\text{pp}, \\text{dp}, \\text{tp}) = (2, 2, 4)$。全局 rank $= \\text{tp} + 4\\,\\text{dp} + 8\\,\\text{pp}$，tp 变化最快，所以一个 TP 组正好是节点内 NVLink 相连的四张卡；DP 组是节点内同一列的两张卡；PP 组是两个节点上位置相同的卡，走节点间网络。Megatron 的 rank 顺序、PyTorch 的 init_device_mesh、JAX 的 Mesh 表达的都是这一张图。';
+const NODES = [{ x: 40, pp: 0 }, { x: 590, pp: 1 }];
+const GW = 78, GH = 54, PX = 100, PY = 84, OX = 50, OY = 60;
+---
+<figure class="fig">
+  <svg viewBox="0 0 1100 340" role="img" aria-label="三维 device mesh 示意">
+    <defs>
+      <marker id="dm-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="var(--cat-rose)" /></marker>
+    </defs>
+    {NODES.map((nd) => (
+      <g>
+        <rect class="node" x={nd.x} y="40" width="470" height="236" rx="12" />
+        <SvgTex x={nd.x + 12} y={56} size={10.5} align="start" color="var(--muted)" src={`节点 ${nd.pp}，8 卡 NVLink 全互联`} />
+        {[0, 1].map((dp) => (
+          <g>
+            <rect class="tpgrp" x={nd.x + OX - 8} y={40 + OY + dp * PY - 8} width={4 * PX - (PX - GW) + 16} height={GH + 16} rx="9" />
+            {[0, 1, 2, 3].map((tp) => (
+              <g>
+                <rect class="gpu" x={nd.x + OX + tp * PX} y={40 + OY + dp * PY} width={GW} height={GH} rx="7" />
+                <SvgTex x={nd.x + OX + tp * PX + GW / 2} y={40 + OY + dp * PY + 20} size={12} weight={600} src={`rank ${tp + 4 * dp + 8 * nd.pp}`} />
+                <SvgTex x={nd.x + OX + tp * PX + GW / 2} y={40 + OY + dp * PY + 39} size={9} color="var(--text-2)" src={`(${nd.pp}, ${dp}, ${tp})`} />
+              </g>
+            ))}
+          </g>
+        ))}
+        {[0, 1, 2, 3].map((tp) => (
+          <rect class="dpgrp" x={nd.x + OX + tp * PX - 4} y={40 + OY - 14} width={GW + 8} height={PY + GH + 28} rx="9" />
+        ))}
+        <SvgTex x={nd.x + OX + 4 * PX - (PX - GW) + 2} y={40 + OY + GH / 2} size={9.5} align="start" weight={600} color="var(--cat-cyan)" src="TP 组" />
+        <SvgTex x={nd.x + OX + 4 * PX - (PX - GW) + 2} y={40 + OY + PY + GH / 2} size={9.5} align="start" weight={600} color="var(--cat-cyan)" src="TP 组" />
+        {[0, 1, 2, 3].map((tp) => (
+          <SvgTex x={nd.x + OX + tp * PX + GW / 2} y={40 + OY + PY + GH + 24} size={9.5} weight={600} color="var(--cat-indigo)" src="DP 组" />
+        ))}
+      </g>
+    ))}
+    <path class="pp" d="M 514 127 H 586" marker-end="url(#dm-arrow)" marker-start="url(#dm-arrow)" />
+    <SvgTex x={550} y={112} size={9.5} weight={600} color="var(--cat-rose)" src="PP 组" />
+    <SvgTex x={550} y={144} size={9} color="var(--cat-rose)" src="跨节点" />
+    <SvgTex x={550} y={302} size={10.5} color="var(--text-2)" src="mesh 维度 (pp, dp, tp) = (2, 2, 4)；rank = tp + 4·dp + 8·pp；变化最快的维度放在带宽最高的链路上" />
+    <SvgTex x={550} y={324} size={10} color="var(--muted)" src="每张卡上：$1/\text{tp}$ 的层内权重，$1/\text{pp}$ 的层，$1/\text{dp}$ 的 batch；加 ZeRO 则优化器状态再按 dp 组切" />
+  </svg>
+  <figcaption set:html={texMix(caption)} />
+</figure>
+
+<style>
+  .fig { margin: 2rem 0; padding: 0.8rem 0.6rem 0.6rem; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); overflow-x: auto; }
+  .fig svg { display: block; width: 100%; min-width: 800px; height: auto; font-family: var(--font-sans); }
+  .node { fill: color-mix(in srgb, var(--muted) 7%, var(--bg-2)); stroke: var(--border-2); stroke-width: 1.2; }
+  .gpu { fill: var(--bg-2); stroke: var(--text-2); stroke-width: 1.2; }
+  .tpgrp { fill: color-mix(in srgb, var(--cat-cyan) 10%, transparent); stroke: var(--cat-cyan); stroke-width: 1.4; }
+  .dpgrp { fill: none; stroke: var(--cat-indigo); stroke-width: 1.2; stroke-dasharray: 5 4; }
+  .pp { fill: none; stroke: var(--cat-rose); stroke-width: 1.8; stroke-dasharray: 6 4; }
+  figcaption { margin-top: 0.6rem; font-size: 0.88rem; color: var(--text-2); line-height: 1.6; text-align: center; }
+</style>

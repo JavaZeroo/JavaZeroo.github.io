@@ -1,7 +1,7 @@
 ---
-title: "并行速览：切哪个维度，谁在等谁"
+title: "并行策略总览：六个维度各切什么、怎么通信"
 pubDate: 2026-09-05 21:30:00
-description: "「并行」章的开篇。把 DP、TP、SP、PP、EP、CP 六种并行放进同一张表：各自切模型的哪个维度、每张卡因此少了什么、引入了什么通信、让谁等谁。后面每一篇都是这张表里某一格的展开。"
+description: "「并行」章的开篇。一次训练里能下刀的位置只有六个：batch、序列、权重矩阵的行列、层、expert，以及注意力内部的序列。每种切法一节，回答同一组问题：切什么、为什么能切、前向和反向各发生什么通信、通信量多大、每卡的计算和显存少了多少。最后看 Megatron、DeepSpeed、PyTorch DTensor / FSDP / torchtitan、JAX GSPMD 怎么用各自的方式表达同一套切法，以及它们怎么在一个 device mesh 上叠起来。"
 categories:
   - "📝学习"
 tags:
@@ -14,45 +14,229 @@ order: 1
 draft: false
 ---
 
-训练一个放不进一张卡的模型，办法只有一个：把它切开。可以切的维度就那么几个，每一种切法对应一种并行，每一种并行都有代价，代价的形式永远是**通信**和**等待**。这一篇不讲任何一种并行的细节，只把它们排进一张表，让后面的文章有个坐标。
+import ParallelAxes from '../../components/llm/ParallelAxes.astro';
+import DpShard from '../../components/llm/DpShard.astro';
+import TpMlp from '../../components/llm/TpMlp.astro';
+import SpLayer from '../../components/llm/SpLayer.astro';
+import PpStages from '../../components/llm/PpStages.astro';
+import EpDispatch from '../../components/llm/EpDispatch.astro';
+import CpRing from '../../components/llm/CpRing.astro';
+import DeviceMesh from '../../components/llm/DeviceMesh.astro';
 
-## 一张表
+一步训练要做的事是固定的：一个 batch 进来，前向算出 loss，反向算出每个参数的梯度，优化器更新参数。单卡放不下、或者单卡太慢，就要把这一步拆到很多卡上。能拆的方式并不多：训练涉及的每个张量就那么几个维度，每一种并行就是沿其中一个维度下刀。刀落在哪，就决定了每张卡少算什么、少存什么，以及原本在一张卡里免费完成的数据搬运变成了什么通信。
 
-记模型有 $L$ 层、隐藏维 $d$，一个 batch 有 $m$ 个 micro-batch，每个 micro-batch $S$ 个 token。
+这一篇把六种切法一个一个讲。每一节回答同一组问题：**切的是什么**，**为什么可以这样切**（哪条数学恒等式保证结果不变），**前向和反向各发生了什么通信**，**通信量多大**，**每张卡的计算和显存各少了多少**。讲完六种再看主流框架怎么表达它们：Megatron-LM 手写并行层，PyTorch 的 DTensor / FSDP2 / torchtitan 用「张量放置」自动推出通信，JAX 的 GSPMD 让编译器来做这件事。三种表达背后是同一套切法。
 
-| 并行 | 切的维度 | 每张卡上少了什么 | 每层引入的通信 | 谁在等谁 |
-|---|---|---|---|---|
-| **DP** 数据并行 | batch | 什么都没少，每卡一份完整模型，只是 batch 变小 | 每步一次梯度 all-reduce（ZeRO 把它拆成 reduce-scatter + all-gather，顺便把优化器状态、梯度、参数按卡切开） | 快的卡等慢的卡把梯度交上来 |
-| **TP** 张量并行 | 一个矩阵的行或列 | 每层的权重和激活按 $T$ 切 | 前向两次 all-reduce（注意力后、FFN 后），反向再两次；通信量与 $S\cdot d$ 成正比 | 每层都要等，所以只能放在节点内的高带宽链路上 |
-| **SP** 序列并行 | 序列（配合 TP） | TP 切不到的 LayerNorm、dropout 的激活按序列切 | 把 TP 的 all-reduce 换成 reduce-scatter + all-gather，总量不变 | 同 TP |
-| **PP** 流水线并行 | 层 | 参数和激活按 $P$ 段切 | 段与段之间只传一个 $S\times d$ 的激活，最省 | 前面的段等后面的段把反向传回来：气泡 |
-| **EP** expert 并行 | MoE 的 expert | expert 权重按 $R$ 切，非 expert 部分每卡一份 | 两次 all-to-all（dispatch 和 combine） | 收到 token 最多的 rank 决定这一层的时间 |
-| **CP** 上下文并行 | 序列（注意力内部） | 每卡只看 $1/C$ 的 token | softmax 注意力要在 rank 间轮转 KV，随长度增长；线性注意力只传固定大小的状态 | 等相邻 rank 的 KV 或状态 |
+## 先把要切的东西摆出来
 
-看第三列。DP 是唯一一个不减少每卡显存的并行，所以它总是和别的并行一起用，或者靠 ZeRO 把状态切开。TP、SP 切的是层内部，通信最频繁，通常限制在一台机器的 8 张卡之内。PP 切的是层之间，通信最少，但代价是气泡。EP 和 CP 分别是 MoE 和长上下文带来的两个新维度。
+记模型有 $L$ 层、隐藏维 $d$、$a$ 个注意力头；一个 micro-batch 有 $b$ 条序列、每条 $S$ 个 token；一个 batch 分成 $m$ 个 micro-batch。一层 dense transformer 的权重约 $12d^2$ 个参数（注意力 $4d^2$，MLP $8d^2$），整个模型 $\Psi \approx 12Ld^2$。一层的前向 FLOPs 约 $24\,bSd^2 + 4\,bS^2d$，前一项是矩阵乘，后一项是注意力分数；反向是前向的两倍。显存有两块：参数相关的静态部分，混合精度加 Adam 是每参数 16 字节（[ZeRO 那篇](/2026/09/05/llm-dp-zero/)有这笔账）；激活是动态部分，每层约 $sbd\,(34 + 5as/d)$ 字节，这是 Megatron 的[激活重计算论文](https://arxiv.org/abs/2205.05198)的公式，后面序列并行一节会用到。
 
-看最后一列。每一种并行都在让某个执行单元等另一个。这是理解所有并行优化的钥匙：**优化 = 找到在等的那个，给它找点活干，或者让它等得短一点**。流水线的气泡填别的计算，EP 的负载不均用冗余 expert 补平，TP 的 all-reduce 和下一个矩阵乘重叠，全是这一句话的实例。
+<ParallelAxes />
 
-## 怎么组合
+图里六条虚线就是六种并行。它们分成三类。切 batch 和切序列是**切数据**：每张卡拿到的样本或 token 少了，模型不变。切权重的行列、切层、切 expert 是**切模型**：每张卡只有一部分参数。注意力内部切序列是切数据里比较特殊的一种，因为注意力是唯一让 token 之间相互看的算子，切了序列就得把别人的 KV 搬过来。ZeRO / FSDP 不在这六条线里：它不改变任何计算的切法，只把参数、梯度、优化器状态的**存储**按数据并行组切开，用的时候再凑齐。
 
-真实训练里这几种并行是叠着用的。一个常见的分配：
+通信都由五个集合操作组成。记一个张量在一张卡上的完整大小是 $M$ 字节，$n$ 张卡参与：
 
-- TP 放节点内，因为它通信最密，要吃 NVLink 的带宽。
-- PP 跨节点，因为它只传激活，跨机链路扛得住。
-- DP 放最外层，把剩下的卡数用完，用 ZeRO-1 把优化器状态切开。
-- 有 MoE 就加 EP，通常和 DP 共用同一组卡：expert 按 EP 切，非 expert 部分按 DP 复制。
-- 上下文超过单卡能放的长度就加 CP。
+| 操作 | 做什么 | 每卡收发量 |
+|---|---|---|
+| all-reduce | 所有卡的 $M$ 逐元素相加，每张卡都拿到结果 | $\approx 2M$ |
+| reduce-scatter | 相加，但每张卡只拿结果的 $1/n$ | $\approx M$ |
+| all-gather | 每张卡出 $M/n$，拼成完整的 $M$ | $\approx M$ |
+| all-to-all | 每张卡把自己的 $M$ 切成 $n$ 份，第 $j$ 份发给卡 $j$ | $\approx M$ |
+| 点对点 | 一张卡发给另一张卡 | $M$ |
 
-组合的自由度很大，具体怎么选取决于模型形状和集群拓扑。举一个真实的例子：Kimi K3 的预训练用了 PP 带虚拟段、EP、ZeRO-1 DP、Pipeline ZeRO-2 梯度分片和 CP，**没有 TP**，因为它每层的非 expert 参数只有几亿，大头是 2.7T 的 routed expert，用 EP 切比用 TP 切自然得多。这个选择的后果在 [Kimi K3 的系统篇](/2026/09/05/kimi-k3-08-parallel-moonep/)里展开。
+ring 算法下 all-reduce 的精确量是 $2(n-1)M/n$，all-gather、reduce-scatter、all-to-all 是 $(n-1)M/n$，$n$ 大时就是表里的近似。要记住的只有一件事：**all-reduce = reduce-scatter + all-gather**。这个等式在 ZeRO、序列并行、FSDP 里反复出现。
+
+## 数据并行：切 batch
+
+**切什么。** batch。$N$ 张卡，每张卡拿 $b/N$ 条序列，跑一份完整的模型。
+
+**为什么可以。** loss 是样本的平均，$\mathcal{L} = \frac{1}{b}\sum_{x\in\text{batch}} \ell(x; W)$，梯度是线性算子，所以
+
+$$
+\nabla_W \mathcal{L} = \frac{1}{N}\sum_{i=1}^{N} \underbrace{\frac{N}{b}\sum_{x \in \text{shard}_i}\nabla_W\ell(x; W)}_{g_i} .
+$$
+
+每张卡各算自己分片上的梯度 $g_i$，平均一下就是整个 batch 的梯度。这要求 loss 对样本可加，transformer 里没有 BatchNorm 之类跨样本的算子，所以严格成立。
+
+<DpShard />
+
+**前向。** 没有通信。每张卡是一个完整的模型，各算各的。
+
+**反向。** 每张卡算出完整的 $g_i$，做一次 all-reduce 得到 $\bar g$。之后每张卡用同一个 $\bar g$ 更新同一份 $W$，$N$ 份权重始终一致。实现上不会等反向全部结束再通信：梯度是按层从后往前算出来的，算完一桶就发一桶（PyTorch DDP 的 bucket），通信藏在剩余层的反向后面。
+
+**通信量。** 每步一次 all-reduce，$\Psi$ 个梯度，BF16 下 $\approx 4\Psi$ 字节。这个量和 batch 大小无关：batch 越大、每步算得越久，通信占比就越小。这是数据并行能跨节点、能到几千卡的原因。
+
+**计算与显存。** 计算完美地分掉 $1/N$。显存是数据并行的短板：每张卡一份完整的 $W$、$g$、优化器状态，16 字节乘 $\Psi$，7B 模型就是 112 GB，$N$ 张卡上有 $N$ 份完全相同的东西。激活因为 batch 变小而减少到 $1/N$。
+
+**分片形态。** ZeRO 和 FSDP 补的就是这个短板，图右半是它的终点形态。优化器状态、梯度、参数依次按 $N$ 切开，每张卡常驻 $1/N$；前向或反向走到某一层时 all-gather 出那一层的完整权重，用完丢掉；反向的梯度不做 all-reduce 而做 reduce-scatter，每张卡只留自己那一段。计算完全没变，只是 $W$ 和 $g$ 的存储换了地方，代价是每层多一次 all-gather，通信从 $2\Psi$ 涨到 $3\Psi$。三级各省多少、通信怎么变，在 [ZeRO 那篇](/2026/09/05/llm-dp-zero/)里展开。
+
+## 张量并行：切权重矩阵的行和列
+
+**切什么。** 一层里的一个矩阵。Megatron-LM 的做法是把 MLP 的两个矩阵、注意力的四个矩阵各切成 $T$ 份，每张卡拿一份，$T$ 张卡合起来算一层。切的维度是 $d$ 或 $4d$，也就是权重矩阵的行或列，所以它也叫模型并行里的「层内并行」。
+
+**为什么可以。** 分块矩阵乘。MLP 是 $Y = \mathrm{GeLU}(XA)\,B$，$A \in \mathbb{R}^{d\times 4d}$，$B \in \mathbb{R}^{4d\times d}$。有两种切法，选哪种取决于中间那个非线性。
+
+把 $A$ **按列**切成 $[A_1\ A_2]$，那么 $XA = [XA_1\ \ XA_2]$：每张卡拿完整的 $X$ 和一半的列，算出一半的中间结果。GeLU 是逐元素的，$\mathrm{GeLU}([XA_1\ \ XA_2]) = [\mathrm{GeLU}(XA_1)\ \ \mathrm{GeLU}(XA_2)]$，所以每张卡对自己那一半做 GeLU，**不需要通信**。反过来如果 $A$ 按行切，$XA = X_1A_1 + X_2A_2$ 是一个和，GeLU 不能穿过加号，做非线性之前就得先 all-reduce 一次。这是 Megatron 选列切的全部理由。
+
+$B$ 接在 GeLU 后面，此时每张卡手里是 $H_i = \mathrm{GeLU}(XA_i)$，正好是 $H$ 的一半列。把 $B$ **按行**切成 $[B_1; B_2]$，那么
+
+$$
+Y = [H_1\ \ H_2]\begin{bmatrix} B_1 \\ B_2\end{bmatrix} = H_1B_1 + H_2B_2 .
+$$
+
+每张卡算出一个部分和 $Y_i = H_iB_i$，一次 all-reduce 相加。列切接行切，整个 MLP 只在最后通信一次。
+
+<TpMlp />
+
+注意力是同一个套路，切的单位是头。$Q, K, V$ 的投影矩阵按列切，让每张卡拿到 $a/T$ 个头的完整 $Q, K, V$，softmax 在头内部做，所以注意力本身不需要通信。输出投影 $W_O$ 按行切，和 $B$ 一样，最后一次 all-reduce。
+
+**前向和反向。** 图里的 $f$ 和 $g$ 是 Megatron 定义的一对共轭算子。$f$ 在进入并行区时：前向恒等（每张卡本来就有完整的 $X$），反向 all-reduce（两张卡对 $X$ 的梯度要相加）。$g$ 在离开并行区时：前向 all-reduce，反向恒等（$Y$ 的梯度直接给每张卡一份）。所以一个 MLP 子层前向一次 all-reduce、反向一次；注意力子层同样；**一层每个 micro-batch 共四次 all-reduce**，每次的对象是一个 $b\times S\times d$ 的激活。
+
+**通信量。** 每层每个 micro-batch 约 $4 \times 2\,bSd$ 个数 $= 16\,bSd$ 字节（BF16）。和数据并行比一比：数据并行每步通信 $4\Psi = 48Ld^2$ 字节，张量并行每步 $16\,bSd \cdot L \cdot m$ 字节，比值是 $bSm / 3d$。一个 DP rank 每步处理的 token 数 $bSm$ 通常是几万到几十万，$d$ 是几千，所以张量并行的通信量是数据并行的十倍以上，而且分散在每一层、每次都要等。这就是它必须放在节点内 NVLink 上的原因，也是 $T$ 一般不超过 8 的原因。
+
+**计算与显存。** 矩阵乘的 FLOPs 分掉 $1/T$。参数、梯度、优化器状态的大头（六个矩阵）也是 $1/T$。但有两样东西**没有切**：一是 LayerNorm、dropout、残差相加，它们在每张卡上重复算，计算量小，但它们的输入激活每张卡一份，这部分占每层激活的 $10\,sbd$ 字节，$T$ 再大也不减少；二是 $X$ 和 $Y$ 本身也是复制的。用前面的公式，只开 TP 的每层激活是 $sbd\,(10 + 24/T + 5as/(dT))$，那个不随 $T$ 缩小的 10 是下一节的动机。还有一个实现细节：残差路径上的 dropout 在 $T$ 张卡上重复执行，必须用同一个随机种子，否则各卡的 $X$ 就不一致了，Megatron 为此维护了一套模型并行的随机数状态。
+
+## 序列并行：把张量并行切不到的部分按序列切
+
+**切什么。** 上一节剩下的那 $10\,sbd$：LayerNorm、dropout、残差的输入。它们都是逐 token 或逐元素的算子，一个 token 的输出只依赖这个 token 自己，所以可以沿序列切成 $T$ 份，每张卡只处理 $S/T$ 个 token，和张量并行用同一组卡。这是 Megatron 2022 年论文里的序列并行（sequence parallelism），DeepSpeed-Ulysses 和 ring attention 也常被叫作序列并行，但它们切的是注意力内部，本文放在上下文并行一节。
+
+**为什么可以。** 两个事实。第一，LayerNorm 对每个 token 独立归一化，dropout 对每个元素独立采样，残差是逐元素加，沿序列切不改变任何一个 token 的结果。第二，all-reduce = reduce-scatter + all-gather。进入张量并行区之前，激活是按序列切的，每张卡有 $S/T$ 个 token，要做的是 all-gather 拼出全部 $S$ 个 token（图里的 $\bar f$）；离开张量并行区时，每张卡手里是全部 $S$ 个 token 的部分和，本来要 all-reduce，现在换成 reduce-scatter：相加，但每张卡只拿自己那 $S/T$ 个 token 的结果（$\bar g$）。原来的一次 all-reduce 被拆成了两半，一半放在进口，一半放在出口。
+
+<SpLayer />
+
+**前向和反向。** $\bar f$ 前向 all-gather、反向 reduce-scatter；$\bar g$ 前向 reduce-scatter、反向 all-gather。一层前向两次 all-gather 加两次 reduce-scatter，反向同样。
+
+**通信量。** 一次 all-gather 加一次 reduce-scatter，恰好等于一次 all-reduce。所以**通信量和纯张量并行完全一样**，$16\,bSd$ 字节每层每 micro-batch，只是操作换了形式。序列并行是白拿的。
+
+**计算与显存。** LayerNorm、dropout、残差的计算不再重复，每卡只做 $1/T$。激活从 $sbd\,(10 + 24/T + 5as/(dT))$ 变成 $sbd\,(34/T + 5as/(dT))$：全部激活都被 $T$ 除了。在 $T = 8$ 时，这一步把每层激活砍掉约一半，是不用重计算就能省激活的最大一笔。
+
+## 流水线并行：切层
+
+**切什么。** 层。$L$ 层切成 $P$ 段，每段连续 $L/P$ 层放一张卡（一个 stage）。切的维度是层的序号，不是任何一个张量的内部。
+
+**为什么可以。** 层之间是函数复合，$y = f_L \circ \cdots \circ f_1(x)$，把它拆到 $P$ 张卡上执行不需要任何恒等式。问题恰恰在于它太容易了：第 $k$ 段必须等第 $k-1$ 段算完才能开始，$P$ 张卡里同一时刻只有一张在干活。让它们同时忙起来的唯一办法是引入互相独立的工作：把 batch 切成 $m$ 个 micro-batch，第 $k$ 段做 micro-batch $j$ 的时候，第 $k-1$ 段做 micro-batch $j+1$。这就是流水线。所以流水线并行天然要求 micro-batch，也天然有一段没人可以干活的时间：第一个 micro-batch 流到最后一段之前，和最后一个 micro-batch 的反向流回第一段之前。
+
+<PpStages />
+
+**前向和反向。** 前向时第 $k$ 段把输出激活（$b\times S\times d$）点对点发给第 $k+1$ 段。反向时第 $k+1$ 段把对这个激活的梯度（同样大小）发回第 $k$ 段。每个 micro-batch 在每个段边界上一来一回，没有集合通信。反向需要前向时的激活，所以每个 stage 要为所有「前向已做、反向未到」的 micro-batch 存着激活。
+
+**通信量。** 每个 micro-batch 在每个边界 $2\,bSd \times 2 = 4\,bSd$ 字节，$P-1$ 个边界。和张量并行比：张量并行是每层 $16\,bSd$，流水线是每段（$L/P$ 层）$4\,bSd$，相差 $4L/P$ 倍。这是流水线能跨节点的原因。
+
+**计算与显存。** 每张卡只算 $L/P$ 层。但时间不是简单地除以 $P$：GPipe 那种「所有前向做完再做所有反向」的排法，总时长是 $(m + P - 1)(t_f + t_b)$，其中只有 $m(t_f+t_b)$ 在干活，气泡占比 $(P-1)/(m+P-1)$。参数、梯度、优化器状态干净地分成 $1/P$。激活取决于调度：GPipe 下每个 stage 要存全部 $m$ 份，1F1B 下 stage $r$ 存 $P-r$ 份，前面的 stage 存得最多。气泡怎么算、四代调度各拿什么去换它，是[流水线那篇](/2026/09/05/llm-pipeline-1f1b/)的内容。
+
+## expert 并行：切 expert
+
+**切什么。** MoE 层的 expert。一层有 $E$ 个 expert，$R$ 张卡每张放 $E/R$ 个，非 expert 部分（注意力、router、shared expert）每张卡一份。切的维度是 expert 的编号。
+
+**为什么可以。** MoE 层对每个 token 的输出是
+
+$$
+y = \sum_{e \in \text{top-}k(x)} g_e(x)\, E_e(x) ,
+$$
+
+每个 expert 是一个独立的 FFN，只作用在被路由到它的那些 token 上。把一个 micro-batch 的全部 token 按目标 expert 重新排列，同一个 expert 的 token 排在一起，每个 expert 就是一次普通的矩阵乘；算完再按原来的顺序排回去。排列和逆排列是精确的，不改变任何结果。当 expert 分布在不同卡上，这个排列就是一次跨卡的 all-to-all。
+
+<EpDispatch />
+
+**前向和反向。** 前向两次 all-to-all：dispatch 把每个 token 发给它的 $k$ 个目标 expert 所在的卡，combine 把 $k$ 个结果收回来加权求和。反向也是两次：combine 的反向是把 $y$ 的梯度按同样的路径发出去，dispatch 的反向是把各 expert 对输入的梯度收回来。all-to-all 的转置还是 all-to-all，方向反过来就行。
+
+**通信量。** 一个 token 是 $d$ 个数，发 $k$ 份，dispatch 是 $k\,bSd$ 个数，combine 同样，前向 $4k\,bSd$ 字节、反向同样。$k = 8$ 时每层 $64\,bSd$，**比张量并行还多**，而且 $R$ 通常大于 8，一定要跨节点。这是 MoE 训练里 all-to-all 成为焦点的原因：把 dispatch 压成 FP8、和 shared expert 的计算重叠、按拓扑分两跳发送，都是在对付这个数。不过这个量和 $R$ 几乎无关：$R$ 张卡时平均 $(R-1)/R$ 的 token 要出卡，$R$ 大了就接近全部。
+
+**计算与显存。** expert 的参数分掉 $1/R$，这是 MoE 模型能做到几万亿参数的原因：Kimi K3 有 2.7T 的 routed expert 参数，靠 EP 切到几百张卡上。非 expert 部分复制，用数据并行处理。计算上每张卡算它收到的 token，**收到最多的那张卡决定这一层的时间**：router 不会把 token 均匀分给 expert，一张卡的 expert 热了，其他卡就要等它。处理这个偏斜有几条路：给 expert 设容量上限、超出的 token 丢掉（早期做法）；在 loss 里加负载均衡项让 router 学着均匀；给热 expert 在别的卡上放副本。最后一条路在 [Kimi K3 的 MoonEP](/2026/09/05/kimi-k3-08-parallel-moonep/)里推到了极致，每张卡最多 $E/R$ 个冗余 expert 就能做到完全平衡。
+
+还有一个和张量并行的对比值得说：expert 的矩阵也可以用张量并行切，但一个 expert 本来就比 dense 层的 FFN 窄得多，再切 $T$ 份，矩阵乘就小到跑不满 GPU；按 expert 切保留了每个矩阵乘的完整形状。这是 MoE 模型偏爱 EP 而不是 TP 的算力上的理由。
+
+## 上下文并行：在注意力内部切序列
+
+**切什么。** 序列，但这次切进注意力里面。$C$ 张卡每张拿 $S/C$ 个 token 的 $Q, K, V$，各自算这些 token 的注意力输出。前面序列并行绕开了注意力，因为注意力是唯一让 token 之间互相看的算子；上下文并行正面处理它。它的动机是 $S$ 长到一张卡放不下这条序列的激活，$5as^2b/d$ 那一项随 $S$ 平方增长。
+
+**为什么可以。** softmax 注意力的输出对每一个查询 $q$ 是
+
+$$
+o = \frac{\sum_j e^{s_j} v_j}{\sum_j e^{s_j}} , \qquad s_j = q^\top k_j / \sqrt{d_h} .
+$$
+
+分子和分母都是对 $j$ 的求和，可以分块累加，唯一的麻烦是数值稳定要减去最大值，而最大值要看完全部 $j$ 才知道。在线 softmax（也是 FlashAttention 的核心）解决了它：维护三个量，当前见过的最大值 $m$、分母 $l$、未归一化的分子 $O$。收到一块新的 $K_j, V_j$，先算这一块自己的 $(m_j, l_j, O_j)$，再合并：
+
+$$
+m' = \max(m, m_j), \quad l' = l\,e^{m - m'} + l_j\,e^{m_j - m'}, \quad O' = O\,e^{m - m'} + O_j\,e^{m_j - m'} .
+$$
+
+合并顺序任意，全部合并完 $O/l$ 就是精确的注意力输出。所以每张卡只需要**依次**看到所有 KV 块，不需要同时拿到。ring attention 就是让 KV 块在 $C$ 张卡之间轮转：第 $t$ 步 rank $i$ 手里是 rank $(i - t) \bmod C$ 的 KV，算一块、并一块、把这块传给下家、从上家收下一块。$C$ 步走完每个 rank 都见过全部 KV。
+
+<CpRing />
+
+**前向和反向。** 前向每步发出一块 $K, V$、收进一块，同时算手里的一块，通信和计算重叠。反向要重新走一遍环：每张卡要对所有 KV 块算 $dK, dV$ 的贡献，这些贡献属于别的 rank，所以反向除了轮转 $K, V$ 还要轮转累积中的 $dK, dV$。
+
+**通信量。** 每步一块 KV，$(S/C)\cdot 2d$ 个数，走 $C - 1$ 步，前向每张卡收发约 $2\,bSd \cdot 2 = 4\,bSd$ 字节，**与 $C$ 无关**；反向约三倍。但每步的计算量是 $(S/C)^2 d$ 级别，随 $C$ 平方下降，通信固定、计算变小，$C$ 大到一定程度通信就藏不住了。GQA 会让这个数好看很多：轮转的是 KV 头，GQA 的 KV 头数只有查询头的几分之一。另一条路是 DeepSpeed-Ulysses：不轮转 KV，而是在注意力前后各做一次 all-to-all，把「按序列切」换成「按头切」，注意力内部每张卡有全部 token 的 $a/C$ 个头，通信量随 $C$ 减小，代价是 $C$ 不能超过头数。线性注意力是第三条路：它的「KV」是一个固定大小的状态矩阵，跨卡只需传状态而不是 token，通信量与 $S$ 无关，[Kimi K3 的 KCP](/2026/09/05/kimi-k3-07-systems/) 是这个做法。
+
+**计算与显存。** 激活干净地分掉 $1/C$，包括注意力那一项。参数不切，每张卡一份，所以它总和别的并行叠用。计算有一个因果掩码带来的坑：只算下三角，按连续段切的话最后一个 rank 要算的块最多，第一个 rank 几乎没活。图右边的 zigzag 切法把序列分成 $2C$ 段，rank $i$ 拿第 $i$ 段和第 $2C-1-i$ 段，一头一尾配对，每个 rank 的块数相等。Megatron（经 TransformerEngine）和 PyTorch 的上下文并行都用这类头尾配对的切法。
+
+## 框架怎么表达这六种切法
+
+上面六节里，每种并行都是「某个张量的某个维度分到某组卡上」加上「因此在某处插入某种集合操作」。框架的差别在于这两件事由谁来写。
+
+**Megatron-LM：手写。** 每种并行是一组显式的模块和一组进程组。张量并行是 `ColumnParallelLinear` 和 `RowParallelLinear` 两个类，$f$、$g$ 是它们里面的自定义 autograd 函数；序列并行是这两个类的一个开关，把 all-reduce 换成 all-gather 和 reduce-scatter；流水线是一个调度器（1F1B、interleaved），段间用点对点通信；expert 并行是 MoE 层里的 dispatcher，负责 all-to-all 和 token 的排列；上下文并行是注意力算子的一个包装，做 KV 轮转。每一种并行有自己的进程组，`tensor_model_parallel_size`、`pipeline_model_parallel_size`、`expert_model_parallel_size`、`context_parallel_size` 四个参数加上剩下的卡数就是数据并行度，进程组按固定的顺序生成（默认 tp-cp-ep-dp-pp，tp 变化最快）。DeepSpeed 走的是同一条路，只是重心在数据并行这一侧：ZeRO 的三级分片、Ulysses 的序列并行、Offload，流水线和 MoE 也有自己的引擎。
+
+**PyTorch DTensor / FSDP2 / torchtitan：写放置，通信自动来。** 这一路的核心抽象是 `DeviceMesh` 和 `DTensor`。mesh 是一个多维的卡阵列，每个维度有名字；DTensor 是一个带「放置」（placement）的张量，放置有三种：`Shard(k)` 沿第 $k$ 维切到 mesh 的某一维上，`Replicate()` 每张卡一份，`Partial()` 每张卡有一个部分和、还没相加。六种并行在这个语言里是：
+
+| 并行 | 谁是 DTensor | 放置 | 通信在哪里出现 |
+|---|---|---|---|
+| DP | 激活 | 沿 batch `Shard(0)`，权重 `Replicate` | 反向的权重梯度是 `Partial`，转成 `Replicate` 要 all-reduce |
+| FSDP | 权重 | 沿第 0 维 `Shard(0)` | 前向用到时转 `Replicate`，all-gather；梯度 `Partial` 转 `Shard(0)`，reduce-scatter |
+| TP | 权重 | $A$ `Shard(1)`（列），$B$ `Shard(0)`（行） | $XA$ 的输出是 `Shard(1)`，乘 $B$ 得 `Partial`，转 `Replicate` 要 all-reduce |
+| SP | 激活 | 在 LayerNorm 处沿序列 `Shard(1)` | 进 TP 前转 `Replicate` 是 all-gather；出 TP 时 `Partial` 转 `Shard(1)` 是 reduce-scatter |
+| CP | $Q, K, V$ | 沿序列 `Shard` | 注意力算子内部的 KV 轮转 |
+| EP | expert 权重 | 沿 expert 维 `Shard(0)` | token 到 expert 的路由是一次 all-to-all |
+| PP | 不是张量的切分 | 模块按层拆到不同 stage | 点对点，由 `torch.distributed.pipelining` 的调度器发出 |
+
+表里第三列每一行都是一条「从一种放置转到另一种放置」的规则，这叫 redistribute，通信量就是那一行集合操作的量。张量并行在这里根本没有单独的实现：把 $A$ 的放置写成 `Shard(1)`、$B$ 写成 `Shard(0)`，普通的 `matmul` 在 DTensor 上执行时，第一次的输出自然是 `Shard(1)`，第二次的输出自然是 `Partial`，需要完整结果时 DTensor 自己插入 all-reduce。`parallelize_module` 里的 `ColwiseParallel`、`RowwiseParallel`、`SequenceParallel` 只是给模块的权重和输入输出指定放置的快捷方式。FSDP2 的 `fully_shard` 同理：把模块的参数变成 `Shard(0)` 的 DTensor，前向到达这个模块时 all-gather，反向离开时 reduce-scatter。torchtitan 是这套东西的参考组合：先建一个五维 mesh（大致按 pp、dp_replicate、dp_shard、cp、tp 的顺序，tp 最内），然后逐个套：`parallelize_module` 做 TP 和 SP，`context_parallel` 做 CP，`fully_shard` 在 dp_shard 维上做 FSDP（如果 dp_replicate 大于 1 就是 HSDP：节点内分片、节点间复制），最后用 `pipelining` 把模块切成 stage。每一层并行只看 mesh 的自己那一维，互不知道对方存在。
+
+这就是 SPMD（single program, multiple data）的含义：所有 rank 跑同一份 Python 程序，程序里没有 `if rank == 0`，每张卡看到的只是同一个 DTensor 的不同分片，通信是从放置的不匹配里推导出来的，不是手写的。
+
+**JAX / GSPMD：编译器传播。** JAX 走得更远。用户只给部分张量标注 sharding（`NamedSharding(mesh, PartitionSpec('data', 'model'))`，或者在 `jit` 的 `in_shardings` 里），XLA 的 SPMD 分区器把这些标注沿着计算图传播到每个中间结果，决定每个算子在每张卡上算哪一块，并在需要的地方插入集合操作。Megatron 的张量并行在这里是「把 $A$ 的第 1 维放在 model 轴上」这一句标注，其余全部由编译器推出，包括 all-reduce 的位置。Alpa（2022）更进一步，把 sharding 的选择和层的流水线切分都交给搜索。代价是流水线这种依赖执行顺序的并行在纯 sharding 的语言里不自然，通常要另外处理。
+
+三种表达的差别是灵活性和自动化的取舍，切法本身没有差别。Megatron 的 `RowParallelLinear` 和 DTensor 的 `Shard(0)` 权重是同一件事；Megatron 的 `f`、`g` 和 DTensor 的 redistribute 也是同一件事。会了一种，另外两种是查文档的问题。
+
+## 怎么叠：一张 device mesh
+
+真实训练里六种并行是叠着用的，每一种占 mesh 的一个维度，卡数是各维度大小的乘积。哪种并行放哪一维，由通信量决定：
+
+- **TP 放最内层**，它每层通信四次、每次 $2\,bSd$，只能跑在节点内的 NVLink 上，所以 $T \le 8$，占 mesh 里 rank 变化最快的那一维。
+- **CP 紧挨着 TP**，它的 KV 轮转也是每层都有，能放节点内最好。
+- **PP 跨节点**，每段边界只传一个 $bSd$。
+- **DP 放最外层**，把剩下的卡数用完，每步一次 $2\Psi$，能藏在整个反向后面。
+- **EP 通常和 DP 共用同一组卡**：expert 按 EP 切，非 expert 部分在这组卡上按 DP 复制，Megatron 里 `expert_model_parallel_size` 必须整除 DP 的度。
+- **ZeRO / FSDP 沿 DP 那一维切状态**，不占新的维度。
+
+<DeviceMesh />
+
+一个真实的选择可以说明这些规则怎么互相让步。Kimi K3 的预训练用了 PP（带虚拟段）、EP、ZeRO-1 数据并行、Pipeline ZeRO-2 梯度分片和 CP，**没有 TP**：它每层的非 expert 参数只有几亿，用不着切，而 2.7T 的 routed expert 用 EP 切比用 TP 切自然得多。后果在 [Kimi K3 的系统篇](/2026/09/05/kimi-k3-08-parallel-moonep/)里展开。
+
+## 一张表收尾
+
+每层每个 micro-batch 的通信量按 BF16 字节算，$\Psi$ 是参数量。
+
+| 并行 | 切的维度 | 为什么成立 | 集合操作 | 通信量 | 每卡参数 | 每卡激活 |
+|---|---|---|---|---|---|---|
+| DP | batch | 梯度对样本可加 | all-reduce，每步一次 | $4\Psi$ / 步 | 不变，ZeRO 后 $/N$ | $/N$ |
+| TP | 矩阵的行、列 | 分块矩阵乘，非线性逐元素 | all-reduce，每层四次 | $16\,bSd$ / 层 | $/T$，LN 等除外 | $sbd(10 + 24/T + \dots)$ |
+| SP | 序列（LN、dropout） | 逐 token 算子，AR = RS + AG | all-gather + reduce-scatter | 同 TP | 同 TP | $sbd(34/T + \dots)$ |
+| PP | 层 | 函数复合 | 点对点 | $4\,bSd$ / 段边界 | $/P$ | 1F1B 下 stage $r$ 存 $P-r$ 份 |
+| EP | expert | 排列是精确的 | all-to-all，每层四次 | $8k\,bSd$ / 层 | expert $/R$ | 随收到的 token 数 |
+| CP | 序列（注意力内） | 在线 softmax 可分块合并 | 点对点轮转 | 前向 $\approx 4\,bSd$，与 $C$ 无关 | 不变 | $/C$ |
+
+放在哪条链路上，上一节的 mesh 图已经说了：TP、CP 节点内，PP 跨节点，DP 最外层，EP 与 DP 共组。
 
 ## 这一章接下来讲什么
 
-按表里的行来：
+按表里的行来，每篇把一格展开：
 
 1. [流水线并行：1F1B、虚拟段与气泡](/2026/09/05/llm-pipeline-1f1b/)。为什么气泡是 $(P-1)/m$，为什么 rank 0 攒的激活最多，虚拟段用什么换什么。
-2. 张量并行与序列并行：Megatron 的行切列切，两次 all-reduce 是怎么来的。
-3. [数据并行与 ZeRO](/2026/09/05/llm-dp-zero/)：优化器状态、梯度、参数三级分片各省多少。
-4. expert 并行：all-to-all 的代价，负载不均衡的几种解法。
-5. 上下文并行：softmax 注意力的 ring 和线性注意力的状态传递。
+2. 张量并行与序列并行：$f$、$g$ 的 autograd 实现，all-reduce 和矩阵乘的重叠，$T$ 怎么选。
+3. [数据并行与 ZeRO](/2026/09/05/llm-dp-zero/)：优化器状态、梯度、参数三级分片各省多少；FSDP 的单步时序、HSDP 的二维 mesh。
+4. expert 并行：all-to-all 的实现，负载不均衡的几种解法。
+5. 上下文并行：ring attention 的反向、zigzag、Ulysses，以及线性注意力的状态传递。
 
-每一篇都会回到这张表，把那一格填满。显存和推理服务的通用部分在「性能优化」章：[显存账本](/2026/09/05/llm-memory-ledger/)、[推理服务的缓存与调度](/2026/09/05/llm-serving-cache/)。
+显存和推理服务的通用部分在「性能优化」章：[显存账本](/2026/09/05/llm-memory-ledger/)、[推理服务的缓存与调度](/2026/09/05/llm-serving-cache/)。
