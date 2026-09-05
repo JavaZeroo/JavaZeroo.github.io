@@ -1,0 +1,119 @@
+---
+/**
+ * 通用的方块流程图：节点 + 边 + 分组，标签走 SvgTex（`$...$` 是公式）。
+ * 用来替代系列里原先的 mermaid 图，让它们和其他手绘 SVG 一套风格、一套字体、一套配色。
+ *
+ * 边默认自动走线：同一行直连；目标在下方走「下 → 横 → 下」的折线；目标在右侧走「右 → 竖 → 右」；
+ * orient: 'h' 强制横向进入；path 直接给完整路径。
+ */
+import SvgTex from './SvgTex.astro';
+import { texMix } from './tex';
+
+export interface FdNode { id: string; x: number; y: number; w: number; h?: number; lines: string[]; kind?: string; strong?: boolean; title?: string }
+export interface FdEdge { from: string; to: string; label?: string; path?: string; dashed?: boolean; orient?: 'h' | 'v'; lx?: number; ly?: number }
+export interface FdGroup { x: number; y: number; w: number; h: number; label?: string }
+
+interface Props {
+  id: string; viewBox: string; nodes: FdNode[]; edges: FdEdge[]; groups?: FdGroup[];
+  caption?: string; minWidth?: number; label: string;
+}
+const { id, viewBox, nodes, edges, groups = [], caption, minWidth = 640, label } = Astro.props;
+
+const H0 = 44;
+const full = nodes.map((n) => ({ ...n, h: n.h ?? H0 }));
+const byId = Object.fromEntries(full.map((n) => [n.id, n]));
+const geo = (n: (typeof full)[number]) => ({ l: n.x, r: n.x + n.w, t: n.y, b: n.y + n.h, cx: n.x + n.w / 2, cy: n.y + n.h / 2 });
+
+function route(e: FdEdge) {
+  const a = geo(byId[e.from]), b = geo(byId[e.to]);
+  if (e.path) return { d: e.path, lx: e.lx ?? (a.r + b.l) / 2, ly: e.ly ?? (a.cy + b.cy) / 2 };
+  let r: { d: string; lx: number; ly: number };
+  if (e.orient !== 'h' && e.orient !== 'v' && Math.abs(a.cy - b.cy) < 2 && b.l >= a.r) {
+    r = { d: `M${a.r} ${a.cy} H ${b.l - 2}`, lx: (a.r + b.l) / 2, ly: a.cy - 10 };
+  } else if (e.orient === 'h' || (e.orient !== 'v' && b.l >= a.r && b.t < a.b && b.b > a.t) || (e.orient !== 'v' && b.l >= a.r && b.t < a.b)) {
+    const mx = (a.r + b.l) / 2;
+    r = { d: `M${a.r} ${a.cy} H ${mx} V ${b.cy} H ${b.l - 2}`, lx: mx + 6, ly: (a.cy + b.cy) / 2 };
+  } else if (b.t >= a.b) {
+    const my = (a.b + b.t) / 2;
+    r = { d: `M${a.cx} ${a.b} V ${my} H ${b.cx} V ${b.t - 2}`, lx: Math.min(a.cx, b.cx) + 8, ly: my - 8 };
+  } else if (b.l >= a.r) {
+    const mx = (a.r + b.l) / 2;
+    r = { d: `M${a.r} ${a.cy} H ${mx} V ${b.cy} H ${b.l - 2}`, lx: mx + 6, ly: (a.cy + b.cy) / 2 };
+  } else {
+    r = { d: `M${a.cx} ${a.cy} L ${b.cx} ${b.cy}`, lx: (a.cx + b.cx) / 2, ly: (a.cy + b.cy) / 2 };
+  }
+  return { d: r.d, lx: e.lx ?? r.lx, ly: e.ly ?? r.ly };
+}
+
+// 节点内多行文字的垂直排布：首行 13px 高（粗），其余 12px
+const lineBoxes = (n: (typeof full)[number]) => {
+  const hs = n.lines.map((_, i) => (i === 0 ? 14 : 12));
+  const total = hs.reduce((a, b) => a + b, 0);
+  let y = n.y + n.h / 2 - total / 2;
+  return hs.map((h) => { const cy = y + h / 2; y += h; return cy; });
+};
+---
+
+<figure class="fd">
+  <svg viewBox={viewBox} role="img" aria-label={label} style={`min-width:${minWidth}px`}>
+    <defs>
+      <marker id={`fd-arrow-${id}`} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M0 0 L10 5 L0 10 z" />
+      </marker>
+    </defs>
+
+    {groups.map((g) => (
+      <g>
+        <rect class="grp" x={g.x} y={g.y} width={g.w} height={g.h} rx="10" />
+        {g.label && <SvgTex x={g.x + 10} y={g.y + 12} w={g.w} size={10.5} align="start" color="var(--muted)" src={g.label} />}
+      </g>
+    ))}
+
+    {edges.map((e) => {
+      const r = route(e);
+      return (
+        <g>
+          <path class:list={['edge', { dashed: e.dashed }]} d={r.d} marker-end={`url(#fd-arrow-${id})`} />
+          {e.label && <SvgTex x={r.lx} y={r.ly} w={200} size={9.5} align="start" color="var(--muted)" src={e.label} />}
+        </g>
+      );
+    })}
+
+    {full.map((n) => {
+      const ys = lineBoxes(n);
+      return (
+        <g class:list={['node', n.kind ?? 'op', { strong: n.strong }]}>
+          {n.title && <title>{n.title}</title>}
+          <rect x={n.x} y={n.y} width={n.w} height={n.h} rx="7" />
+          {n.lines.map((t, i) => (
+            i === 0
+              ? <SvgTex x={n.x + n.w / 2} y={ys[i]} w={n.w} size={11.5} weight={600} src={t} />
+              : <SvgTex x={n.x + n.w / 2} y={ys[i]} w={n.w} size={9.5} color="var(--text-2)" src={t} />
+          ))}
+        </g>
+      );
+    })}
+  </svg>
+  {caption && <figcaption set:html={texMix(caption)} />}
+</figure>
+
+<style>
+  .fd { margin: 2rem 0; padding: 0.8rem 0.6rem 0.6rem; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); overflow-x: auto; }
+  .fd svg { display: block; width: 100%; height: auto; font-family: var(--font-sans); }
+  .fd marker path { fill: var(--text-2); }
+  .edge { fill: none; stroke: var(--text-2); stroke-width: 1.4; }
+  .edge.dashed { stroke-dasharray: 5 4; }
+  .grp { fill: none; stroke: var(--border-2); stroke-width: 1.2; stroke-dasharray: 6 5; }
+  .node { --c: var(--text-2); }
+  .node rect { fill: color-mix(in srgb, var(--c) 12%, var(--bg-2)); stroke: var(--c); stroke-width: 1.4; }
+  .node.op rect { fill: var(--bg-2); }
+  .node.in { --c: var(--muted); }
+  .node.in rect { fill: color-mix(in srgb, var(--muted) 18%, var(--bg-2)); }
+  .node.main { --c: var(--cat-cyan); }
+  .node.mla { --c: var(--cat-indigo); }
+  .node.moe, .node.out { --c: var(--cat-emerald); }
+  .node.attnres, .node.comm { --c: var(--cat-amber); }
+  .node.vision { --c: var(--cat-rose); }
+  .node.strong rect { fill: color-mix(in srgb, var(--c) 26%, var(--bg-2)); stroke-width: 1.8; }
+  figcaption { margin-top: 0.6rem; font-size: 0.88rem; color: var(--text-2); line-height: 1.6; text-align: center; }
+</style>

@@ -1,0 +1,29 @@
+---
+/** AttnRes 算子内部（第 4 篇）：来源堆成 V，RMSNorm 后与 w_l 打分，softmax，取回没归一化的 V。 */
+import FlowDiagram from './FlowDiagram.astro';
+const nodes = [
+  { id: 'b0', x: 34, y: 76, w: 162, kind: 'attnres', lines: ['$b_0$ = embedding'] },
+  { id: 'b1', x: 34, y: 154, w: 162, kind: 'attnres', lines: ['$b_1 \\dots b_{n-1}$', '已完成的块'] },
+  { id: 'bp', x: 34, y: 232, w: 162, kind: 'attnres', lines: ['当前块 partial sum', '$b_n^{(i)}$'] },
+  { id: 'cat', x: 250, y: 148, w: 170, h: 56, kind: 'op', lines: ['堆成 $V$', '$n+1$ 个 $d$ 维向量'] },
+  { id: 'k', x: 470, y: 104, w: 160, kind: 'op', lines: ['$K = \\operatorname{RMSNorm}(V)$', '逐行归一化，只用于打分'] },
+  { id: 'w', x: 690, y: 20, w: 160, kind: 'attnres', strong: true, lines: ['$w_l$', '本子层唯一的参数，$d$ 维'] },
+  { id: 'dot', x: 690, y: 104, w: 160, kind: 'op', lines: ['打分 $K w_l$', '$n+1$ 个标量'] },
+  { id: 'sm', x: 690, y: 192, w: 160, kind: 'op', lines: ['softmax', '在 $n+1$ 个来源之间'] },
+  { id: 'mix', x: 690, y: 280, w: 160, kind: 'op', lines: ['$\\sum_i \\alpha_i v_i$', '取回的是没归一化的 $V$'] },
+  { id: 'out', x: 900, y: 280, w: 170, kind: 'main', lines: ['子层输入 $h_l$'] },
+];
+const edges = [
+  { from: 'b0', to: 'cat', orient: 'h' as const }, { from: 'b1', to: 'cat', orient: 'h' as const }, { from: 'bp', to: 'cat', orient: 'h' as const },
+  { from: 'cat', to: 'k', orient: 'h' as const },
+  { from: 'k', to: 'dot' },
+  { from: 'w', to: 'dot' },
+  { from: 'dot', to: 'sm' }, { from: 'sm', to: 'mix' },
+  { from: 'cat', to: 'mix', path: 'M335 204 V 302 H 688', label: '值直接用 $V$', lx: 440, ly: 292 },
+  { from: 'mix', to: 'out' },
+];
+const groups = [{ x: 20, y: 52, w: 190, h: 240, label: '来源，共 $n+1$ 个' }];
+---
+<FlowDiagram id="attnres-op" viewBox="0 0 1090 340" minWidth={760} nodes={nodes} edges={edges} groups={groups}
+  label="AttnRes 算子内部"
+  caption="AttnRes 算子。RMSNorm 过的 $K$ 只用来和 $w_l$ 打分，加权求和取的是原始的 $V$；整段打分和 softmax 在 FP32 里算。" />

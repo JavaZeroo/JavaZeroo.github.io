@@ -1,0 +1,26 @@
+---
+/** 一个 decoder layer 里两个子层的完整顺序（第 0 篇）：AttnRes α → RMSNorm → 子层 → 加回残差流，做两遍。 */
+import FlowDiagram from './FlowDiagram.astro';
+const W = 160, Y1 = 36, Y2 = 150, H = 50;
+const xs = [24, 214, 404, 594, 784];
+const nodes = [
+  { id: 'p0', x: xs[0], y: Y1, w: W, h: H, kind: 'op', lines: ['prefix sum', '进入本层的残差流'] },
+  { id: 'a1', x: xs[1], y: Y1, w: W, h: H, kind: 'attnres', lines: ['AttnRes $\\alpha$', '$w_{\\text{attn}}$，在来源间做 softmax'] },
+  { id: 'n1', x: xs[2], y: Y1, w: W, h: H, kind: 'op', lines: ['RMSNorm'] },
+  { id: 'att', x: xs[3], y: Y1, w: W, h: H, kind: 'main', strong: true, lines: ['KDA 或 Gated MLA', '3 : 1 交替'] },
+  { id: 's1', x: xs[4], y: Y1, w: W, h: H, kind: 'op', lines: ['加回 prefix sum', '子层输出进残差流'] },
+  { id: 'a2', x: xs[0], y: Y2, w: W, h: H, kind: 'attnres', lines: ['AttnRes $\\alpha$', '$w_{\\text{mlp}}$'] },
+  { id: 'n2', x: xs[1], y: Y2, w: W, h: H, kind: 'op', lines: ['RMSNorm'] },
+  { id: 'moe', x: xs[2], y: Y2, w: W, h: H, kind: 'moe', strong: true, lines: ['Stable LatentMoE', '第 1 层是 dense FFN'] },
+  { id: 's2', x: xs[3], y: Y2, w: W, h: H, kind: 'op', lines: ['加回 prefix sum'] },
+  { id: 'next', x: xs[4], y: Y2, w: W, h: H, kind: 'in', lines: ['下一层', '93 层重复同一套'] },
+];
+const edges = [
+  { from: 'p0', to: 'a1' }, { from: 'a1', to: 'n1' }, { from: 'n1', to: 'att' }, { from: 'att', to: 's1' },
+  { from: 's1', to: 'a2' },
+  { from: 'a2', to: 'n2' }, { from: 'n2', to: 'moe' }, { from: 'moe', to: 's2' }, { from: 's2', to: 'next' },
+];
+---
+<FlowDiagram id="sublayer" viewBox="0 0 968 236" minWidth={720} nodes={nodes} edges={edges}
+  label="一个 decoder layer 的两个子层"
+  caption="一个 decoder layer 的两个子层。橙色是 AttnRes 算子，每个子层前各一个；上一行是序列混合，下一行是通道混合。" />

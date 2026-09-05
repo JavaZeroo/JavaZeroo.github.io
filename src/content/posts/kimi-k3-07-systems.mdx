@@ -17,6 +17,7 @@ draft: false
 
 import K3ArchDiagram from '../../components/k3/K3ArchDiagram.astro';
 import PrefixCache from '../../components/k3/PrefixCache.astro';
+import KcpFlow from '../../components/k3/KcpFlow.astro';
 
 对应论文 §5.1、§5.2.2 的一部分、§5.2.3 和 §5.4。这一篇不讲新的结构，讲结构的后果：一个模块换掉之后，训练和推理系统里哪些东西跟着变。只挑和结构直接相关的部分，MoonEP、RL 基础设施、fleet 调度不在范围内。
 
@@ -68,16 +69,7 @@ $$
 
 rank 级的更新 $S \leftarrow M_{[j]} S + \widetilde S_{[j]}$ 是可结合的，所以进入状态可以用前缀扫描恢复。流程：
 
-```mermaid
-flowchart TD
-  subgraph 每个 rank 本地
-    A[本地 token] --> B["算 M（累积转移，128×128/头）"]
-    A --> C["算 S̃（从 0 出发的状态，128×128/头）"]
-  end
-  B & C --> D[一次 all-gather<br/>交换固定大小的片段]
-  D --> E["rank i+1：从 S = 0 出发<br/>按顺序对前面每个片段做 S ← M_j S + S̃_j"]
-  E --> F[得到精确的进入状态<br/>继续本地 chunkwise 计算]
-```
+<KcpFlow />
 
 代价是一次固定大小的 all-gather，计算随长度线性扩展。这个构造建立在 DeltaNet 的上下文并行之上，KDA 版本在 flash-linear-attention 的 PR #691 里。§3.4 说的「让百万 token 训练可行的序列维度切分」就是它。
 

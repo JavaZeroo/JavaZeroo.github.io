@@ -1,0 +1,21 @@
+---
+/** MoonViT-V2 到主干的通路（第 6 篇），两行蛇形排布。 */
+import FlowDiagram from './FlowDiagram.astro';
+const nodes = [
+  { id: 'img', x: 24, y: 40, w: 150, h: 60, kind: 'in', lines: ['图像 / 视频帧', '最大 3584 × 3584', '按 14 切 patch'] },
+  { id: 'pe', x: 214, y: 40, w: 220, h: 60, kind: 'vision', lines: ['Conv 14×14 patch embed', '无 bias，输出 1024 维', '+ 2D 可学习位置 + 时间 sincos'] },
+  { id: 'enc', x: 474, y: 40, w: 190, h: 60, kind: 'vision', strong: true, lines: ['27 层 ViT', '2D RoPE · RMSNorm · 无 bias', '一个样本的 $t \\cdot h \\cdot w$ 个 token 一起算'] },
+  { id: 'fn', x: 704, y: 40, w: 130, h: 60, kind: 'vision', lines: ['RMSNorm', '编码器出口'] },
+  { id: 'mg', x: 214, y: 180, w: 220, h: 60, kind: 'vision', lines: ['2×2 pixel-shuffle + 时间池化', 'token ÷4，维度 ×4 → 4096', 'merge_type = sd2_tpool'] },
+  { id: 'pj', x: 474, y: 180, w: 190, h: 60, kind: 'vision', lines: ['PatchMergerMLPV2', '4096 → 4096 → 7168', 'GELU · 无 bias · RMSNorm'] },
+  { id: 'llm', x: 704, y: 180, w: 170, h: 60, kind: 'main', lines: ['进主干', '替换掉输入序列里的', '媒体占位 token'] },
+];
+const edges = [
+  { from: 'img', to: 'pe' }, { from: 'pe', to: 'enc' }, { from: 'enc', to: 'fn' },
+  { from: 'fn', to: 'mg' },
+  { from: 'mg', to: 'pj' }, { from: 'pj', to: 'llm' },
+];
+---
+<FlowDiagram id="vision" viewBox="0 0 900 270" minWidth={680} nodes={nodes} edges={edges}
+  label="MoonViT-V2 到语言主干的通路"
+  caption="MoonViT-V2 的通路。粉色是视觉编码器侧，青色是进入语言主干；token 数在合并那一步除以 4。" />

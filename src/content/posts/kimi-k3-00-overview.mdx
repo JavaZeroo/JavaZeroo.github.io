@@ -16,6 +16,7 @@ draft: false
 
 import K3ArchDiagram from '../../components/k3/K3ArchDiagram.astro';
 import K3LayerStrip from '../../components/k3/K3LayerStrip.astro';
+import SublayerChain from '../../components/k3/SublayerChain.astro';
 
 这个连载配合 [Kimi K3 技术报告](https://arxiv.org/abs/2607.24653)的 §2 "Model Architecture" 一起读。论文这一节只有八页，但每个模块背后都压着一篇独立论文，K3 又在每个模块上做了自己的改动。开篇先不进任何细节，只做三件事：把整个模型画成一张图，把层数和维度对上，告诉你后面每一篇在图上的哪个位置。
 
@@ -113,11 +114,7 @@ config.json 里值得先记住的几个数，后面每一篇都会用到：
 
 把维度串起来走一遍，你会发现整个模型只有四种子层在重复。下面是一个普通 decoder layer 的结构，按 Hugging Face 建模代码的顺序画：
 
-```mermaid
-flowchart LR
-  P0[prefix sum] --> A1[α<br/>w_attn] --> N1[RMSNorm] --> ATT[KDA 或<br/>Gated MLA] --> S1[加回<br/>prefix sum]
-  S1 --> A2[α<br/>w_mlp] --> N2[RMSNorm] --> MOE[Stable LatentMoE<br/>第 1 层是 dense FFN] --> S2[加回<br/>prefix sum] --> P1[下一层]
-```
+<SublayerChain />
 
 四种子层各自的维度账：
 

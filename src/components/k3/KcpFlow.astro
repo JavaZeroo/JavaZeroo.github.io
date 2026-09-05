@@ -1,0 +1,21 @@
+---
+/** KCP 的前缀扫描（第 7 篇）：每个 rank 本地算两个固定大小的量，一次 all-gather 后按顺序合并出进入状态。 */
+import FlowDiagram from './FlowDiagram.astro';
+const nodes = [
+  { id: 'a', x: 36, y: 100, w: 130, h: 52, kind: 'in', lines: ['本地 token', '第 $i$ 段'] },
+  { id: 'b', x: 216, y: 46, w: 204, h: 52, kind: 'main', lines: ['算 $M_{[i]}$', '本段的累积转移，每头 128×128'] },
+  { id: 'c', x: 216, y: 150, w: 204, h: 52, kind: 'main', lines: ['算 $\\tilde S_{[i]}$', '从 $S = 0$ 出发的段尾状态'] },
+  { id: 'd', x: 480, y: 100, w: 170, h: 52, kind: 'comm', strong: true, lines: ['一次 all-gather', '交换固定大小的两个矩阵'] },
+  { id: 'e', x: 700, y: 92, w: 210, h: 68, kind: 'main', lines: ['rank $i{+}1$ 的进入状态', '对前面的段按顺序做', '$S \\leftarrow M_{[j]}\\, S + \\tilde S_{[j]}$'] },
+  { id: 'f', x: 960, y: 100, w: 120, h: 52, kind: 'out', lines: ['继续本地', 'chunkwise 计算'] },
+];
+const edges = [
+  { from: 'a', to: 'b', orient: 'h' as const }, { from: 'a', to: 'c', orient: 'h' as const },
+  { from: 'b', to: 'd', orient: 'h' as const }, { from: 'c', to: 'd', orient: 'h' as const },
+  { from: 'd', to: 'e' }, { from: 'e', to: 'f' },
+];
+const groups = [{ x: 20, y: 30, w: 420, h: 192, label: '每个 rank 本地，互不等待' }];
+---
+<FlowDiagram id="kcp" viewBox="0 0 1100 240" minWidth={760} nodes={nodes} edges={edges} groups={groups}
+  label="KCP 前缀扫描流程"
+  caption="KCP：每段只算两个固定大小的量，一次 all-gather 之后按顺序合并，通信量与序列长度无关，计算随长度线性扩展。" />

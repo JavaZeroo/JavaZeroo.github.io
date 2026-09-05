@@ -17,6 +17,7 @@ draft: false
 import K3ArchDiagram from '../../components/k3/K3ArchDiagram.astro';
 import K3LayerStrip from '../../components/k3/K3LayerStrip.astro';
 import AttnResVariants from '../../components/k3/AttnResVariants.astro';
+import AttnResOp from '../../components/k3/AttnResOp.astro';
 
 对应论文 §2.2 "Attention Residuals"，公式 (8) 到 (10)。这一节论文只写了一页，因为它假设你读过 Kimi 团队三个月前的那篇 [Attention Residuals](https://arxiv.org/abs/2603.15031)。本文把那篇论文里需要的部分补上，再对照 Hugging Face 的建模代码看 K3 到底是怎么接线的。
 
@@ -167,22 +168,7 @@ def _apply_attn_res(prefix_sum, block_residual, proj, norm):
 
 `proj` 是一个 `nn.Linear(d, 1, bias=False)`，它的权重就是 $w_l$。RMSNorm 的逐通道增益被折进了打分向量：$w_l^\top \operatorname{RMSNorm}(k) = \sum_c \frac{k_c}{\mathrm{rms}(k)}\, g_c\, w_{l,c}$。整段在 FP32 里算，打分和 softmax 都不走 BF16。
 
-```mermaid
-flowchart LR
-  subgraph 来源
-    B0[b₀ embedding]
-    B1[b₁ … bₙ₋₁]
-    BP[当前块 partial sum]
-  end
-  B0 & B1 & BP --> CAT[堆成 V<br/>n+1 个 d 维向量]
-  CAT --> K[K = RMSNorm V]
-  W[w_l<br/>本子层的参数] --> DOT[打分 K·w_l]
-  K --> DOT
-  DOT --> SM[softmax over 来源]
-  SM --> MIX[Σ α_i · v_i]
-  CAT --> MIX
-  MIX --> OUT[子层输入 h_l]
-```
+<AttnResOp />
 
 ## 推理时怎么算：两阶段与 online softmax
 

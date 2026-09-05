@@ -15,6 +15,7 @@ draft: false
 ---
 
 import K3ArchDiagram from '../../components/k3/K3ArchDiagram.astro';
+import VisionPath from '../../components/k3/VisionPath.astro';
 
 对应论文 §2.4、§2.5 和 §4.1.4 里关于 draft 模型的部分。这一篇没有新的数学，是把主干之外的零件逐个对上 config 和代码。
 
@@ -43,15 +44,7 @@ K3 的视觉编码器和 K2.5 最大的不同是**没有用 SigLIP 初始化，�
 
 ### 通路
 
-```mermaid
-flowchart TD
-  IMG[图像 / 视频帧<br/>最大 3584 × 3584] --> PE[Conv 14×14 patch embed<br/>+ 2D 可学习位置 + 时间 sincos]
-  PE --> ENC[27 层 ViT<br/>2D RoPE · RMSNorm · 无 bias]
-  ENC --> FN[RMSNorm]
-  FN --> MG[2×2 pixel-shuffle<br/>+ 时间池化<br/>token ÷4，维度 ×4]
-  MG --> PJ[PatchMergerMLPV2<br/>4096 → 4096 → 7168<br/>GELU · RMSNorm]
-  PJ --> LLM[替换掉输入里的<br/>媒体占位 token]
-```
+<VisionPath />
 
 逐段说明：
 
