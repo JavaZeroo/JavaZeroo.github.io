@@ -1,0 +1,93 @@
+---
+/**
+ * Quantile Balancing 的 8 token / 4 expert / k = 1 示意（论文 Fig. 5）。
+ * 左：按原始分数 Top-1，负载 (4,3,1,0)。右：每列取 (1 − k/n) 分位数当偏置后，负载 (2,2,2,2)。
+ * 分数是为了复现论文里的负载模式手工设的。
+ */
+const m = 8, n = 4, k = 1;
+// s[i][j]：token i 对 expert j 的分数
+const s = [
+  [0.20, 0.84, 0.23, 0.78],
+  [0.70, 0.47, 0.19, 0.38],
+  [0.94, 0.53, 0.52, 0.12],
+  [0.86, 0.34, 0.30, 0.58],
+  [0.41, 0.66, 0.93, 0.35],
+  [0.69, 0.74, 0.55, 0.07],
+  [0.49, 0.62, 0.61, 0.05],
+  [0.94, 0.84, 0.93, 0.30],
+];
+const argmax = (row: number[]) => row.indexOf(Math.max(...row));
+const before = s.map(argmax);
+// QB 一步：α_i = 第 (k+1) 大的分数（当前无偏置）；b_j = −quantile_{1−k/n}(s_{:,j} − α)
+const alpha = s.map((row) => [...row].sort((a, b) => b - a)[k]);
+const q = (m * k) / n; // 每个 expert 的目标负载 = 2
+const bias = Array.from({ length: n }, (_, j) => {
+  const margins = s.map((row, i) => row[j] - alpha[i]).sort((a, b) => b - a);
+  return -margins[q]; // 第 (q+1) 大的 margin 取负
+});
+const mean = bias.reduce((a, b) => a + b, 0) / n;
+const b = bias.map((v) => v - mean);
+const after = s.map((row) => argmax(row.map((v, j) => v + b[j])));
+const load = (assign: number[]) => Array.from({ length: n }, (_, j) => assign.filter((a) => a === j).length);
+
+const PW = 300, TY = (i: number) => 40 + i * 30, EY = (j: number) => 62 + j * 62;
+const TX = 60, EX = 230;
+const panels = [
+  { title: '(a) 直接 Top-1：负载 ' + load(before).join(' / '), assign: before, ox: 0 },
+  { title: '(c) 加 QB 偏置后：负载 ' + load(after).join(' / '), assign: after, ox: 330 },
+];
+---
+
+<figure class="qb">
+  <svg viewBox="0 0 640 300" role="img" aria-label="Quantile Balancing 前后的路由">
+    <defs>
+      <marker id="qb-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+        <path d="M0 0 L10 5 L0 10 z" />
+      </marker>
+    </defs>
+    {panels.map((p) => {
+      const ld = load(p.assign);
+      return (
+        <g>
+          <text class="title" x={p.ox + PW / 2} y="20" text-anchor="middle">{p.title}</text>
+          {p.assign.map((j, i) => (
+            <line class:list={['edge', { changed: p.ox > 0 && before[i] !== after[i] }]} x1={p.ox + TX + 12} y1={TY(i)} x2={p.ox + EX - 22} y2={EY(j)} marker-end="url(#qb-arrow)" />
+          ))}
+          {s.map((_, i) => (
+            <g>
+              <circle class="tok" cx={p.ox + TX} cy={TY(i)} r="10" />
+              <text class="l" x={p.ox + TX} y={TY(i) + 4} text-anchor="middle">t{i + 1}</text>
+            </g>
+          ))}
+          {ld.map((c, j) => (
+            <g>
+              <circle class:list={['exp', c >= 3 ? 'hot' : c === 0 ? 'dead' : c === 1 ? 'cold' : '']} cx={p.ox + EX} cy={EY(j)} r="16" />
+              <text class="l" x={p.ox + EX} y={EY(j) + 4} text-anchor="middle">E{j + 1}</text>
+              <text class="cnt" x={p.ox + EX + 26} y={EY(j) + 4}>{c}</text>
+              {p.ox > 0 && <text class="bias" x={p.ox + EX + 44} y={EY(j) + 4}>b = {b[j] >= 0 ? '+' : ''}{b[j].toFixed(2)}</text>}
+            </g>
+          ))}
+        </g>
+      );
+    })}
+  </svg>
+  <figcaption>m = 8 个 token，n = 4 个 expert，k = 1，目标负载 q = mk/n = 2。左边按原始分数路由，E1 过热、E4 一个都没有。右边每个 expert 的偏置取自本列 margin 的第 (q+1) 大值，一步就到 2/2/2/2。红色是被 QB 改动的边。分数是示意用的手工数据。</figcaption>
+</figure>
+
+<style>
+  .qb { margin: 2rem 0; padding: 0.8rem 0.6rem 0.6rem; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); overflow-x: auto; }
+  .qb svg { display: block; width: 100%; min-width: 560px; height: auto; font-family: var(--font-sans); }
+  .qb marker path { fill: var(--text-2); }
+  .title { fill: var(--text); font-size: 12px; font-weight: 600; }
+  .edge { stroke: var(--text-2); stroke-width: 1.2; opacity: 0.8; }
+  .edge.changed { stroke: var(--cat-rose); stroke-width: 1.8; opacity: 1; }
+  .tok { fill: color-mix(in srgb, var(--cat-cyan) 25%, var(--bg-2)); stroke: var(--cat-cyan); stroke-width: 1.2; }
+  .exp { fill: color-mix(in srgb, var(--cat-emerald) 35%, var(--bg-2)); stroke: var(--cat-emerald); stroke-width: 1.4; }
+  .exp.hot { fill: color-mix(in srgb, var(--cat-emerald) 95%, var(--bg-2)); }
+  .exp.cold { fill: color-mix(in srgb, var(--cat-emerald) 12%, var(--bg-2)); }
+  .exp.dead { fill: var(--bg-2); stroke-dasharray: 3 3; }
+  .l { fill: var(--text); font-size: 10.5px; font-weight: 600; }
+  .cnt { fill: var(--text); font-size: 11px; font-weight: 700; }
+  .bias { fill: var(--muted); font-size: 9.5px; }
+  figcaption { margin-top: 0.6rem; font-size: 0.88rem; color: var(--text-2); line-height: 1.6; }
+</style>

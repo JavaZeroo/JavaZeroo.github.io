@@ -1,0 +1,111 @@
+---
+/**
+ * 一层 Gated MLA 的内部（Kimi K3 维度）：query 低秩、KV latent 压缩、64 维头间共享键、NoPE、满秩 sigmoid 输出门。
+ */
+const BH = 36;
+type Box = { x: number; y: number; w: number; l: string; s?: string; kind?: 'q' | 'kv' | 'cache' | 'gate' | 'out' | 'in' | 'attn' };
+const boxes: Box[] = [
+  { x: 24, y: 176, w: 80, l: 'x_t', s: '7168', kind: 'in' },
+  // query 路
+  { x: 150, y: 40, w: 118, l: 'Linear W_q↓', s: '7168 → 1536', kind: 'q' },
+  { x: 282, y: 40, w: 84, l: 'RMSNorm', s: '1536', kind: 'q' },
+  { x: 380, y: 40, w: 150, l: 'Linear W_q↑', s: '1536 → 96 × 192', kind: 'q' },
+  // kv 路
+  { x: 150, y: 176, w: 118, l: 'Linear W_kv↓', s: '7168 → 512 + 64', kind: 'kv' },
+  { x: 282, y: 146, w: 84, l: 'RMSNorm', s: '512', kind: 'kv' },
+  { x: 380, y: 146, w: 150, l: 'Linear W_kv↑', s: '512 → 96 × (128 + 128)', kind: 'kv' },
+  { x: 380, y: 226, w: 150, l: '广播到 96 个头', s: '64 维，不做旋转（NoPE）', kind: 'kv' },
+  // 注意力
+  { x: 600, y: 96, w: 150, l: 'softmax(q kᵀ / √192) v', s: '因果，96 头，无位置编码', kind: 'attn' },
+  // 门
+  { x: 150, y: 320, w: 140, l: 'Linear W_g（满秩）', s: '7168 → 12288', kind: 'gate' },
+  { x: 304, y: 320, w: 84, l: 'Sigmoid', kind: 'gate' },
+  // 输出
+  { x: 800, y: 176, w: 150, l: 'Linear W_o', s: '12288 → 7168', kind: 'out' },
+];
+const mid = (b: Box) => b.y + BH / 2;
+---
+
+<figure class="mla">
+  <svg viewBox="0 0 990 380" role="img" aria-label="Gated MLA 层内部结构">
+    <defs>
+      <marker id="ml-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M0 0 L10 5 L0 10 z" />
+      </marker>
+    </defs>
+
+    <!-- 输入总线 -->
+    <line class="bus" x1="126" y1="58" x2="126" y2="338" />
+    <line class="edge" x1="104" y1="194" x2="126" y2="194" />
+    <line class="edge" x1="126" y1="58" x2="148" y2="58" marker-end="url(#ml-arrow)" />
+    <line class="edge" x1="126" y1="194" x2="148" y2="194" marker-end="url(#ml-arrow)" />
+    <line class="edge" x1="126" y1="338" x2="148" y2="338" marker-end="url(#ml-arrow)" />
+
+    <!-- query 链 -->
+    <line class="edge" x1="268" y1="58" x2="280" y2="58" marker-end="url(#ml-arrow)" />
+    <line class="edge" x1="366" y1="58" x2="378" y2="58" marker-end="url(#ml-arrow)" />
+    <path class="edge" d="M530 58 H 640 V 94" marker-end="url(#ml-arrow)" />
+    <text class="o" x="540" y="52">q_t：96 头 × (128 + 64)</text>
+
+    <!-- kv 链：latent -->
+    <path class="edge" d="M268 186 H 274 V 164 H 280" marker-end="url(#ml-arrow)" />
+    <line class="edge" x1="366" y1="164" x2="378" y2="164" marker-end="url(#ml-arrow)" />
+    <path class="edge" d="M530 158 H 598 V 122" marker-end="url(#ml-arrow)" />
+    <text class="o" x="536" y="150">k_nope 96 × 128</text>
+    <path class="edge" d="M530 172 H 560 V 210 H 640 V 134" marker-end="url(#ml-arrow)" />
+    <text class="o" x="566" y="204">v 96 × 128</text>
+    <!-- kv 链：64 维共享 -->
+    <path class="edge" d="M268 202 H 274 V 244 H 378" marker-end="url(#ml-arrow)" />
+    <path class="edge" d="M530 244 H 690 V 134" marker-end="url(#ml-arrow)" />
+    <text class="o" x="536" y="258">k_shared 64，拼到每个头的 k 后面</text>
+    <text class="o" x="323" y="198" text-anchor="middle">c_t  512</text>
+    <text class="o" x="323" y="238" text-anchor="middle">共享分量 64</text>
+
+    <!-- 缓存框：latent c_t（RMSNorm 之后）+ 64 维共享分量 -->
+    <rect class="cache" x="272" y="136" width="102" height="130" rx="6" />
+    <text class="c" x="323" y="282" text-anchor="middle">KV cache：每 token 576 个数</text>
+    <text class="c" x="323" y="294" text-anchor="middle">= 512 维 latent c_t + 64 维共享键</text>
+
+    <!-- 注意力 → 门 → 输出 -->
+    <line class="edge" x1="750" y1="114" x2="820" y2="114" />
+    <line class="edge" x1="820" y1="114" x2="820" y2="152" marker-end="url(#ml-arrow)" />
+    <text class="o" x="756" y="108">õ_t 96 × 128 = 12288</text>
+    <circle class="mul" cx="820" cy="164" r="11" /><text class="sym" x="820" y="168" text-anchor="middle">⊙</text>
+    <path class="edge gate" d="M388 338 H 820 V 175" marker-end="url(#ml-arrow)" />
+    <text class="o" x="396" y="332">门 12288，∈ (0,1)，逐通道</text>
+    <line class="edge" x1="875" y1="212" x2="875" y2="250" marker-end="url(#ml-arrow)" />
+    <text class="t" x="875" y="268" text-anchor="middle">y_t  7168</text>
+
+    {boxes.map((b) => (
+      <g class={b.kind ?? 'q'}>
+        <rect class="b" x={b.x} y={b.y} width={b.w} height={BH} rx="7" />
+        <text class="t" x={b.x + b.w / 2} y={b.y + (b.s ? 15 : 22)} text-anchor="middle">{b.l}</text>
+        {b.s && <text class="s" x={b.x + b.w / 2} y={b.y + 28} text-anchor="middle">{b.s}</text>}
+      </g>
+    ))}
+  </svg>
+  <figcaption>一层 Gated MLA。中间那条竖的橙色细框是推理时真正要缓存的东西：512 维 latent 加 64 维头间共享的键，共 576 个数。q 和 k 都是 192 维，其中 64 维在 DeepSeek 原版里用来放 RoPE，K3 保留了这个槽位但不做旋转。</figcaption>
+</figure>
+
+<style>
+  .mla { margin: 2rem 0; padding: 0.8rem 0.6rem 0.6rem; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); overflow-x: auto; }
+  .mla svg { display: block; width: 100%; min-width: 760px; height: auto; font-family: var(--font-sans); }
+  .mla marker path { fill: var(--text-2); }
+  .edge { fill: none; stroke: var(--text-2); stroke-width: 1.3; }
+  .edge.gate { stroke: var(--cat-rose); }
+  .bus { stroke: var(--text-2); stroke-width: 2.2; opacity: 0.5; }
+  .b { fill: color-mix(in srgb, var(--cat-indigo) 12%, var(--bg-2)); stroke: var(--cat-indigo); stroke-width: 1.3; }
+  .in .b { fill: color-mix(in srgb, var(--muted) 18%, var(--bg-2)); stroke: var(--muted); }
+  .kv .b { fill: color-mix(in srgb, var(--cat-cyan) 12%, var(--bg-2)); stroke: var(--cat-cyan); }
+  .gate .b { fill: color-mix(in srgb, var(--cat-rose) 12%, var(--bg-2)); stroke: var(--cat-rose); }
+  .attn .b { fill: color-mix(in srgb, var(--cat-indigo) 22%, var(--bg-2)); stroke: var(--cat-indigo); stroke-width: 1.6; }
+  .out .b { fill: color-mix(in srgb, var(--cat-emerald) 12%, var(--bg-2)); stroke: var(--cat-emerald); }
+  .cache { fill: color-mix(in srgb, var(--cat-amber) 20%, transparent); stroke: var(--cat-amber); stroke-width: 1.4; stroke-dasharray: 4 3; }
+  .c { fill: var(--cat-amber); font-size: 9.5px; font-weight: 600; }
+  .mul { fill: var(--bg-2); stroke: var(--cat-emerald); stroke-width: 1.5; }
+  .sym { fill: var(--text); font-size: 13px; }
+  .t { fill: var(--text); font-size: 11px; font-weight: 600; }
+  .s { fill: var(--text-2); font-size: 9.5px; }
+  .o { fill: var(--muted); font-size: 9.5px; }
+  figcaption { margin-top: 0.6rem; font-size: 0.88rem; color: var(--text-2); line-height: 1.6; }
+</style>

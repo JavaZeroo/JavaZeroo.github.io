@@ -37,7 +37,7 @@ Kimi K3 是一个 **2.78T 总参数、104.2B 激活参数**的 MoE 模型，**93
 
 下面这张图是论文 Figure 2 的中文可交互版。后面每一篇文章开头都会再放一次，只点亮当篇讲的模块。
 
-<K3ArchDiagram caption="Kimi K3 总架构。纵向是深度，每一行是一个子层：先经过一个 AttnRes 算子 α，再进子层，输出回到残差流。方块可点击跳到对应文章（还没写的暂时不可点）。" />
+<K3ArchDiagram caption="Kimi K3 总架构。纵向是深度，每一行是一个子层：先经过一个 AttnRes 算子 α，再进子层，输出回到残差流。方块可点击跳到对应文章。" />
 
 怎么读这张图：
 
@@ -138,13 +138,13 @@ flowchart LR
 | 篇 | 讲什么 | 对应论文 |
 |---|---|---|
 | 0 | 本篇。总图、层排布、维度账 | §2 开头，Table 1 |
-| 1 | 序列（上）：从线性注意力到 KDA。delta rule、逐通道衰减、K3 的满秩输出门 | §2.1.1 前半，Kimi Linear |
-| 2 | 序列（下）：KDA 的 chunkwise 并行形式，K3 的下界衰减为什么让所有 tile 都能上 Tensor Core | §2.1.1 后半，Fig. 3 |
-| 3 | 序列：Gated MLA，NoPE，3:1 的混合比，以及 1M 上下文时的 KV 账 | §2.1.2 |
+| 1 | [序列（上）：从线性注意力到 KDA](/2026/09/05/kimi-k3-01-kda-recurrence/)。delta rule、逐通道衰减、K3 的满秩输出门 | §2.1.1 前半，Kimi Linear |
+| 2 | [序列（下）：KDA 的 chunkwise 并行形式](/2026/09/05/kimi-k3-02-kda-chunkwise/)，K3 的下界衰减为什么让所有 tile 都能上 Tensor Core | §2.1.1 后半，Fig. 3 |
+| 3 | [序列：Gated MLA](/2026/09/05/kimi-k3-03-gated-mla/)，NoPE，3:1 的混合比，以及 1M 上下文时的 KV 账 | §2.1.2 |
 | 4 | 深度：[Attention Residuals](/2026/09/05/kimi-k3-04-attnres/)。残差流为什么是深度上的 RNN，Full 与 Block 两种形式，K3 的 9 个来源 | §2.2 |
-| 5 | 宽度：Stable LatentMoE。在 latent 空间里跑 expert，RMSNorm、SiTU-GLU、Quantile Balancing 三个稳定化改动 | §2.3，附录 B/C/D |
-| 6 | 输入端与零件：MoonViT-V2、投影、MTP 层、Per-Head Muon | §2.4，§2.5，§4.1.4 |
-| 7（可选） | 结构决定系统：FlashKDA、KDA 的上下文并行、KDA 感知的前缀缓存 | §5.1，§5.4 |
+| 5 | 宽度：[Stable LatentMoE](/2026/09/05/kimi-k3-05-stable-latentmoe/)。在 latent 空间里跑 expert，RMSNorm、SiTU-GLU、Quantile Balancing 三个稳定化改动 | §2.3，附录 B/C/D |
+| 6 | [输入端与零件](/2026/09/05/kimi-k3-06-vision-and-parts/)：MoonViT-V2、投影、MTP 层、Per-Head Muon | §2.4，§2.5，§4.1.4 |
+| 7 | [结构决定系统](/2026/09/05/kimi-k3-07-systems/)：FlashKDA、KDA 的上下文并行、KDA 感知的前缀缓存 | §5.1，§5.4 |
 
 ## 这个连载不讲什么
 

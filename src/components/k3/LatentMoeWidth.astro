@@ -1,0 +1,86 @@
+---
+/**
+ * Stable LatentMoE 的"宽度收窄"图：7168 → 3584 → (16 个 expert：3584 → 3072 → 3584) → RMSNorm → 7168，
+ * 旁边并联 2 个全宽 shared expert。矩形的高度按维度画，直观看出 routed 路在窄的地方。
+ */
+const scale = 0.019; // 维度 → 像素
+const H = (d: number) => d * scale;
+const cy = 170;
+type Stage = { x: number; w: number; d: number; l: string; s?: string; kind: 'x' | 'proj' | 'expert' | 'norm' | 'out' };
+const stages: Stage[] = [
+  { x: 24,  w: 30, d: 7168, l: 'x', s: '7168', kind: 'x' },
+  { x: 110, w: 40, d: 3584, l: 'W↓', s: '7168→3584', kind: 'proj' },
+  { x: 236, w: 40, d: 3072, l: '中间', s: '3072', kind: 'expert' },
+  { x: 350, w: 40, d: 3584, l: 'Σ pᵢ Eᵢ(z)', s: '3584', kind: 'expert' },
+  { x: 460, w: 40, d: 3584, l: 'RMSNorm', s: 'K3 新增', kind: 'norm' },
+  { x: 570, w: 40, d: 7168, l: 'W↑', s: '3584→7168', kind: 'proj' },
+  { x: 690, w: 30, d: 7168, l: 'y', s: '7168', kind: 'out' },
+];
+const rect = (s: Stage) => ({ x: s.x, y: cy - H(s.d) / 2, w: s.w, h: H(s.d) });
+---
+
+<figure class="lw">
+  <svg viewBox="0 0 760 360" role="img" aria-label="Stable LatentMoE 的宽度变化">
+    <defs>
+      <marker id="lw-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M0 0 L10 5 L0 10 z" />
+      </marker>
+    </defs>
+
+    <!-- routed 路：连接带（梯形） -->
+    {stages.slice(0, -1).map((s, i) => {
+      const a = rect(s), b = rect(stages[i + 1]);
+      return <path class:list={['band', { expert: s.kind === 'expert' || stages[i + 1].kind === 'expert' }]} d={`M${a.x + a.w} ${a.y} L${b.x} ${b.y} L${b.x} ${b.y + b.h} L${a.x + a.w} ${a.y + a.h} Z`} />;
+    })}
+    {stages.map((s) => {
+      const r = rect(s);
+      return (
+        <g class={s.kind}>
+          <rect class="st" x={r.x} y={r.y} width={r.w} height={r.h} rx="4" />
+          <text class="t" x={r.x + r.w / 2} y={r.y - 18} text-anchor="middle">{s.l}</text>
+          {s.s && <text class="s" x={r.x + r.w / 2} y={r.y - 6} text-anchor="middle">{s.s}</text>}
+        </g>
+      );
+    })}
+    <!-- expert 说明 -->
+    <text class="note" x="293" y={cy + H(3584) / 2 + 18} text-anchor="middle">16 个 routed expert（从 896 个里选）</text>
+    <text class="note" x="293" y={cy + H(3584) / 2 + 32} text-anchor="middle">每个：3584 → 3072 → 3584，SiTU-GLU</text>
+    <text class="note" x="293" y={cy + H(3584) / 2 + 46} text-anchor="middle">在 latent 空间里 dispatch、计算、加权求和</text>
+    <text class="note" x="130" y={cy + H(3584) / 2 + 18} text-anchor="middle">z = W↓x</text>
+    <text class="note" x="130" y={cy + H(3584) / 2 + 32} text-anchor="middle">一层只有一个</text>
+    <text class="note" x="590" y={cy + H(7168) / 2 + 18} text-anchor="middle">一层只有一个</text>
+
+    <!-- router -->
+    <path class="edge dash" d={`M54 ${cy - H(7168) / 2 - 10} V 34 H 293 V ${cy - H(3072) / 2 - 36}`} marker-end="url(#lw-arrow)" />
+    <text class="note" x="170" y="28" text-anchor="middle">router 看的是全宽 x：sigmoid(W_r x)，896 个分数，加偏置选 16</text>
+
+    <!-- shared 路 -->
+    <path class="edge" d={`M54 ${cy + H(7168) / 2 + 6} V 318 H 340`} marker-end="url(#lw-arrow)" />
+    <rect class="sh" x="342" y="300" width="150" height="36" rx="7" />
+    <text class="t2" x="417" y="315" text-anchor="middle">2 个 shared expert</text>
+    <text class="s" x="417" y="329" text-anchor="middle">全宽 7168 → 6144 → 7168</text>
+    <path class="edge" d={`M492 318 H 705 V ${cy + H(7168) / 2 + 4}`} marker-end="url(#lw-arrow)" />
+    <text class="note" x="600" y="312" text-anchor="middle">相加</text>
+  </svg>
+  <figcaption>矩形高度按维度画。routed 路在 3584 维的 latent 空间里做所有事：分发、16 个 expert 的计算、加权求和，然后再展开回 7168。绿色 RMSNorm 是 K3 加的。shared expert 走全宽，直接加到输出上。</figcaption>
+</figure>
+
+<style>
+  .lw { margin: 2rem 0; padding: 0.8rem 0.6rem 0.6rem; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); overflow-x: auto; }
+  .lw svg { display: block; width: 100%; min-width: 620px; height: auto; font-family: var(--font-sans); }
+  .lw marker path { fill: var(--text-2); }
+  .edge { fill: none; stroke: var(--text-2); stroke-width: 1.3; }
+  .edge.dash { stroke-dasharray: 4 3; }
+  .band { fill: color-mix(in srgb, var(--cat-emerald) 12%, transparent); stroke: none; }
+  .band.expert { fill: color-mix(in srgb, var(--cat-emerald) 22%, transparent); }
+  .st { fill: color-mix(in srgb, var(--cat-emerald) 30%, var(--bg-2)); stroke: var(--cat-emerald); stroke-width: 1.3; }
+  .x .st, .out .st { fill: color-mix(in srgb, var(--muted) 25%, var(--bg-2)); stroke: var(--muted); }
+  .expert .st { fill: color-mix(in srgb, var(--cat-emerald) 55%, var(--bg-2)); }
+  .norm .st { fill: color-mix(in srgb, var(--cat-emerald) 85%, var(--bg-2)); stroke: var(--text); }
+  .sh { fill: color-mix(in srgb, var(--cat-amber) 14%, var(--bg-2)); stroke: var(--cat-amber); stroke-width: 1.3; }
+  .t { fill: var(--text); font-size: 11.5px; font-weight: 600; }
+  .t2 { fill: var(--text); font-size: 11px; font-weight: 600; }
+  .s { fill: var(--text-2); font-size: 9.5px; }
+  .note { fill: var(--muted); font-size: 10px; }
+  figcaption { margin-top: 0.6rem; font-size: 0.88rem; color: var(--text-2); line-height: 1.6; }
+</style>

@@ -19,13 +19,13 @@ const dimming = hl.size > 0;
 // 各篇文章的 URL。文章写好后把 null 换成路径。
 const LINKS: Record<Group, string | null> = {
   embed: '/2026/09/05/kimi-k3-00-overview/',
-  vision: null,   // 第 6 篇
-  kda: null,      // 第 1、2 篇
-  mla: null,      // 第 3 篇
-  moe: null,      // 第 5 篇
+  vision: '/2026/09/05/kimi-k3-06-vision-and-parts/',
+  kda: '/2026/09/05/kimi-k3-01-kda-recurrence/',
+  mla: '/2026/09/05/kimi-k3-03-gated-mla/',
+  moe: '/2026/09/05/kimi-k3-05-stable-latentmoe/',
   attnres: '/2026/09/05/kimi-k3-04-attnres/',
   output: '/2026/09/05/kimi-k3-00-overview/',
-  mtp: null,      // 第 6 篇
+  mtp: '/2026/09/05/kimi-k3-06-vision-and-parts/',
 };
 
 interface Box { id: string; group: Group; x: number; y: number; w: number; h: number; label: string; sub?: string; title?: string; }

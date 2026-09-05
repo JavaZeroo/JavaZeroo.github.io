@@ -1,0 +1,93 @@
+---
+/**
+ * 交互：GLU / SwiGLU / SiTU-GLU 在标量输入 x 上的响应（门和上支同一个 x）。
+ * 滑块调 β₁（门的软截断）和 β₂（上支的软截断）。
+ */
+---
+
+<div class="demo situ-demo">
+  <div class="ctl">
+    <label>β₁（门）= <output data-b1-out>4</output><input type="range" min="1" max="20" value="4" data-b1 /></label>
+    <label>β₂（上支）= <output data-b2-out>25</output><input type="range" min="5" max="100" value="25" data-b2 /></label>
+    <label>横轴范围 <select data-range><option value="10">−10 … 10（看原点附近）</option><option value="100" selected>−10 … 100（看饱和）</option></select></label>
+  </div>
+  <svg viewBox="0 0 640 320" data-plot>
+    <g data-grid></g>
+    <path class="c-glu" data-glu d="" />
+    <path class="c-swi" data-swi d="" />
+    <path class="c-situ" data-situ d="" />
+    <line class="bound" data-bound x1="0" x2="0" y1="0" y2="0" />
+    <text class="ax" x="620" y="312" text-anchor="end">x（同时喂给门和上支）</text>
+    <text class="ax" x="8" y="16">f(x)</text>
+  </svg>
+  <div class="legend">
+    <span class="glu">GLU：σ(x)·x</span>
+    <span class="swi">SwiGLU：x·σ(x)·x</span>
+    <span class="situ">SiTU-GLU：β₁tanh(x/β₁)·σ(x) · β₂tanh(x/β₂)</span>
+    <span class="bd">上界 β₁β₂ = <output data-bound-out>100</output></span>
+  </div>
+</div>
+
+<style>
+  .situ-demo { border: 1px solid var(--border); border-radius: var(--r); padding: 1rem 1.1rem; background: var(--surface); margin: 1.5rem 0; }
+  .situ-demo .ctl { display: flex; flex-wrap: wrap; gap: 0.8rem 2rem; align-items: end; font-size: 0.9rem; color: var(--text-2); }
+  .situ-demo .ctl label { display: block; }
+  .situ-demo output { font-variant-numeric: tabular-nums; color: var(--text); font-weight: 600; }
+  .situ-demo input[type='range'] { display: block; width: 200px; margin-top: 0.3rem; accent-color: var(--accent); }
+  .situ-demo select { display: block; margin-top: 0.3rem; background: var(--bg-2); color: var(--text); border: 1px solid var(--border-2); border-radius: 6px; padding: 0.2rem 0.4rem; }
+  .situ-demo svg { display: block; width: 100%; height: auto; margin-top: 0.8rem; font-family: var(--font-sans); }
+  .situ-demo .c-glu { fill: none; stroke: var(--muted); stroke-width: 1.8; }
+  .situ-demo .c-swi { fill: none; stroke: var(--cat-indigo); stroke-width: 2; }
+  .situ-demo .c-situ { fill: none; stroke: var(--cat-rose); stroke-width: 2.4; }
+  .situ-demo .bound { stroke: var(--cat-rose); stroke-width: 1; stroke-dasharray: 5 4; opacity: 0.7; }
+  .situ-demo .ax, .situ-demo [data-grid] text { fill: var(--muted); font-size: 11px; }
+  .situ-demo [data-grid] line { stroke: var(--border-2); stroke-width: 1; }
+  .situ-demo .legend { display: flex; flex-wrap: wrap; gap: 0.4rem 1.4rem; margin-top: 0.6rem; font-size: 0.85rem; color: var(--text-2); }
+  .situ-demo .legend span::before { content: ''; display: inline-block; width: 18px; height: 3px; margin-right: 6px; vertical-align: middle; border-radius: 2px; }
+  .situ-demo .legend .glu::before { background: var(--muted); }
+  .situ-demo .legend .swi::before { background: var(--cat-indigo); }
+  .situ-demo .legend .situ::before { background: var(--cat-rose); }
+  .situ-demo .legend .bd::before { background: var(--cat-rose); opacity: 0.6; }
+</style>
+
+<script>
+  document.querySelectorAll<HTMLElement>('.situ-demo').forEach((root) => {
+    const q = <T extends Element>(s: string) => root.querySelector<T>(s)!;
+    const b1 = q<HTMLInputElement>('[data-b1]'), b2 = q<HTMLInputElement>('[data-b2]'), rg = q<HTMLSelectElement>('[data-range]');
+    const b1o = q<HTMLOutputElement>('[data-b1-out]'), b2o = q<HTMLOutputElement>('[data-b2-out]'), bdo = q<HTMLOutputElement>('[data-bound-out]');
+    const pg = q<SVGPathElement>('[data-glu]'), ps = q<SVGPathElement>('[data-swi]'), pt = q<SVGPathElement>('[data-situ]');
+    const bound = q<SVGLineElement>('[data-bound]'), grid = q<SVGGElement>('[data-grid]');
+    const W = 640, H = 320, L = 48, R = 16, T = 24, B = 40;
+    const sig = (x: number) => 1 / (1 + Math.exp(-x));
+    const cap = (x: number, b: number) => b * Math.tanh(x / b);
+
+    const render = () => {
+      const B1 = Number(b1.value), B2 = Number(b2.value), xMax = Number(rg.value), xMin = -10;
+      b1o.textContent = String(B1); b2o.textContent = String(B2); bdo.textContent = String(B1 * B2);
+      const glu = (x: number) => sig(x) * x, swi = (x: number) => x * sig(x) * x, situ = (x: number) => cap(x, B1) * sig(x) * cap(x, B2);
+      // 纵轴：0 到 max(SiTU 上界, 视野内 SwiGLU 最大值) 的一个整齐值，负侧留一点
+      const yTop = Math.max(B1 * B2 * 1.15, xMax <= 10 ? 110 : 0);
+      const yMin = -yTop * 0.06, yMax = yTop;
+      const sx = (x: number) => L + ((x - xMin) / (xMax - xMin)) * (W - L - R);
+      const sy = (y: number) => T + (1 - (Math.min(y, yMax * 1.2) - yMin) / (yMax - yMin)) * (H - T - B);
+      let dg = '', ds = '', dt = '';
+      for (let i = 0; i <= 300; i++) {
+        const x = xMin + (i / 300) * (xMax - xMin);
+        const p = (fn: (v: number) => number) => `${i ? 'L' : 'M'}${sx(x).toFixed(1)} ${sy(fn(x)).toFixed(1)} `;
+        dg += p(glu); ds += p(swi); dt += p(situ);
+      }
+      pg.setAttribute('d', dg); ps.setAttribute('d', ds); pt.setAttribute('d', dt);
+      bound.setAttribute('x1', String(L)); bound.setAttribute('x2', String(W - R));
+      bound.setAttribute('y1', String(sy(B1 * B2))); bound.setAttribute('y2', String(sy(B1 * B2)));
+      const step = yMax > 400 ? 200 : yMax > 150 ? 50 : 25;
+      const ty: number[] = []; for (let v = 0; v <= yMax; v += step) ty.push(v);
+      const tx = xMax <= 10 ? [-10, -5, 0, 5, 10] : [-10, 0, 25, 50, 75, 100];
+      grid.innerHTML =
+        ty.map((y) => `<line x1="${L}" x2="${W - R}" y1="${sy(y)}" y2="${sy(y)}"/><text x="${L - 6}" y="${sy(y) + 4}" text-anchor="end">${y}</text>`).join('') +
+        tx.map((x) => `<line x1="${sx(x)}" x2="${sx(x)}" y1="${T}" y2="${H - B}"/><text x="${sx(x)}" y="${H - B + 16}" text-anchor="middle">${x}</text>`).join('');
+    };
+    [b1, b2].forEach((el) => el.addEventListener('input', render));
+    rg.addEventListener('change', render);
+    render();
+  });
+</script>
