@@ -3,7 +3,7 @@
  * 注意力的谱系流程图：MHA → MQA/GQA → MLA → DSA → CSA/HCA，NSA 作为压缩分支的先例并入。
  * 每条边标「砍掉了哪个量」；节点可点击跳到正文对应小节。
  */
-import SvgTex from '../k3/SvgTex.astro';
+import SvgTex from '../figures/SvgTex.astro';
 type Kind = 'root' | 'head' | 'latent' | 'sparse' | 'v4';
 interface Node { id: string; href?: string; kind: Kind; cx: number; y: number; w: number; name: string; cost: string; note: string }
 const H = 70;

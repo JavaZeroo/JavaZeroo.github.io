@@ -3,7 +3,7 @@
  * 一层 CSA 的内部（DeepSeek-V4-Pro 维度）：query 低秩、单条 512 维 KV（K = V）、滑窗 cache、重叠压缩、lightning indexer、
  * 带 sink 的 MQA 核心注意力、输出反旋转、分组输出投影。以官方 inference/model.py 的 Attention.forward 为准。
  */
-import FlowDiagram from '../k3/FlowDiagram.astro';
+import FlowDiagram from '../figures/FlowDiagram.astro';
 const nodes = [
   { id: 'in', x: 20, y: 150, w: 90, kind: 'in', lines: ['$x_t$', '7168'] },
   // query

@@ -3,8 +3,8 @@
  * 16 张卡的三维 device mesh：(pp=2, dp=2, tp=4)。TP 组是节点内一行（NVLink），DP 组是节点内同列，PP 组跨节点。
  * rank = tp + 4·dp + 8·pp，变化最快的维度放在带宽最高的链路上。
  */
-import SvgTex from '../k3/SvgTex.astro';
-import { texMix } from '../k3/tex';
+import SvgTex from '../figures/SvgTex.astro';
+import { texMix } from '../figures/tex';
 const caption = '16 张卡、两个节点上的一个三维 mesh：$(\\text{pp}, \\text{dp}, \\text{tp}) = (2, 2, 4)$。全局 rank $= \\text{tp} + 4\\,\\text{dp} + 8\\,\\text{pp}$，tp 变化最快，所以一个 TP 组正好是节点内 NVLink 相连的四张卡；DP 组是节点内同一列的两张卡；PP 组是两个节点上位置相同的卡，走节点间网络。Megatron 的 rank 顺序、PyTorch 的 init_device_mesh、JAX 的 Mesh 表达的都是这一张图。';
 const NODES = [{ x: 40, pp: 0 }, { x: 590, pp: 1 }];
 const GW = 78, GH = 54, PX = 100, PY = 84, OX = 50, OY = 60;

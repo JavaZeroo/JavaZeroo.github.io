@@ -3,7 +3,7 @@
  * MoE 反向对 router 概率梯度的依赖（第 9 篇）：
  * 原来 ∂L/∂p_e = ⟨dy, o_e⟩ 要保存 expert 输出 o_e；改写成 ⟨W_down^T dy, a_e⟩ 只要中间激活 a_e 和上游梯度。
  */
-import FlowDiagram from './FlowDiagram.astro';
+import FlowDiagram from '../figures/FlowDiagram.astro';
 const nodes = [
   { id: 'x', x: 20, y: 70, w: 120, h: 50, kind: 'in', lines: ['$x_e$', 'dispatch 后的输入'] },
   { id: 'g1', x: 180, y: 70, w: 150, h: 50, kind: 'moe', lines: ['gate / up GEMM', '+ SiTU-GLU'] },

@@ -1,6 +1,6 @@
 ---
 /** KCP 的前缀扫描（第 7 篇）：每个 rank 本地算两个固定大小的量，一次 all-gather 后按顺序合并出进入状态。 */
-import FlowDiagram from './FlowDiagram.astro';
+import FlowDiagram from '../figures/FlowDiagram.astro';
 const nodes = [
   { id: 'a', x: 36, y: 100, w: 130, h: 52, kind: 'in', lines: ['本地 token', '第 $i$ 段'] },
   { id: 'b', x: 216, y: 46, w: 204, h: 52, kind: 'main', lines: ['算 $M_{[i]}$', '本段的累积转移，每头 128×128'] },

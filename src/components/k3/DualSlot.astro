@@ -3,8 +3,8 @@
  * 双槽位轮转示意（第 9、10 篇复用三次）：GPU 上只留两个槽，一个在用、一个在预取下一块。
  * 用 props 换文字：store 是槽位外的存储，items 是流过槽位的东西。
  */
-import SvgTex from './SvgTex.astro';
-import { texMix } from './tex';
+import SvgTex from '../figures/SvgTex.astro';
+import { texMix } from '../figures/tex';
 interface Props { store: string; item: string; slotA: string; slotB: string; use: string; fill: string; caption: string; id: string }
 const { store, item, slotA, slotB, use, fill, caption, id } = Astro.props;
 ---

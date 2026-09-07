@@ -3,8 +3,8 @@
  * 三联图：普通残差 / Full AttnRes / Block AttnRes（块大小 S = 2）。
  * 四个子层 f₁…f₄，纵向是深度。左列是"可以被取回的东西"，中间 α 是 AttnRes 算子，右列是子层本身。
  */
-import SvgTex from './SvgTex.astro';
-import { texMix } from './tex';
+import SvgTex from '../figures/SvgTex.astro';
+import { texMix } from '../figures/tex';
 const PW = 310, PH = 392;
 const yEmb = 48;
 const yF = (l: number) => 48 + l * 62;          // l = 1..4 → 110, 172, 234, 296

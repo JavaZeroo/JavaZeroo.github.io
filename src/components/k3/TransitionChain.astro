@@ -4,7 +4,7 @@
  * 上：KDA，每一格是 (I − β_j k_j k_jᵀ) Diag(α_j)，数据相关，格子颜色随位置变化。
  * 下：RoPE，每一格是同一个固定旋转 R，格子全部同色。
  */
-import SvgTex from './SvgTex.astro';
+import SvgTex from '../figures/SvgTex.astro';
 const N = 5;                 // 画 5 步：j = i+1 … t
 const X0 = 200, STEP = 82, BW = 58, BH = 42;
 const rows = [

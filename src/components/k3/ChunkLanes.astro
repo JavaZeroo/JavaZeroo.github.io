@@ -3,7 +3,7 @@
  * KDA chunkwise 形式的"双通道"图：块间通道传递状态 S，块内通道做一次带掩码的 C×C 矩阵乘。
  * 右侧把 C = 64 的下三角按 16-token 二级 tile 画出来：对角 tile 是 Kimi Linear 的瓶颈，K3 把它也搬上 Tensor Core。
  */
-import SvgTex from './SvgTex.astro';
+import SvgTex from '../figures/SvgTex.astro';
 const T = 4, TS = 34, GX = 640, GY = 88; // 4×4 tile 网格
 ---
 

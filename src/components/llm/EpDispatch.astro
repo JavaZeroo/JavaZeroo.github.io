@@ -3,8 +3,8 @@
  * expert 并行：token 按 router 的结果 all-to-all 到持有目标 expert 的 rank，算完再 all-to-all 回原位。
  * 两个 EP rank，每 rank 两个 expert，token 的颜色 = 目标 expert（画 top-1，top-k 是每个 token 发 k 份）。
  */
-import SvgTex from '../k3/SvgTex.astro';
-import { texMix } from '../k3/tex';
+import SvgTex from '../figures/SvgTex.astro';
+import { texMix } from '../figures/tex';
 const caption = 'expert 并行。$E = 4$ 个 expert 切到 $R = 2$ 个 rank 上，每个 token 的颜色是 router 选中的 expert。dispatch 是一次 all-to-all：把 token 送到持有它目标 expert 的 rank；每个 expert 对收到的 token 做一次普通的 FFN；combine 再一次 all-to-all 把结果送回原位，按 router 权重求和。两次 all-to-all 合起来是一个置换，反向把它们的方向调转即可。';
 const EXP = ['var(--cat-indigo)', 'var(--cat-cyan)', 'var(--cat-emerald)', 'var(--cat-rose)'];
 // 每个 rank 的 4 个 token，值 = 目标 expert

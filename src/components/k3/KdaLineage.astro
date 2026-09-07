@@ -7,7 +7,7 @@
  *
  * 渲染两份 SVG：宽屏三列（主线两列 + 旁支一列），窄屏两段（主线在上，旁支列在下），CSS 按宽度切换。
  */
-import SvgTex from './SvgTex.astro';
+import SvgTex from '../figures/SvgTex.astro';
 type Kind = 'root' | 'forget' | 'erase' | 'kda' | 'leaf';
 interface Spec { id: string; kind: Kind; name: string; formula: string; note?: string; badge?: string; wide?: boolean }
 interface Node extends Spec { cx: number; y: number; w: number }

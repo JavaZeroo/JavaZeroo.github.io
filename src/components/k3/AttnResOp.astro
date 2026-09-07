@@ -1,6 +1,6 @@
 ---
 /** AttnRes 算子内部（第 4 篇）：来源堆成 V，RMSNorm 后与 w_l 打分，softmax，取回没归一化的 V。 */
-import FlowDiagram from './FlowDiagram.astro';
+import FlowDiagram from '../figures/FlowDiagram.astro';
 const nodes = [
   { id: 'b0', x: 34, y: 76, w: 162, kind: 'attnres', lines: ['$b_0$ = embedding'] },
   { id: 'b1', x: 34, y: 154, w: 162, kind: 'attnres', lines: ['$b_1 \\dots b_{n-1}$', '已完成的块'] },

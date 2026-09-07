@@ -1,6 +1,6 @@
 ---
 /** Lightning indexer 在 CSA 里的样子：query 从共享的 c^Q 出来，键是压缩块，打分是 ReLU 加权和，取 top-k 个块。 */
-import FlowDiagram from '../k3/FlowDiagram.astro';
+import FlowDiagram from '../figures/FlowDiagram.astro';
 const nodes = [
   { id: 'cq', x: 20, y: 40, w: 170, kind: 'mla', lines: ['$c^Q_t$', '1536，和主注意力共用'] },
   { id: 'h', x: 20, y: 150, w: 170, kind: 'in', lines: ['$h_t$', '7168'] },

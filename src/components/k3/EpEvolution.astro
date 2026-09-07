@@ -1,6 +1,6 @@
 ---
 /** EP 负载均衡方案的演化（第 8 篇）：每一步只改一件事。 */
-import FlowDiagram from './FlowDiagram.astro';
+import FlowDiagram from '../figures/FlowDiagram.astro';
 const nodes = [
   { id: 'a', x: 20, y: 60, w: 200, h: 78, kind: 'in', lines: ['朴素 EP', 'all-to-all 把 token 送到 expert 所在 rank', '最慢的 rank 决定这一层的时间'] },
   { id: 'b', x: 270, y: 60, w: 200, h: 78, kind: 'op', lines: ['DeepEP', '专门的 all-to-all 内核', '通信快了，不均衡还在'] },

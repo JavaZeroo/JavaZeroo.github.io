@@ -3,8 +3,8 @@
  * 上下文并行（ring attention）：左边是 4 个 rank、4 步的 KV 轮转表，每个 rank 固定持有自己的 Q 块，
  * 每步收到一个新的 KV 块并更新在线 softmax 的 (m, l, O)；右边是因果掩码下两种切法的负载。
  */
-import SvgTex from '../k3/SvgTex.astro';
-import { texMix } from '../k3/tex';
+import SvgTex from '../figures/SvgTex.astro';
+import { texMix } from '../figures/tex';
 const caption = '上下文并行（ring attention）。$C = 4$ 个 rank，rank $i$ 持有 $Q_i$ 不动，KV 块沿环每步传一格：第 $t$ 步 rank $i$ 拿到的是 $KV_{(i-t) \\bmod C}$，$C$ 步后每个 $Q_i$ 见过所有 KV。每一步用在线 softmax 把新块并进 $(m_i, l_i, O_i)$，结果与一次算完全一样。右：因果掩码下只有下三角的块要算，按连续段切时 rank 3 的活是 rank 0 的四倍；zigzag 把序列切成 $2C$ 段、rank $i$ 拿第 $i$ 和第 $2C\\!-\\!1\\!-\\!i$ 段，每个 rank 的格子数一样多。';
 const C = 4;
 const BLK = ['var(--cat-indigo)', 'var(--cat-cyan)', 'var(--cat-emerald)', 'var(--cat-rose)'];

@@ -3,7 +3,7 @@
  * CSA 的重叠压缩：m = 4，12 个 token，两套 (C^a, Z^a)、(C^b, Z^b)。
  * 压缩条目 i 由「块 i 的 b 系列 + 块 i−1 的 a 系列」共 2m 个槽做一次 softmax 加权和。
  */
-import SvgTex from '../k3/SvgTex.astro';
+import SvgTex from '../figures/SvgTex.astro';
 const m = 4, T = 12;
 const X0 = 150, CW = 52, GAP = 4;
 const tx = (t: number) => X0 + t * (CW + GAP) + Math.floor(t / m) * 14;

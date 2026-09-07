@@ -1,6 +1,6 @@
 ---
 /** ZeRO 三级分片的演化：每一级多切一样东西。 */
-import FlowDiagram from '../k3/FlowDiagram.astro';
+import FlowDiagram from '../figures/FlowDiagram.astro';
 const nodes = [
   { id: 'a', x: 20, y: 60, w: 200, h: 78, kind: 'in', lines: ['普通 DP', '每卡一份完整的权重、梯度、优化器状态', '每参数 16 B（Adam）'] },
   { id: 'b', x: 270, y: 60, w: 200, h: 78, kind: 'op', lines: ['ZeRO-1', '优化器状态按 $N$ 切', '$2 + 2 + 12/N$'] },

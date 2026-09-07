@@ -1,6 +1,6 @@
 ---
 /** 压缩注意力的上下文并行：两阶段通信（论文 §3.4.3）。 */
-import FlowDiagram from '../k3/FlowDiagram.astro';
+import FlowDiagram from '../figures/FlowDiagram.astro';
 const nodes = [
   { id: 'r0', x: 20, y: 40, w: 190, kind: 'in', lines: ['rank $i$：$s$ 个 token', '本地未压缩 KV'] },
   { id: 'r1', x: 20, y: 150, w: 190, kind: 'in', lines: ['rank $i+1$：$s$ 个 token', '本地未压缩 KV'] },

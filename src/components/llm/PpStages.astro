@@ -3,8 +3,8 @@
  * 流水线并行：上半是 L 层切成 P 段、段间只传激活和激活梯度；下半是 GPipe 的时间线（P=4, m=4），
  * 前向 1 格、反向 2 格，斜线是气泡。
  */
-import SvgTex from '../k3/SvgTex.astro';
-import { texMix } from '../k3/tex';
+import SvgTex from '../figures/SvgTex.astro';
+import { texMix } from '../figures/tex';
 const caption = '流水线并行。上：$L$ 层切成 $P = 4$ 段，段间只传一个 $b\\,S\\,d$ 的激活（前向）和同样大小的激活梯度（反向），是所有并行里通信最少的。下：GPipe 时间线，$m = 4$ 个 micro-batch，前向 1 格、反向 2 格。斜线是气泡：stage 3 开头要等前向流到它，stage 0 结尾要等反向流回来。1F1B、虚拟段、Zero Bubble 怎么处理它，见流水线那篇。';
 const P = 4, m = 4;
 const SX = 40, SW = 200, SG = 60; // stage boxes

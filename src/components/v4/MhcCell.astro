@@ -3,7 +3,7 @@
  * mHC 一个子层的接线：4 条残差流横向流过，读算子 A 把 4 条压成子层输入，写算子 C 把子层输出分回 4 条，
  * 同时混合矩阵 B（双随机）让 4 条流互相交换。x_{l+1} = B x_l + C F(A x_l)。
  */
-import SvgTex from '../k3/SvgTex.astro';
+import SvgTex from '../figures/SvgTex.astro';
 const ys = [60, 100, 140, 180];
 const XA = 230, XF = 470, XB = 640, XBW = 90, XC = 780;
 const OPY = 270, OPC = OPY + 17;   // 算子行

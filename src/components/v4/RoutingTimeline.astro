@@ -1,6 +1,6 @@
 ---
 /** Anticipatory Routing（论文 §4.2.3）：路由索引用 Δt 步之前的参数提前算好并缓存。 */
-import FlowDiagram from '../k3/FlowDiagram.astro';
+import FlowDiagram from '../figures/FlowDiagram.astro';
 const nodes = [
   { id: 'pre', x: 20, y: 60, w: 250, h: 56, kind: 'moe', lines: ['步 $t - \\Delta t$：多做一次前向', '预取步 $t$ 的数据，用 $\\theta_{t-\\Delta t}$ 算出路由索引'] },
   { id: 'cache', x: 330, y: 60, w: 170, h: 56, kind: 'in', lines: ['缓存索引', '每个 token 选哪 6 个 expert'] },

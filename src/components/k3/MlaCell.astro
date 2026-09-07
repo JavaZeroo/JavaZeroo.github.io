@@ -2,7 +2,7 @@
 /**
  * 一层 Gated MLA 的内部（Kimi K3 维度）：query 低秩、KV latent 压缩、64 维头间共享键、NoPE、满秩 sigmoid 输出门。
  */
-import SvgTex from './SvgTex.astro';
+import SvgTex from '../figures/SvgTex.astro';
 const BH = 36;
 type Box = { x: number; y: number; w: number; l: string; s?: string; kind?: 'q' | 'kv' | 'cache' | 'gate' | 'out' | 'in' | 'attn' };
 const boxes: Box[] = [

@@ -1,6 +1,6 @@
 ---
 /** 集群级调度（第 10 篇）：会话按一致性哈希钉到主、备两个集群；请求按类别走各自的预算。 */
-import FlowDiagram from './FlowDiagram.astro';
+import FlowDiagram from '../figures/FlowDiagram.astro';
 const nodes = [
   { id: 'req', x: 20, y: 96, w: 130, h: 52, kind: 'in', lines: ['请求', '带会话 id 和长度'] },
   { id: 'cls', x: 190, y: 96, w: 170, h: 52, kind: 'op', lines: ['按类别扣预算', '短请求 / 长上下文各一份'] },

@@ -3,7 +3,7 @@
  * 1M token 上下文下每 token 的 KV cache 字节数：GQA8-BF16 基线 / DeepSeek-V3.2 / V4-Pro / V4-Flash。
  * 数字按 config 手算（见 drafts/deepseek-v4/refs/notes-v4.md），忽略量化 scale。
  */
-import SvgTex from '../k3/SvgTex.astro';
+import SvgTex from '../figures/SvgTex.astro';
 const rows = [
   { name: 'GQA-8，头维 128，BF16，61 层', bytes: 249856, note: '8 × 128 × 2 × 2 B × 61', c: 'var(--muted)' },
   { name: 'DeepSeek-V3.2（MLA + DSA）', bytes: 46848, note: '(512 FP8 + 64 BF16 + indexer 128 FP8) × 61', c: 'var(--cat-amber)' },

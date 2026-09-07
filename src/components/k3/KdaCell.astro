@@ -4,7 +4,7 @@
  * 维度按 Kimi K3：d = 7168，96 头，头维 128，96 × 128 = 12288。
  * 标签里 `$...$` 的部分由 SvgTex 在构建期用 KaTeX 渲染。
  */
-import SvgTex from './SvgTex.astro';
+import SvgTex from '../figures/SvgTex.astro';
 const X0 = 150, BW = 142, GAP = 10, BH = 36;
 const bx = (i: number) => X0 + i * (BW + GAP);
 type Kind = 'q' | 'k' | 'v' | 'beta' | 'alpha' | 'gate';

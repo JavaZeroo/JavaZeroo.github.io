@@ -3,7 +3,7 @@
  * Stable LatentMoE 的"宽度收窄"图：7168 → 3584 → (16 个 expert：3584 → 3072 → 3584) → RMSNorm → 7168，
  * 旁边并联 2 个全宽 shared expert。矩形的高度按维度画，直观看出 routed 路在窄的地方。
  */
-import SvgTex from './SvgTex.astro';
+import SvgTex from '../figures/SvgTex.astro';
 const scale = 0.019; // 维度 → 像素
 const H = (d: number) => d * scale;
 const cy = 170;

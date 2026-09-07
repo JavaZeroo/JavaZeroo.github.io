@@ -2,8 +2,8 @@
 /**
  * 数据并行的两种形态：DDP（权重复制、梯度 all-reduce）和 FSDP / ZeRO-3（权重也切开，用前 all-gather，梯度 reduce-scatter）。
  */
-import SvgTex from '../k3/SvgTex.astro';
-import { texMix } from '../k3/tex';
+import SvgTex from '../figures/SvgTex.astro';
+import { texMix } from '../figures/tex';
 const caption = '左：DDP。每卡一份完整的 $W$，各算自己 batch 分片的梯度，一次 all-reduce 之后两卡拿到同一个 $\\bar g$，做同一个更新。右：FSDP / ZeRO-3。$W$ 只存 $1/N$，前向和反向用到某一层时 all-gather 凑齐、用完即丢；梯度 reduce-scatter 后每卡只留自己那 $1/N$。两种形态的计算完全一样，差别只在 $W$ 和 $g$ 的存储。';
 const gpus = [
   { x: 40, i: 0 }, { x: 290, i: 1 },

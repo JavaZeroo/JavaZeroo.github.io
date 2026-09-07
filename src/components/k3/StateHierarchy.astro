@@ -3,8 +3,8 @@
  * 1M 上下文 RL 里各种状态住在哪一层（第 10 篇）：GPU HBM / CPU DRAM / NVMe / 远端，以及触发搬家的时机。
  * 纯 SVG，标签走 SvgTex。
  */
-import SvgTex from './SvgTex.astro';
-import { texMix } from './tex';
+import SvgTex from '../figures/SvgTex.astro';
+import { texMix } from '../figures/tex';
 const tiers = [
   { y: 30, label: 'GPU HBM', sub: '最快、最小', kind: 't0' },
   { y: 120, label: 'CPU DRAM', sub: '外部 KV 池住这里', kind: 't1' },

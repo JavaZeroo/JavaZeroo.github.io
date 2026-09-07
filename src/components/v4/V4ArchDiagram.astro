@@ -4,7 +4,7 @@
  * 每篇文章通过 `highlight` 点亮自己讲的那一组模块，其余淡化。方块可点击跳到对应文章。
  * 残差流画成 4 条并行竖线（mHC 的 hc_mult = 4），每个子层前一个「读」算子 A，后一个「写 + 混」算子 C / B。
  */
-import SvgTex from '../k3/SvgTex.astro';
+import SvgTex from '../figures/SvgTex.astro';
 type Group = 'embed' | 'csa' | 'hca' | 'swa' | 'moe' | 'hashmoe' | 'mhc' | 'output' | 'mtp';
 
 interface Props {

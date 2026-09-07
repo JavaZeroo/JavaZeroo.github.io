@@ -1,6 +1,6 @@
 ---
 /** 一层 HCA 的内部（Pro 维度）：与 CSA 相同的 query / KV / 滑窗 / 输出，压缩率 128，不重叠，没有 indexer。 */
-import FlowDiagram from '../k3/FlowDiagram.astro';
+import FlowDiagram from '../figures/FlowDiagram.astro';
 const nodes = [
   { id: 'in', x: 20, y: 120, w: 90, kind: 'in', lines: ['$x_t$', '7168'] },
   { id: 'qa', x: 160, y: 30, w: 150, kind: 'mla', lines: ['$W^{DQ}$', '7168 → 1536'] },

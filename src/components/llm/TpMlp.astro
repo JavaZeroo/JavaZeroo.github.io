@@ -3,8 +3,8 @@
  * Megatron 张量并行的 MLP：A 按列切、B 按行切，中间的 GeLU 不需要通信，末尾一次 all-reduce。
  * f / g 是一对共轭算子：f 前向恒等、反向 all-reduce；g 前向 all-reduce、反向恒等。
  */
-import SvgTex from '../k3/SvgTex.astro';
-import { texMix } from '../k3/tex';
+import SvgTex from '../figures/SvgTex.astro';
+import { texMix } from '../figures/tex';
 const caption = 'Megatron 的 MLP 切法。$A$ 按列切成 $[A_1\\ A_2]$，每卡算 $\\mathrm{GeLU}(XA_i)$，逐元素的非线性不跨列，所以中间不通信；$B$ 按行切成 $[B_1; B_2]$，每卡算出一个部分和 $Y_i$，一次 all-reduce 相加。$f$ 和 $g$ 是一对共轭算子：前向 $f$ 恒等、$g$ all-reduce，反向反过来。一层 MLP 前向一次、反向一次 all-reduce，注意力子层同理，所以每层每个 micro-batch 共四次。';
 const lanes = [
   { y: 70, i: 1 }, { y: 200, i: 2 },

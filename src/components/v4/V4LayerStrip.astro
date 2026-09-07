@@ -3,7 +3,7 @@
  * DeepSeek-V4 的层怎么排：CSA / HCA / 滑窗交错，前三层 hash-MoE，末尾的 MTP 层。
  * 层号按 config.json 与官方代码的 0-indexed 口径。数据直接来自 config 的 compress_ratios。
  */
-import SvgTex from '../k3/SvgTex.astro';
+import SvgTex from '../figures/SvgTex.astro';
 interface Props {
   model?: 'pro' | 'flash';
   caption?: string;

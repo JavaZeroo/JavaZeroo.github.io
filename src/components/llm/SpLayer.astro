@@ -4,8 +4,8 @@
  * 进出 TP 区各用一次 all-gather / reduce-scatter，代替原来的 all-reduce。
  * 两行：上一行注意力子层，下一行 MLP 子层。每个算子下面的小矩形是「每卡持有的激活形状」：按 S 切是半宽，按 d / 头切是半高。
  */
-import SvgTex from '../k3/SvgTex.astro';
-import { texMix } from '../k3/tex';
+import SvgTex from '../figures/SvgTex.astro';
+import { texMix } from '../figures/tex';
 const caption = '序列并行（Megatron-SP）。虚线框里的 LayerNorm、dropout、残差按序列切，每卡只有 $S/T$ 个 token；实线框里的注意力和 MLP 按头 / 按列切，每卡有全部 token 但只有 $1/T$ 的通道。进 TP 区 all-gather（$\\bar f$），出 TP 区 reduce-scatter（$\\bar g$），两者合起来正好是原来的一次 all-reduce，通信量不变，但原本复制 $T$ 份的那部分激活也切开了。';
 type Kind = 'seq' | 'tp' | 'ag' | 'rs';
 type Item = { kind: Kind; w: number; l1: string; l2?: string };

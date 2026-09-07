@@ -4,8 +4,8 @@
  * 左：层的堆叠（PP 切层）；中：一层里的激活 X（b×S×d）和权重 W（d×4d）；右：MoE 的 expert 堆叠（EP）。
  * 每条彩色虚线是一种并行下刀的位置。
  */
-import SvgTex from '../k3/SvgTex.astro';
-import { texMix } from '../k3/tex';
+import SvgTex from '../figures/SvgTex.astro';
+import { texMix } from '../figures/tex';
 const caption = '一次训练里可以下刀的六个位置。DP 切 batch，SP 和 CP 切序列，TP 切权重矩阵的行或列，PP 切层，EP 切 expert；ZeRO / FSDP 不改变计算的切法，只把权重、梯度、优化器状态的存储按 DP 组切开。后面每一节讲其中一刀。';
 ---
 <figure class="fig">

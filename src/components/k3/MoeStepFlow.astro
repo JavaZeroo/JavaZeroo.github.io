@@ -1,6 +1,6 @@
 ---
 /** 一个 PP stage 上一层 MoE 的执行顺序（第 8 篇）：主 stream 与 shared expert 的副 stream，以及三处等待。 */
-import FlowDiagram from './FlowDiagram.astro';
+import FlowDiagram from '../figures/FlowDiagram.astro';
 const nodes = [
   { id: 'attn', x: 20, y: 60, w: 130, h: 52, kind: 'main', lines: ['注意力子层', 'KDA 或 MLA'] },
   { id: 'router', x: 190, y: 60, w: 150, h: 52, kind: 'moe', lines: ['router', '打分，选 top-16'] },

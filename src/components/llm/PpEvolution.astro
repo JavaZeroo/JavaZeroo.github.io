@@ -1,6 +1,6 @@
 ---
 /** 流水线调度的演化：GPipe → 1F1B → interleaved 1F1B → zero bubble。每一步只改一件事。 */
-import FlowDiagram from '../k3/FlowDiagram.astro';
+import FlowDiagram from '../figures/FlowDiagram.astro';
 const nodes = [
   { id: 'a', x: 20, y: 60, w: 210, h: 78, kind: 'in', lines: ['GPipe', '先做完全部前向，再做全部反向', '每 rank 攒 $m$ 份激活'] },
   { id: 'b', x: 280, y: 60, w: 210, h: 78, kind: 'op', lines: ['1F1B', 'warmup 之后一前一反交替', '在途激活最多 $P$ 份，气泡不变'] },

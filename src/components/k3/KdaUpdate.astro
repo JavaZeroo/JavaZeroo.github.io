@@ -3,7 +3,7 @@
  * KDA 状态更新（论文 Eq. 1）的图解：S_t = (I − β k kᵀ) · Diag(α) · S_{t−1} + β k vᵀ。
  * 三步：① 逐通道衰减 ② 沿 k 方向擦除 ③ 写入新的 k→v 关联。
  */
-import SvgTex from './SvgTex.astro';
+import SvgTex from '../figures/SvgTex.astro';
 const M = 72; // 矩阵边长
 const y0 = 70;
 const items: { x: number; label: string; sub: string; kind: 'mat' | 'diag' | 'house' | 'rank1' }[] = [
