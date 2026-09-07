@@ -43,6 +43,8 @@
   --code-ligatures: none;
 
   --measure: 44rem;
+  /* Listing pages: rows and cards, not prose, so they get more room. */
+  --measure-list: 64rem;
   /* Header, hero, footer and the article shell share this outer box. */
   --wide: 96rem;
   --gutter: clamp(1.25rem, 5vw, 3rem);
@@ -109,6 +111,7 @@ body::before {
 a { color: inherit; text-decoration: none; }
 
 .wrap { width: 100%; max-width: var(--measure); margin: 0 auto; padding-inline: var(--gutter); }
+.wrap.list { max-width: var(--measure-list); }
 .wide { width: 100%; max-width: var(--wide); margin: 0 auto; padding-inline: var(--gutter); }
 
 .label {
@@ -349,6 +352,9 @@ main { flex: 1; }
 .outline-part-head .planned { padding: 0.1rem 0.55rem; border: 1px dashed var(--border-2); border-radius: 999px; }
 .row.draft { border-style: dashed; opacity: 0.6; }
 .row.draft .t { color: var(--text-2); }
+/* The lead cell here is an index ("01"), not a date, so it needs a fraction
+   of the width the archive rows reserve. */
+.outline .rows { --row-lead: 3.4rem; }
 .series-start { margin-top: 3rem; }
 
 .series-banner {
@@ -377,7 +383,7 @@ main { flex: 1; }
 .rows { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.6rem; }
 .row {
   --c: var(--accent);
-  display: grid; grid-template-columns: 6.5rem 1fr auto; gap: 1.25rem; align-items: center;
+  display: grid; grid-template-columns: var(--row-lead, 6.5rem) 1fr auto; gap: 1.25rem; align-items: center;
   padding: 1rem 1.25rem;
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-sm);
   transition: border-color 0.2s, background 0.2s, transform 0.2s var(--ease);

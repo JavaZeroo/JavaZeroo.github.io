@@ -6,7 +6,7 @@ import { getPostsByDate, groupByYear } from '../utils/posts';
 const groups = groupByYear(await getPostsByDate());
 const total = groups.reduce((n, [, posts]) => n + posts.length, 0);
 ---
-<BaseLayout title="归档" description="全部文章归档。">
+<BaseLayout title="归档" description="全部文章归档。" list>
   <header class="page-head"><span class="label">Archive</span><h1>归档</h1><p>共 {total} 篇文章</p></header>
   {groups.map(([year, posts]) => (
     <section class="year-group">

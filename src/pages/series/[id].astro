@@ -17,7 +17,7 @@ const outline = await seriesOutline(series);
 const published = outline.flatMap(([, ps]) => ps).filter((p) => !p.data.draft);
 let n = 0;
 ---
-<BaseLayout title={series.data.title} description={series.data.description}>
+<BaseLayout title={series.data.title} description={series.data.description} list>
   <header class="page-head series-head" style={`--c:${series.data.color}`}>
     <span class="label"><a href="/series/">专栏</a> · {published.length} 篇</span>
     <h1>{series.data.title}</h1>

@@ -5,7 +5,7 @@ import { catLabel, catColor } from '../../utils/taxonomy';
 
 const items = countBy(await getPosts(), 'categories');
 ---
-<BaseLayout title="分类" description="按分类浏览文章。">
+<BaseLayout title="分类" description="按分类浏览文章。" list>
   <header class="page-head"><span class="label">Categories</span><h1>分类</h1><p>共 {items.size} 个</p></header>
   <ul class="taxonomy">
     {[...items].map(([name, posts], i) => (

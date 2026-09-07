@@ -4,7 +4,7 @@ import { getPosts, countBy } from '../../utils/posts';
 
 const items = countBy(await getPosts(), 'tags');
 ---
-<BaseLayout title="标签" description="按标签浏览文章。">
+<BaseLayout title="标签" description="按标签浏览文章。" list>
   <header class="page-head"><span class="label">Tags</span><h1>标签</h1><p>共 {items.size} 个</p></header>
   <ul class="taxonomy">
     {[...items].map(([name, posts], i) => (
