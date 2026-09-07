@@ -7,10 +7,16 @@ export const AVATAR = '/images/avatar.jpg';
 export const AVATAR_SMALL = '/images/avatar-64.webp';
 export const HOME_POSTS = 7;
 
-/** Hero copy. `em` is the emphasised clause. */
+/** Hero copy. `tags` render as chips linking at their tag page; `em` is the
+ *  emphasised clause of the tagline. */
 export const INTRO = {
-  kicker: '深度学习 · 点云 · 折腾记录',
-  lines: ['记录深度学习、点云，', '以及各种折腾。'],
+  tags: [
+    { label: '大模型', href: '/tags/大模型/' },
+    { label: '模型结构', href: '/tags/模型结构/' },
+    { label: '训练系统', href: '/tags/训练系统/' },
+    { label: '折腾', href: '/tags/折腾/' },
+  ],
+  lines: ['读论文和代码，', '把大模型拆成看得懂的图。'],
   em: '偶尔写点数学。',
 };
 

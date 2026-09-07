@@ -9,7 +9,9 @@ const stats = await siteStats();
   <div class="spot" data-spot aria-hidden="true"></div>
 
   <div class="wide hero-inner">
-    <span class="kicker label">{INTRO.kicker}</span>
+    <div class="kicker">
+      {INTRO.tags.map(({ label, href }) => <a class="chip" href={href}>{label}</a>)}
+    </div>
     <h1><span class="grad-text">{AUTHOR}</span></h1>
     <p class="tagline">
       {INTRO.lines.map((l, i) => (<>{l}{i < INTRO.lines.length - 1 && <br />}</>))}
