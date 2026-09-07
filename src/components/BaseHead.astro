@@ -72,6 +72,14 @@ const jsonLd = type === 'article' && publishedAt ? {
      client-side navigation because the router swaps <html>. -->
 <script is:inline>
   (() => {
+    let watcher;
+    // Keeps the browser UI (address bar, task switcher) on the page's own
+    // background, whichever theme is active. Reads --bg so the two never drift
+    // apart; the header's toggle only sets data-theme.
+    const paint = () => {
+      const bg = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim();
+      if (bg) document.querySelector('meta[name="theme-color"]')?.setAttribute('content', bg);
+    };
     const apply = () => {
       // Marks that JS runs at all: CSS keeps scroll-reveal content visible
       // without it. Re-applied after a swap, which replaces <html>.
@@ -82,6 +90,10 @@ const jsonLd = type === 'article' && publishedAt ? {
         light = stored ? stored === 'light' : matchMedia('(prefers-color-scheme: light)').matches;
       } catch {}
       document.documentElement.dataset.theme = light ? 'light' : 'dark';
+      paint();
+      watcher?.disconnect();
+      watcher = new MutationObserver(paint);
+      watcher.observe(document.documentElement, { attributeFilter: ['data-theme'] });
     };
     apply();
     document.addEventListener('astro:after-swap', apply);

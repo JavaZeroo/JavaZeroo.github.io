@@ -3,19 +3,19 @@ import Icon from './Icon.astro';
 import { AUTHOR, AVATAR_SMALL } from '../consts';
 const path = Astro.url.pathname;
 const links = [
-  { href: '/series/', label: '专栏', keep: true },
+  { href: '/series/', label: '专栏' },
   { href: '/archives/', label: '归档' },
   { href: '/categories/', label: '分类' },
   { href: '/tags/', label: '标签' },
-  { href: '/about/', label: '关于', keep: true },
+  { href: '/about/', label: '关于' },
 ];
 ---
 <header class="site-header" data-header>
   <div class="wide">
     <a class="brand" href="/"><img src={AVATAR_SMALL} alt="" width="28" height="28" />{AUTHOR}</a>
     <nav class="site-nav">
-      {links.map(({ href, label, keep }) => (
-        <a class={keep ? 'keep' : undefined} href={href} aria-current={path.startsWith(href) ? 'page' : undefined}>{label}</a>
+      {links.map(({ href, label }) => (
+        <a href={href} aria-current={path.startsWith(href) ? 'page' : undefined}>{label}</a>
       ))}
       <button class="search-btn" type="button" data-search-open aria-label="搜索">
         <Icon name="search" /><span>搜索</span><kbd>⌘K</kbd>

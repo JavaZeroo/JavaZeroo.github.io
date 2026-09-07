@@ -68,11 +68,12 @@ front-matter 由 `src/content.config.ts` 的 zod schema 校验，字段写错构
 
 ```
 src/
+  assets/images/     文章配图（走 Astro 图片管线：WebP + 宽高）
   content/posts/     文章
-  components/        可复用组件
+  components/        可复用组件（figures/ 是各系列共用的图元：SvgTex、FlowDiagram、tex.ts）
   layouts/           页面骨架
   pages/             路由（[...permalink].astro 负责文章 URL）
-  plugins/           remark 插件（:::note）
+  plugins/           remark / rehype 插件与构建后处理（:::note、标题锚点、公式字形去重等）
   utils/             永久链接、分类聚合、feed
-public/              原样拷贝到站点根目录（images/、files/、CNAME）
+public/              原样拷贝到站点根目录（fonts/、files/、CNAME、头像与 og.png）
 ```

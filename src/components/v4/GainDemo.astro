@@ -54,7 +54,7 @@ import { texMix } from '../figures/tex';
     let Gs: number[][][] = [];
     const reseed = () => { Gs = Array.from({ length: LMAX }, () => Array.from({ length: n }, () => Array.from({ length: n }, randn))); };
     reseed();
-    const eye = () => Array.from({ length: n }, (_, i) => Array.from({ length: n }, (_, j) => (i === j ? 1 : 0)));
+    const eye = (): number[][] => Array.from({ length: n }, (_, i) => Array.from({ length: n }, (_, j) => (i === j ? 1 : 0)));
     const mul = (A: number[][], B: number[][]) => A.map((r) => Array.from({ length: n }, (_, j) => r.reduce((a, x, k) => a + x * B[k][j], 0)));
     const sinkhorn = (M: number[][]) => {
       for (let k = 0; k < 20; k++) {
