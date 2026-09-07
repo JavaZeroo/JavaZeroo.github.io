@@ -105,7 +105,7 @@ import { texMix } from '../figures/tex';
     return true;
   }
 
-  document.querySelectorAll<HTMLElement>('.ep-demo').forEach((root) => {
+  const init = () => document.querySelectorAll<HTMLElement>('.ep-demo').forEach((root) => {
     const body = root.querySelector<SVGGElement>('[data-body]')!;
     const logEl = root.querySelector<HTMLElement>('[data-log]')!;
     const btnStep = root.querySelector<HTMLButtonElement>('[data-step]')!;
@@ -148,4 +148,5 @@ import { texMix } from '../figures/tex';
     btnAll.addEventListener('click', () => { while (step(st)) {} check(); render(); });
     check(); render();
   });
+  document.addEventListener('astro:page-load', init);
 </script>

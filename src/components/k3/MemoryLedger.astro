@@ -72,7 +72,7 @@ import { texMix } from '../figures/tex';
   const R_OPTS = [8, 16, 32, 56, 112], S_OPTS = [4096, 8192, 16384, 65536];
   const fmt = (b: number) => (b >= 100 * GB ? (b / GB).toFixed(0) : b >= 10 * GB ? (b / GB).toFixed(1) : (b / GB).toFixed(2)) + ' GB';
 
-  document.querySelectorAll<HTMLElement>('.ledger').forEach((root) => {
+  const init = () => document.querySelectorAll<HTMLElement>('.ledger').forEach((root) => {
     const inp = (k: string) => root.querySelector<HTMLInputElement>(`[data-i="${k}"]`)!;
     const out = (k: string) => root.querySelector<HTMLOutputElement>(`[data-o="${k}"]`)!;
     const tog = (k: string) => root.querySelector<HTMLInputElement>(`[data-t="${k}"]`)!.checked;
@@ -125,4 +125,5 @@ import { texMix } from '../figures/tex';
     root.querySelectorAll('input').forEach((el) => el.addEventListener('input', render));
     render();
   });
+  document.addEventListener('astro:page-load', init);
 </script>

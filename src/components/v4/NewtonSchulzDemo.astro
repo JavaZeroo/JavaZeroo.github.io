@@ -56,7 +56,7 @@ import { texMix } from '../figures/tex';
 </style>
 
 <script>
-  document.querySelectorAll<HTMLElement>('.ns-demo').forEach((root) => {
+  const init = () => document.querySelectorAll<HTMLElement>('.ns-demo').forEach((root) => {
     const q = <T extends Element>(s: string) => root.querySelector<T>(s)!;
     const kIn = q<HTMLInputElement>('[data-k]'), kOut = q<HTMLOutputElement>('[data-k-out]'), mode = q<HTMLSelectElement>('[data-mode]');
     const pa = q<SVGPathElement>('[data-a]'), pb = q<SVGPathElement>('[data-b]'), pk = q<SVGPathElement>('[data-kk]'), grid = q<SVGGElement>('[data-grid]'), one = q<SVGLineElement>('[data-one]');
@@ -86,4 +86,5 @@ import { texMix } from '../figures/tex';
     kIn.addEventListener('input', render); mode.addEventListener('change', render);
     render();
   });
+  document.addEventListener('astro:page-load', init);
 </script>

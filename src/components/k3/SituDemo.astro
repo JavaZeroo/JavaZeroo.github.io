@@ -52,7 +52,7 @@ import { texMix } from '../figures/tex';
 </style>
 
 <script>
-  document.querySelectorAll<HTMLElement>('.situ-demo').forEach((root) => {
+  const init = () => document.querySelectorAll<HTMLElement>('.situ-demo').forEach((root) => {
     const q = <T extends Element>(s: string) => root.querySelector<T>(s)!;
     const b1 = q<HTMLInputElement>('[data-b1]'), b2 = q<HTMLInputElement>('[data-b2]'), rg = q<HTMLSelectElement>('[data-range]');
     const b1o = q<HTMLOutputElement>('[data-b1-out]'), b2o = q<HTMLOutputElement>('[data-b2-out]'), bdo = q<HTMLOutputElement>('[data-bound-out]');
@@ -91,4 +91,5 @@ import { texMix } from '../figures/tex';
     rg.addEventListener('change', render);
     render();
   });
+  document.addEventListener('astro:page-load', init);
 </script>

@@ -40,7 +40,7 @@ import { texMix } from '../figures/tex';
 </style>
 
 <script>
-  document.querySelectorAll<HTMLElement>('.sk-demo').forEach((root) => {
+  const init = () => document.querySelectorAll<HTMLElement>('.sk-demo').forEach((root) => {
     const q = <T extends Element>(s: string) => root.querySelector<T>(s)!;
     const sIn = q<HTMLInputElement>('[data-s]'), tIn = q<HTMLInputElement>('[data-t]');
     const sOut = q<HTMLOutputElement>('[data-s-out]'), tOut = q<HTMLOutputElement>('[data-t-out]');
@@ -95,4 +95,5 @@ import { texMix } from '../figures/tex';
     q<HTMLButtonElement>('[data-rand]').addEventListener('click', () => { reseed(); render(); });
     render();
   });
+  document.addEventListener('astro:page-load', init);
 </script>

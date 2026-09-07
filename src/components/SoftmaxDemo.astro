@@ -50,7 +50,7 @@ const {
 
 <script>
   // Every instance on the page wires itself up independently.
-  document.querySelectorAll<HTMLElement>('.softmax-demo').forEach((root) => {
+  const init = () => document.querySelectorAll<HTMLElement>('.softmax-demo').forEach((root) => {
     const logits: number[] = JSON.parse(root.dataset.logits ?? '[]');
     const slider = root.querySelector<HTMLInputElement>('[data-temp]')!;
     const out = root.querySelector<HTMLOutputElement>('[data-temp-out]')!;
@@ -73,4 +73,5 @@ const {
     slider.addEventListener('input', render);
     render();
   });
+  document.addEventListener('astro:page-load', init);
 </script>

@@ -125,7 +125,7 @@ import { texMix } from '../figures/tex';
     return { ops: all, T: Math.max(...free), lists };
   }
 
-  document.querySelectorAll<HTMLElement>('.pp-demo').forEach((root) => {
+  const init = () => document.querySelectorAll<HTMLElement>('.pp-demo').forEach((root) => {
     const q = <T extends Element>(s: string) => root.querySelector<T>(s)!;
     const pIn = q<HTMLInputElement>('[data-p]'), mIn = q<HTMLInputElement>('[data-m]'), vIn = q<HTMLInputElement>('[data-v]');
     const pOut = q<HTMLOutputElement>('[data-p-out]'), mOut = q<HTMLOutputElement>('[data-m-out]'), vOut = q<HTMLOutputElement>('[data-v-out]');
@@ -220,4 +220,5 @@ import { texMix } from '../figures/tex';
     root.querySelectorAll('input[name="pp-mode"]').forEach((el) => el.addEventListener('change', render));
     render();
   });
+  document.addEventListener('astro:page-load', init);
 </script>

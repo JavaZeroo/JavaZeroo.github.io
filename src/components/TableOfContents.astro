@@ -24,7 +24,12 @@ const items = Astro.props.headings.filter((h) => h.depth >= 2 && h.depth <= 4);
 )}
 
 <script>
+  // See Header.astro: `init` runs again after every client-side navigation, so
+  // the previous page's scroll listener has to go.
+  let ac: AbortController | undefined;
   const init = () => {
+    ac?.abort();
+    ac = new AbortController();
     const links = document.querySelectorAll<HTMLAnchorElement>('[data-toc-link]');
     if (!links.length) return;
     const byId = new Map([...links].map((a) => [a.dataset.tocLink!, a]));
@@ -45,7 +50,7 @@ const items = Astro.props.headings.filter((h) => h.depth >= 2 && h.depth <= 4);
       if (current) byId.get(current.id)?.classList.add('active');
     };
     sync();
-    addEventListener('scroll', sync, { passive: true });
+    addEventListener('scroll', sync, { passive: true, signal: ac.signal });
   };
   document.addEventListener('astro:page-load', init);
 </script>

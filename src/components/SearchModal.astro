@@ -33,22 +33,49 @@ import Icon from './Icon.astro';
     return pf;
   }
 
+  // See Header.astro: `init` runs again after every client-side navigation, and
+  // two live ⌘K handlers would open and immediately close the dialog.
+  let ac: AbortController | undefined;
+
   const init = () => {
+    ac?.abort();
+    ac = new AbortController();
+    const { signal } = ac;
     const root = document.querySelector<HTMLElement>('[data-search]');
     const input = root?.querySelector<HTMLInputElement>('[data-search-input]');
     const list = root?.querySelector<HTMLUListElement>('[data-search-results]');
     if (!root || !input || !list) return;
 
     let active = 0;
-    const open = () => { root.hidden = false; input.value = ''; list.innerHTML = ''; input.focus(); load(); };
-    const close = () => { root.hidden = true; };
+    let opener: HTMLElement | null = null;
+    const open = () => {
+      opener = document.activeElement as HTMLElement | null;
+      root.hidden = false; input.value = ''; list.innerHTML = ''; input.focus(); load();
+    };
+    const close = () => {
+      root.hidden = true;
+      // Back to whatever opened the dialog, so a keyboard user does not land
+      // at the top of the document.
+      opener?.focus();
+      opener = null;
+    };
 
-    document.querySelectorAll('[data-search-open]').forEach((b) => b.addEventListener('click', open));
-    root.addEventListener('click', (e) => { if (e.target === root) close(); });
+    document.querySelectorAll('[data-search-open]').forEach((b) => b.addEventListener('click', open, { signal }));
+    root.addEventListener('click', (e) => { if (e.target === root) close(); }, { signal });
     addEventListener('keydown', (e) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); root.hidden ? open() : close(); }
       else if (e.key === 'Escape' && !root.hidden) close();
-    });
+    }, { signal });
+
+    // aria-modal alone does not stop Tab from walking the page behind, and the
+    // dialog is a plain <div>, so the cycle is kept here by hand.
+    root.addEventListener('keydown', (e) => {
+      if (e.key !== 'Tab') return;
+      const stops: HTMLElement[] = [input, ...list.querySelectorAll<HTMLAnchorElement>('a')];
+      e.preventDefault();
+      const at = stops.indexOf(document.activeElement as HTMLElement);
+      stops[(Math.max(at, 0) + (e.shiftKey ? stops.length - 1 : 1)) % stops.length]?.focus();
+    }, { signal });
 
     const render = (items: { url: string; meta: { title?: string }; excerpt: string }[]) => {
       active = 0;
@@ -68,7 +95,7 @@ import Icon from './Icon.astro';
         const res = await api.search(q);
         render(await Promise.all(res.results.slice(0, 8).map((r) => r.data())));
       }, 120);
-    });
+    }, { signal });
 
     input.addEventListener('keydown', (e) => {
       const items = [...list.querySelectorAll('li')].filter((li) => !li.classList.contains('search-empty'));
@@ -82,7 +109,7 @@ import Icon from './Icon.astro';
       } else if (e.key === 'Enter') {
         items[active]?.querySelector('a')?.click();
       }
-    });
+    }, { signal });
   };
   document.addEventListener('astro:page-load', init);
 </script>

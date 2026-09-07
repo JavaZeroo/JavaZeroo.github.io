@@ -52,6 +52,9 @@ const fullTitle = title === SITE_TITLE ? title : `${title} · ${SITE_TITLE}`;
 <script is:inline>
   (() => {
     const apply = () => {
+      // Marks that JS runs at all: CSS keeps scroll-reveal content visible
+      // without it. Re-applied after a swap, which replaces <html>.
+      document.documentElement.classList.add('js');
       let light = false;
       try {
         const stored = localStorage.getItem('theme');

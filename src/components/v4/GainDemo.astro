@@ -44,7 +44,7 @@ import { texMix } from '../figures/tex';
 </style>
 
 <script>
-  document.querySelectorAll<HTMLElement>('.gain-demo').forEach((root) => {
+  const init = () => document.querySelectorAll<HTMLElement>('.gain-demo').forEach((root) => {
     const q = <T extends Element>(s: string) => root.querySelector<T>(s)!;
     const sIn = q<HTMLInputElement>('[data-s]'), lIn = q<HTMLInputElement>('[data-l]');
     const sOut = q<HTMLOutputElement>('[data-s-out]'), lOut = q<HTMLOutputElement>('[data-l-out]');
@@ -93,4 +93,5 @@ import { texMix } from '../figures/tex';
     q<HTMLButtonElement>('[data-rand]').addEventListener('click', () => { reseed(); render(); });
     render();
   });
+  document.addEventListener('astro:page-load', init);
 </script>

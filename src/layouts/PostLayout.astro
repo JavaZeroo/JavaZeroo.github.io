@@ -62,7 +62,12 @@ const showLede = !!description && !(post.body ?? '').includes(description.replac
 </BaseLayout>
 
 <script>
+  // See Header.astro: `init` runs again after every client-side navigation.
+  let ac: AbortController | undefined;
   const init = () => {
+    ac?.abort();
+    ac = new AbortController();
+    const { signal } = ac;
     // Progress is measured against the article, not the page, so the footer
     // and nav never count as unread content.
     const bar = document.querySelector<HTMLElement>('[data-progress]');
@@ -74,8 +79,8 @@ const showLede = !!description && !(post.body ?? '').includes(description.replac
         bar.style.width = `${done * 100}%`;
       };
       sync();
-      addEventListener('scroll', sync, { passive: true });
-      addEventListener('resize', sync);
+      addEventListener('scroll', sync, { passive: true, signal });
+      addEventListener('resize', sync, { signal });
     }
 
     document.querySelectorAll<HTMLButtonElement>('[data-copy]').forEach((btn) => {

@@ -52,7 +52,7 @@ import { texMix } from '../figures/tex';
 </style>
 
 <script>
-  document.querySelectorAll<HTMLElement>('.decay-demo').forEach((root) => {
+  const init = () => document.querySelectorAll<HTMLElement>('.decay-demo').forEach((root) => {
     const slider = root.querySelector<HTMLInputElement>('[data-a]')!;
     const out = root.querySelector<HTMLOutputElement>('[data-a-out]')!;
     const mode = root.querySelector<HTMLInputElement>('[data-mode]')!;
@@ -102,4 +102,5 @@ import { texMix } from '../figures/tex';
     mode.addEventListener('change', render);
     render();
   });
+  document.addEventListener('astro:page-load', init);
 </script>

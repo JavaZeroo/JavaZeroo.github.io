@@ -38,7 +38,7 @@ import { texMix } from '../figures/tex';
 </style>
 
 <script>
-  document.querySelectorAll<HTMLElement>('.score-demo').forEach((root) => {
+  const init = () => document.querySelectorAll<HTMLElement>('.score-demo').forEach((root) => {
     const q = <T extends Element>(s: string) => root.querySelector<T>(s)!;
     const deriv = q<HTMLInputElement>('[data-deriv]'), logy = q<HTMLInputElement>('[data-log]');
     const pS = q<SVGPathElement>('[data-sig]'), pQ = q<SVGPathElement>('[data-sqs]'), grid = q<SVGGElement>('[data-grid]'), yl = q<SVGTextElement>('[data-ylabel]');
@@ -71,4 +71,5 @@ import { texMix } from '../figures/tex';
     deriv.addEventListener('change', render); logy.addEventListener('change', render);
     render();
   });
+  document.addEventListener('astro:page-load', init);
 </script>

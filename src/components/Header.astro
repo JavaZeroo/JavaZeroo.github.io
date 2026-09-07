@@ -37,31 +37,49 @@ const links = [
 </header>
 
 <script>
+  // This module outlives the page: the ClientRouter runs `init` again after
+  // every navigation. Listeners bound to window would pile up — two live
+  // `keydown` handlers toggle the same state twice and cancel out — so each
+  // run drops the previous run's with an AbortController.
+  let ac: AbortController | undefined;
+  let io: IntersectionObserver | undefined;
+
   const init = () => {
+    ac?.abort();
+    ac = new AbortController();
+    io?.disconnect();
+    const { signal } = ac;
     const root = document.documentElement;
-    document.querySelector('[data-theme-toggle]')?.addEventListener('click', () => {
+
+    const themeBtn = document.querySelector<HTMLButtonElement>('[data-theme-toggle]');
+    const syncPressed = () => themeBtn?.setAttribute('aria-pressed', String(root.dataset.theme === 'light'));
+    syncPressed();
+    themeBtn?.addEventListener('click', () => {
       const next = root.dataset.theme === 'light' ? 'dark' : 'light';
       root.dataset.theme = next;
+      syncPressed();
       try { localStorage.setItem('theme', next); } catch {}
-    });
+    }, { signal });
+
     const menuBtn = document.querySelector<HTMLButtonElement>('[data-menu-toggle]');
     const menu = document.querySelector<HTMLElement>('[data-mobile-menu]');
     if (menuBtn && menu) {
       const set = (open: boolean) => { menu.hidden = !open; menuBtn.setAttribute('aria-expanded', String(open)); };
-      menuBtn.addEventListener('click', () => set(menu.hidden !== false));
-      addEventListener('keydown', (e) => { if (e.key === 'Escape') set(false); });
+      menuBtn.addEventListener('click', () => set(menu.hidden !== false), { signal });
+      addEventListener('keydown', (e) => { if (e.key === 'Escape') set(false); }, { signal });
     }
     const header = document.querySelector('[data-header]');
     if (header) {
       const sync = () => header.classList.toggle('scrolled', window.scrollY > 8);
       sync();
-      addEventListener('scroll', sync, { passive: true });
+      addEventListener('scroll', sync, { passive: true, signal });
     }
     // Scroll reveal for anything marked .reveal
-    const io = new IntersectionObserver((entries) => {
-      for (const e of entries) if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+    const obs = new IntersectionObserver((entries) => {
+      for (const e of entries) if (e.isIntersecting) { e.target.classList.add('in'); obs.unobserve(e.target); }
     }, { rootMargin: '0px 0px -8% 0px' });
-    document.querySelectorAll('.reveal').forEach((el) => io.observe(el));
+    io = obs;
+    document.querySelectorAll('.reveal').forEach((el) => obs.observe(el));
   };
   document.addEventListener('astro:page-load', init);
 </script>
