@@ -21,7 +21,7 @@ const { prev, next } = ctx ?? (await neighboursOf(post));
 // a lede would print the same sentence twice. Hand-written ones still show.
 const showLede = !!description && !(post.body ?? '').includes(description.replace(/…$/, ''));
 ---
-<BaseLayout title={title} description={describe(post)} type="article" publishedAt={pubDate} wide>
+<BaseLayout title={title} description={describe(post)} type="article" publishedAt={pubDate} updatedAt={updatedDate} ogImage={`og/${encodeURIComponent(post.id)}.png`} wide>
   <div class="read-progress" data-progress></div>
 
   <div class="post-shell">
