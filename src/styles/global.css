@@ -1,4 +1,5 @@
-@import 'katex/dist/katex.min.css';
+/* KaTeX's stylesheet is imported by PostLayout instead: only post bodies
+   render maths, and it is 15 KB gzipped on every other page. */
 @import '@fontsource-variable/cascadia-code/wght.css';
 
 /* HarmonyOS Sans SC is linked from BaseHead (two sliced stylesheets, 400 and
@@ -230,6 +231,7 @@ main { flex: 1; }
 .hero .aurora span:nth-child(2) { width: 38vw; height: 38vw; right: 8%; top: 20%; background: #22d3ee; animation-duration: 28s; animation-delay: -8s; }
 .hero .aurora span:nth-child(3) { width: 30vw; height: 30vw; left: 40%; bottom: -5%; background: #8b5cf6; animation-duration: 34s; animation-delay: -16s; }
 :root[data-theme='light'] .hero .aurora { opacity: 0.28; }
+.hero.offscreen :is(.aurora span, .spot, .scroll-cue) { animation-play-state: paused; }
 @keyframes drift {
   from { transform: translate(0, 0) scale(1); }
   to { transform: translate(6vw, -5vw) scale(1.12); }

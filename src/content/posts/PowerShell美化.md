@@ -38,7 +38,7 @@ https://ohmyposh.dev/docs/installation/windows
 :::
 
 当然，安装完字体后需要在Windows Terminal上设置一下
-[设置位置](/images/PowerShell美化/terminal.jpg)
+[设置位置](../../assets/images/PowerShell美化/terminal.jpg)
 
 ## 马上就好了！
 现在一切准备就绪，只需要稍微设置一下PowerShell就行了

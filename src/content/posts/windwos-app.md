@@ -43,7 +43,7 @@ sticky: 100
 
 ## [Diskitude](https://madebyevan.com/diskitude/):只有10kb的磁盘分析工具
 
-![Diskitude](/images/windows_app/Diskitude.jpg)
+![Diskitude](../../assets/images/windows_app/Diskitude.jpg)
 
 - 非常必要！！！
 - 很小巧，磁盘满的时候可以用这个删除大文件
@@ -57,7 +57,7 @@ sticky: 100
 
 ## [Starship](https://starship.rs/):比oh-my-posh更好用的windows terminal美化软件
 
-![配置截图](/images/windows_app/starship.png)
+![配置截图](../../assets/images/windows_app/starship.png)
 
 另附我的[配置文件](https://github.com/JavaZeroo/JavaZeroo.github.io/blob/hexo/source/files/windows_app/starship.toml)
 
@@ -67,7 +67,7 @@ sticky: 100
 
 ## [Start All Back](https://www.startallback.com/)
 
-![软件截图](/images/windows_app/Start_All_Back.png)
+![软件截图](../../assets/images/windows_app/Start_All_Back.png)
 
 想要Win11的动画，又想要win10的菜单🥰 (小孩子才做选择，成年人全都要
 

@@ -35,10 +35,17 @@ const stats = await siteStats();
 
 <script>
   // Spotlight follows the pointer; on touch devices it drifts on its own.
+  let io: IntersectionObserver | undefined;
   const init = () => {
     const hero = document.querySelector<HTMLElement>('[data-hero]');
     const spot = hero?.querySelector<HTMLElement>('[data-spot]');
+    io?.disconnect();
     if (!hero || !spot) return;
+
+    // Three 70px-blurred blobs animating forever cost real frames on a weak
+    // GPU. Nothing below the fold needs them to keep moving.
+    io = new IntersectionObserver(([e]) => hero.classList.toggle('offscreen', !e.isIntersecting));
+    io.observe(hero);
     if (!matchMedia('(hover: hover) and (pointer: fine)').matches) { spot.classList.add('auto'); return; }
     hero.addEventListener('pointermove', (e) => {
       const r = hero.getBoundingClientRect();

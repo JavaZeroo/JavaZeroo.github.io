@@ -4,6 +4,7 @@ import sitemap from '@astrojs/sitemap';
 import pagefind from 'astro-pagefind';
 import { unified } from '@astrojs/markdown-remark';
 import { defineConfig } from 'astro/config';
+import { dedupeMathGlyphs } from './src/plugins/dedupe-math-glyphs.mjs';
 import rehypeKatex from 'rehype-katex';
 import { rehypeHeadingMath } from './src/plugins/rehype-heading-math.mjs';
 import { rehypeMermaidTheme } from './src/plugins/rehype-mermaid-theme.mjs';
@@ -18,7 +19,7 @@ import { SITE_URL } from './src/consts.ts';
 export default defineConfig({
   site: SITE_URL,
   trailingSlash: 'always',
-  integrations: [mdx(), sitemap(), pagefind()],
+  integrations: [mdx(), sitemap(), pagefind(), dedupeMathGlyphs()],
   markdown: {
     // Astro 7 defaults to the Sätteri processor, whose plugins are visitor
     // objects. KaTeX and Mermaid only ship unified transformers, so this site

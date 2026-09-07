@@ -75,7 +75,7 @@ $$
 
 ### 网络
 
-![NgeNet的网络架构](/images/ngenet/Architecture-of-NgeNet.png)
+![NgeNet的网络架构](../../assets/images/ngenet/Architecture-of-NgeNet.png)
 
 可以很清楚的看到NgeNet是一个encoder-decoder网络
 - encoder模块由：**residual-style [KPConv](https://arxiv.org/abs/1904.08889)**/**strided KPConv**层、**instance norm**层和**Leaky ReLU**层（k=0.1）组成
@@ -132,7 +132,7 @@ $$
 
 GGE模块是一个 一个输入一个输出的模块
 
-![GGE模块](/images/ngenet/Architecture-of-GGE.png)
+![GGE模块](../../assets/images/ngenet/Architecture-of-GGE.png)
 
 **用途：**GGE将super points和潜在的feature(**也就是Shared Encoder输出的$(X', F^{en}_{X'}) \in \mathbb{R}^{N' \times (3 + D_{en})}$**)作为输入；然后输出几何增强后的feature
 
@@ -171,7 +171,7 @@ $$
 
 PPF我这里理解的就是一个四维向量包含了（按照NgeNet的顺序），一个法向量和{两个法向量之间的向量d}的夹角，另一个法向量和{两个法向量之间的向量d}的夹角，两个法向量的夹角，两点之间的距离。对应下图的$(F_2, F_3, F_4, F_1)$
 
-![原论文的图片](/images/ngenet/PPF.png)
+![原论文的图片](../../assets/images/ngenet/PPF.png)
 
 $f_1$函数：暂时不清楚什么意思
 $G_{x'_i}$：找到$G_{x'_j}$中最大的；至于channel-wise再点云中代表什么几何含义，暂时不清楚
@@ -195,7 +195,7 @@ $G_{x'_i}$：找到$G_{x'_j}$中最大的；至于channel-wise再点云中代表
 
 ### 为什么要投票
 
-![不同级别的特征](/images/ngenet/vote.png)
+![不同级别的特征](../../assets/images/ngenet/vote.png)
 
 在Parallel Decoder我们强调了，在每一次计算特征的时候，我们都保存下来了那些中间变量；他们是$F^l_X$ 和$F^m_X$ ，最后的输出是$F^h_X$ 。
 
@@ -203,4 +203,4 @@ $G_{x'_i}$：找到$G_{x'_j}$中最大的；至于channel-wise再点云中代表
 
 ### 如何投票
 
-![投票算法](/images/ngenet/voting_algorithm.png)
+![投票算法](../../assets/images/ngenet/voting_algorithm.png)

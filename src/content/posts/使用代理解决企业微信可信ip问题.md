@@ -67,7 +67,7 @@ chmod +x install.sh && ./install.sh
 ```
 :::
 
-![安装完成界面](/images/socks/安装完成.png)
+![安装完成界面](../../assets/images/socks/安装完成.png)
 
 ### 后续配置
 :::note{type="warning"}
