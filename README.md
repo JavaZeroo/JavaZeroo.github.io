@@ -43,6 +43,8 @@ front-matter 由 `src/content.config.ts` 的 zod schema 校验，字段写错构
 | 流程图 | ` ```mermaid ` 代码块 | 构建期，浅/深两份 SVG 随主题切换 |
 | 提示框 | `:::note{type="info"}` … `:::` | 构建期 |
 | 代码高亮 | ` ```python ` | 构建期，Shiki（Tokyo Night / Catppuccin Latte） |
+| 代码标注 | 行尾 `// [!code highlight]`、`[!code ++]` / `[!code --]`、`[!code focus]`、`[!code word:xxx]`；或信息串 ` ```ts {1,4-6} /needle/ ` | 构建期 |
+| 代码块标题、行号 | ` ```ts title="src/foo.ts" showLineNumbers ` | 构建期 |
 | 交互组件 | `.mdx` 里 `import` 后当标签用 | 浏览器 |
 
 完整示例见 `src/content/posts/interactive-demo.mdx`（当前是草稿，把 `draft` 改成 `false` 即可发布），

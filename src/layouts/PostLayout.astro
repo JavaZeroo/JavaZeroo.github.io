@@ -5,6 +5,7 @@ import BaseLayout from './BaseLayout.astro';
 import FormattedDate from '../components/FormattedDate.astro';
 import TableOfContents from '../components/TableOfContents.astro';
 import PostNav from '../components/PostNav.astro';
+import Comments from '../components/Comments.astro';
 import type { Post } from '../utils/posts';
 import { describe, readingTime, neighboursOf } from '../utils/posts';
 import { catLabel } from '../utils/taxonomy';
@@ -56,6 +57,7 @@ const showLede = !!description && !(post.body ?? '').includes(description.replac
       )}
 
       <PostNav prev={prev} next={next} />
+      <Comments />
     </article>
 
     <TableOfContents headings={headings} />

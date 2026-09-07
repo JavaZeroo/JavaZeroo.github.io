@@ -24,12 +24,16 @@ const copyIcon = () =>
   );
 
 /**
- * Wraps every highlighted block in a chrome carrying its language and a copy
- * button.
+ * Wraps every highlighted block in a chrome carrying its language, an optional
+ * filename, and a copy button.
  *
  * This has to be a Shiki transformer, not a rehype plugin: Astro highlights
  * code during the remark pass and splices the result in as raw HTML, so by the
  * time rehype plugins run there is no `<pre>` element left to match on.
+ *
+ * Info-string options, both read off the raw meta:
+ *
+ *     ```ts title="src/foo.ts" showLineNumbers
  */
 export function shikiCodeBlock() {
   return {
@@ -38,17 +42,25 @@ export function shikiCodeBlock() {
       const pre = node.children.find((c) => c.type === 'element');
       if (!pre) return;
       const lang = this.options.lang || 'text';
+      const meta = this.options.meta?.__raw ?? '';
+      const title = meta.match(/\btitle="([^"]*)"/)?.[1];
+      const numbered = /\bshowLineNumbers\b/.test(meta);
 
       const head = el('div', { className: ['code-head'] }, [
-        el('span', { className: ['code-lang'] }, [{ type: 'text', value: lang }]),
+        title
+          ? el('span', { className: ['code-title'] }, [{ type: 'text', value: title }])
+          : el('span', { className: ['code-lang'] }, [{ type: 'text', value: lang }]),
         el(
           'button',
           { type: 'button', className: ['copy-btn'], 'data-copy': '', 'aria-label': '复制代码' },
           [copyIcon(), el('span', { 'data-copy-label': '' }, [{ type: 'text', value: '复制' }])],
         ),
       ]);
+      if (title) head.children.splice(1, 0, el('span', { className: ['code-lang'] }, [{ type: 'text', value: lang }]));
 
-      node.children = [el('div', { className: ['code-block'] }, [head, pre])];
+      const className = ['code-block'];
+      if (numbered) className.push('numbered');
+      node.children = [el('div', { className }, [head, pre])];
     },
   };
 }

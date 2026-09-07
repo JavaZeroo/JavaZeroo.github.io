@@ -1,0 +1,77 @@
+---
+/**
+ * giscus: comments backed by GitHub Discussions on this very repository.
+ *
+ * The script is injected from JS rather than written into the markup, because
+ * the ClientRouter swaps the body on navigation and a giscus <script> in there
+ * would either re-run or, worse, leave the previous post's thread behind. The
+ * IntersectionObserver keeps the request off pages nobody scrolls to the end
+ * of; giscus itself renders nothing until it answers.
+ *
+ * Discussions are created under the Announcements category, which only
+ * maintainers can post to directly — a reader's first comment still opens the
+ * thread through the app.
+ */
+const config: Record<string, string> = {
+  'data-repo': 'JavaZeroo/JavaZeroo.github.io',
+  'data-repo-id': 'R_kgDOH4QcDQ',
+  'data-category': 'Announcements',
+  'data-category-id': 'DIC_kwDOH4QcDc4DFDzC',
+  'data-mapping': 'pathname',
+  'data-strict': '1',
+  'data-reactions-enabled': '1',
+  'data-emit-metadata': '0',
+  'data-input-position': 'top',
+  'data-lang': 'zh-CN',
+  'data-loading': 'lazy',
+};
+---
+<section class="comments" data-giscus data-config={JSON.stringify(config)} aria-label="评论">
+  <h2 class="label">评论</h2>
+  <div class="giscus"></div>
+</section>
+
+<script>
+  const GISCUS = 'https://giscus.app';
+  const themeFor = () => (document.documentElement.dataset.theme === 'light' ? 'light' : 'transparent_dark');
+
+  let ac: AbortController | undefined;
+  let io: IntersectionObserver | undefined;
+  let watcher: MutationObserver | undefined;
+
+  const init = () => {
+    ac?.abort();
+    ac = new AbortController();
+    io?.disconnect();
+    watcher?.disconnect();
+
+    const host = document.querySelector<HTMLElement>('[data-giscus]');
+    if (!host) return;
+
+    const mount = () => {
+      const s = document.createElement('script');
+      s.src = `${GISCUS}/client.js`;
+      s.async = true;
+      s.crossOrigin = 'anonymous';
+      for (const [k, v] of Object.entries(JSON.parse(host.dataset.config!))) s.setAttribute(k, v as string);
+      s.setAttribute('data-theme', themeFor());
+      host.querySelector('.giscus')!.appendChild(s);
+    };
+
+    io = new IntersectionObserver(([e], obs) => {
+      if (!e.isIntersecting) return;
+      obs.disconnect();
+      mount();
+    }, { rootMargin: '400px' });
+    io.observe(host);
+
+    // The theme toggle only flips data-theme; the widget lives in an iframe and
+    // has to be told separately.
+    watcher = new MutationObserver(() => {
+      const frame = host.querySelector<HTMLIFrameElement>('iframe.giscus-frame');
+      frame?.contentWindow?.postMessage({ giscus: { setConfig: { theme: themeFor() } } }, GISCUS);
+    });
+    watcher.observe(document.documentElement, { attributeFilter: ['data-theme'] });
+  };
+  document.addEventListener('astro:page-load', init);
+</script>

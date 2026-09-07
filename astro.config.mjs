@@ -1,5 +1,13 @@
 // @ts-check
 import mdx from '@astrojs/mdx';
+import {
+  transformerMetaHighlight,
+  transformerMetaWordHighlight,
+  transformerNotationDiff,
+  transformerNotationFocus,
+  transformerNotationHighlight,
+  transformerNotationWordHighlight,
+} from '@shikijs/transformers';
 import sitemap from '@astrojs/sitemap';
 import pagefind from 'astro-pagefind';
 import { unified } from '@astrojs/markdown-remark';
@@ -7,6 +15,7 @@ import { defineConfig } from 'astro/config';
 import { dedupeMathGlyphs } from './src/plugins/dedupe-math-glyphs.mjs';
 import { ogImages } from './src/plugins/og-images.mjs';
 import rehypeKatex from 'rehype-katex';
+import { rehypeHeadingAnchor } from './src/plugins/rehype-heading-anchor.mjs';
 import { rehypeHeadingMath } from './src/plugins/rehype-heading-math.mjs';
 import { rehypeMermaidTheme } from './src/plugins/rehype-mermaid-theme.mjs';
 import { rehypePostPolish } from './src/plugins/rehype-post-polish.mjs';
@@ -40,6 +49,9 @@ export default defineConfig({
         [rehypeMermaid, { strategy: 'img-svg', mermaidConfig: { theme: 'neutral' }, dark: { theme: 'dark' } }],
         rehypeMermaidTheme,
         rehypePostPolish,
+        // Last: it assigns the heading ids the anchors point at, and h1s only
+        // become h2s in rehypePostPolish.
+        rehypeHeadingAnchor,
       ],
       // Off on purpose: this is technical writing full of bare `--flags`, which
       // SmartyPants would rewrite into en dashes.
@@ -52,7 +64,18 @@ export default defineConfig({
       themes: { light: 'catppuccin-latte', dark: 'tokyo-night' },
       defaultColor: false,
       wrap: false,
-      transformers: [shikiCodeBlock()],
+      transformers: [
+        // Comment notation (`// [!code highlight]`, `++`/`--`, `focus`, `word:x`)
+        // plus the meta forms: ```ts {1,4-6} /needle/
+        transformerNotationHighlight(),
+        transformerNotationWordHighlight(),
+        transformerNotationDiff(),
+        transformerNotationFocus(),
+        transformerMetaHighlight(),
+        transformerMetaWordHighlight(),
+        // Last: it wraps whatever the others produced in the block chrome.
+        shikiCodeBlock(),
+      ],
     },
   },
 });
