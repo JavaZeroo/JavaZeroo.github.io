@@ -43,6 +43,8 @@
   --code-ligatures: none;
 
   --measure: 44rem;
+  /* Header, hero, footer and the article shell share this outer box. */
+  --wide: 96rem;
   --gutter: clamp(1.25rem, 5vw, 3rem);
   --r: 14px;
   --r-sm: 9px;
@@ -107,7 +109,7 @@ body::before {
 a { color: inherit; text-decoration: none; }
 
 .wrap { width: 100%; max-width: var(--measure); margin: 0 auto; padding-inline: var(--gutter); }
-.wide { width: 100%; max-width: 76rem; margin: 0 auto; padding-inline: var(--gutter); }
+.wide { width: 100%; max-width: var(--wide); margin: 0 auto; padding-inline: var(--gutter); }
 
 .label {
   font-family: var(--font-mono);
@@ -400,18 +402,19 @@ main { flex: 1; }
 /* ============================================================
    Article
    ============================================================ */
-/* Articles get a wider measure than list pages: ~50 CJK characters a line,
-   and on desktop the TOC sits in a real second column instead of the margin,
-   so the text no longer floats in the middle of an empty screen. */
-.post-shell { --measure: 52rem; --toc-w: 15rem; display: block; }
+/* Articles get a wider measure than list pages, and it grows with the screen:
+   52rem (~50 CJK characters a line) up to 64rem, which is where the shell hits
+   its 82.5rem box. Figures are the reason it grows — they are drawn on a
+   ~1000-unit viewBox and were being scaled down to 0.84 on every desktop. */
+.post-shell { --measure: clamp(52rem, 100vw - 24rem, 64rem); --toc-w: 15rem; display: block; }
 @media (min-width: 1200px) {
   .post-shell {
     display: grid;
     grid-template-columns: minmax(0, var(--measure)) var(--toc-w);
     column-gap: 3.5rem;
-    /* Same 76rem box as the header, left-aligned, so the article's left edge
-       lines up with the brand mark above it. */
-    max-width: 76rem;
+    /* Same box as the header, left-aligned, so the article's left edge lines
+       up with the brand mark above it. */
+    max-width: var(--wide);
     margin: 0 auto;
     justify-content: start;
     align-items: start;
@@ -479,6 +482,50 @@ main { flex: 1; }
 .prose .katex-display { overflow-x: auto; overflow-y: hidden; padding: 0.5rem 0; margin: 1.6rem 0; }
 
 /* Mermaid: two build-time renders, toggled with the site theme. */
+
+/* ---- figures: zoom ----
+   The diagrams are drawn on a ~1000-unit viewBox, so even a full-width column
+   renders them at roughly 1:1 and their 11-12px labels stay small. The button
+   lifts a copy of the figure into an overlay sized to the viewport, which is
+   what a reader would otherwise do with ctrl+scroll. The clone keeps the whole
+   <figure> so the component's own scoped styles still match. */
+.prose figure { position: relative; }
+.fig-zoom {
+  position: absolute; top: 0.5rem; right: 0.5rem; z-index: 2;
+  display: inline-grid; place-items: center; width: 1.9rem; height: 1.9rem;
+  padding: 0; border: 1px solid var(--border); border-radius: var(--r-sm);
+  background: color-mix(in srgb, var(--bg) 75%, transparent);
+  color: var(--muted); cursor: pointer;
+  opacity: 0; transition: opacity 0.15s, color 0.15s, border-color 0.15s;
+}
+.fig-zoom svg { width: 0.95rem; height: 0.95rem; }
+.fig-zoom:hover { color: var(--text); border-color: var(--border-2); }
+figure:hover > .fig-zoom, .fig-zoom:focus-visible { opacity: 1; }
+/* No hover to reveal it on a touch screen, where zooming matters most. */
+@media (hover: none) { .fig-zoom { opacity: 1; } }
+
+.fig-lightbox {
+  position: fixed; inset: 0; z-index: 150;
+  display: grid; place-items: center; padding: 1.5rem;
+  background: rgb(0 0 0 / 0.72);
+  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  animation: fade 0.15s ease-out;
+}
+:root[data-theme='light'] .fig-lightbox { background: rgb(15 23 42 / 0.5); }
+/* The figure keeps the width JS computed for it and this scrolls, so a diagram
+   can be blown up past the viewport on a phone and panned. */
+.fig-scroll { max-width: 100%; max-height: 100%; overflow: auto; overscroll-behavior: contain; }
+.fig-lightbox figure { margin: 0; }
+.fig-lightbox .fig-zoom { display: none; }
+.fig-close {
+  position: absolute; top: 1rem; right: 1rem;
+  display: inline-grid; place-items: center; width: 2.4rem; height: 2.4rem;
+  border: 1px solid var(--border); border-radius: var(--r-sm);
+  background: var(--surface); color: var(--text-2); cursor: pointer;
+}
+.fig-close:hover { color: var(--text); border-color: var(--border-2); }
+.fig-close svg { width: 1.1rem; height: 1.1rem; }
+
 .prose figure.mermaid { margin: 2rem 0; padding: 1rem; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); }
 .prose figure.mermaid img { display: block; max-width: 100%; height: auto; margin: 0 auto; border: 0; border-radius: 0; }
 .prose figure.mermaid .mermaid-light { display: none; }
@@ -534,6 +581,18 @@ main { flex: 1; }
 .note-success { --note: #34d399; }
 .note-warning { --note: #fbbf24; }
 .note-danger { --note: #f87171; }
+
+/* ---- :::details ---- */
+.fold { margin: 2rem 0; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); font-size: 0.97rem; }
+.fold > summary { display: flex; align-items: center; gap: 0.6rem; padding: 0.8rem 1.1rem; cursor: pointer; list-style: none; font-weight: 600; color: var(--text-2); user-select: none; }
+.fold > summary::-webkit-details-marker { display: none; }
+.fold > summary::before { content: ''; flex: none; width: 0.45rem; height: 0.45rem; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(-45deg); transition: transform 0.15s; }
+.fold[open] > summary::before { transform: rotate(45deg); }
+.fold[open] > summary { border-bottom: 1px solid var(--border); color: var(--text); }
+.fold > summary:hover { color: var(--text); }
+.fold > :not(summary) { margin-left: 1.1rem; margin-right: 1.1rem; }
+.fold > summary + * { margin-top: 1rem; }
+.fold > :last-child { margin-bottom: 1rem; }
 
 .post-tags { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 3rem; }
 .post-tags a { padding: 0.2rem 0.7rem; border: 1px solid var(--border); border-radius: 999px; font-size: 0.8rem; color: var(--text-2); transition: border-color 0.15s, color 0.15s; }

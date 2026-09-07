@@ -86,6 +86,74 @@ const showLede = !!description && !(post.body ?? '').includes(description.replac
       addEventListener('resize', sync, { signal });
     }
 
+    // ---- figure zoom ----------------------------------------------------
+    // Diagrams are authored on a ~1000-unit viewBox, so in the column they end
+    // up near 1:1 and their labels sit around 12px. This lifts a copy into an
+    // overlay scaled to the viewport instead of making the reader ctrl+scroll.
+    const icon = (d: string) =>
+      `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+    const ZOOM = icon('<circle cx="11" cy="11" r="7"/><path d="M20 20l-3.6-3.6M11 8v6M8 11h6"/>');
+    const CLOSE = icon('<path d="M6 6l12 12M18 6L6 18"/>');
+
+    let box: HTMLElement | null = null;
+    const closeBox = () => { box?.remove(); box = null; };
+
+    const openBox = (fig: HTMLElement, opener: HTMLElement) => {
+      box = document.createElement('div');
+      box.className = 'fig-lightbox';
+      const clone = fig.cloneNode(true) as HTMLElement;
+      const art = clone.querySelector('svg, img');
+      const vb = art?.getAttribute('viewBox')?.split(/[\s,]+/).map(Number);
+      const drawn = vb && vb.length === 4 ? { w: vb[2], h: vb[3] }
+        : art instanceof HTMLImageElement && art.naturalHeight ? { w: art.naturalWidth, h: art.naturalHeight }
+        : null;
+      // Two cases. A screen that can show the whole figure gets it fitted, wide
+      // ones limited by width and tall ones by height. A screen that cannot —
+      // a phone — gets it at 1.2x the size it was drawn at, which is what makes
+      // the labels legible, and pans inside .fig-scroll.
+      const fit = drawn ? Math.min(innerWidth * 0.94, innerHeight * 0.88 * (drawn.w / drawn.h)) : 0;
+      const fitted = fit >= drawn?.w!;
+      if (drawn) clone.style.width = `${fitted ? fit : drawn.w * 1.2}px`;
+      // The figures are translucent by design; over the scrim they need a floor.
+      clone.style.background = 'var(--bg-2)';
+      const scroll = document.createElement('div');
+      scroll.className = 'fig-scroll';
+      scroll.appendChild(clone);
+      const close = document.createElement('button');
+      close.type = 'button';
+      close.className = 'fig-close';
+      close.setAttribute('aria-label', '关闭');
+      close.innerHTML = CLOSE;
+      box.append(scroll, close);
+      box.addEventListener('click', (e) => { if (e.target === box) closeBox(); });
+      close.addEventListener('click', closeBox);
+      document.body.appendChild(box);
+      // The viewBox covers the drawing only; padding, legend and caption add to
+      // it. Measure once it is on screen and pull the width back if the figure
+      // as a whole still runs past the bottom.
+      const spare = (scroll.clientHeight - 2) / clone.getBoundingClientRect().height;
+      if (fitted && spare < 1) {
+        clone.style.width = `${Math.floor(clone.getBoundingClientRect().width * spare)}px`;
+      }
+      close.focus();
+      // Focus goes back where it came from, and Escape closes.
+      box.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') { closeBox(); opener.focus(); }
+      });
+    };
+
+    document.querySelectorAll<HTMLElement>('.prose figure').forEach((fig) => {
+      if (!fig.querySelector('svg, img')) return;
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'fig-zoom';
+      btn.setAttribute('aria-label', '放大这张图');
+      btn.innerHTML = ZOOM;
+      btn.addEventListener('click', () => openBox(fig, btn), { signal });
+      fig.appendChild(btn);
+    });
+    addEventListener('keydown', (e) => { if (e.key === 'Escape') closeBox(); }, { signal });
+
     document.querySelectorAll<HTMLButtonElement>('[data-copy]').forEach((btn) => {
       btn.addEventListener('click', async () => {
         const code = btn.closest('.code-block')?.querySelector('code');
