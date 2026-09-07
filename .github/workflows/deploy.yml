@@ -17,6 +17,10 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      # Optional second target; see the EdgeOne step below. Unset on forks and
+      # pull requests, which skips that step.
+      EDGEONE_API_TOKEN: ${{ secrets.EDGEONE_API_TOKEN }}
     steps:
       - uses: actions/checkout@v7
 
@@ -55,3 +59,12 @@ jobs:
           publish_dir: ./dist
           cname: blog.javazero.top
           force_orphan: true
+
+      # Same dist/ mirrored to Tencent EdgeOne Pages, whose Hong Kong and Tokyo
+      # edges reach mainland China far better than GitHub Pages does. DNS at
+      # DNSPod sends 境内 traffic here and everything else to GitHub Pages, so
+      # either target alone still serves the whole site. The project is created
+      # on first deploy; no ICP filing is needed for the non-mainland zone.
+      - name: Deploy to EdgeOne Pages
+        if: github.event_name != 'pull_request' && env.EDGEONE_API_TOKEN != ''
+        run: npx edgeone makers deploy ./dist -n javazero-blog -a overseas -t "$EDGEONE_API_TOKEN"

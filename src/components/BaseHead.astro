@@ -20,10 +20,18 @@ const fullTitle = title === SITE_TITLE ? title : `${title} · ${SITE_TITLE}`;
 <link rel="alternate" type="application/rss+xml" title={SITE_TITLE} href={new URL('atom.xml', Astro.site)} />
 
 <!-- HarmonyOS Sans SC, sliced by unicode-range; the browser fetches only the
-     slices a page actually uses. Kept out of the Vite bundle on purpose. -->
-<link rel="stylesheet" href="/fonts/harmonyos-sans-sc/400/result.css" />
-<link rel="stylesheet" href="/fonts/harmonyos-sans-sc/500/result.css" />
-<link rel="stylesheet" href="/fonts/harmonyos-sans-sc/700/result.css" />
+     slices a page actually uses. Kept out of the Vite bundle on purpose.
+     Each sheet is ~47 KB gzipped, so they are fetched as low-priority print
+     stylesheets and promoted once loaded: the first frame paints in the system
+     font instead of waiting for them. The ClientRouter keeps stylesheet links
+     with a matching href across navigations, so the promoted sheet survives
+     client-side page swaps. Only 400 and 700 ship; 500 fell back to 400. -->
+<link rel="stylesheet" href="/fonts/harmonyos-sans-sc/400/result.css" media="print" onload="this.media='all'" />
+<link rel="stylesheet" href="/fonts/harmonyos-sans-sc/700/result.css" media="print" onload="this.media='all'" />
+<noscript>
+  <link rel="stylesheet" href="/fonts/harmonyos-sans-sc/400/result.css" />
+  <link rel="stylesheet" href="/fonts/harmonyos-sans-sc/700/result.css" />
+</noscript>
 
 <meta property="og:type" content={type} />
 <meta property="og:title" content={title} />

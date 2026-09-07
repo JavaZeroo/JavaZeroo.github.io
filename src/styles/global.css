@@ -1,9 +1,9 @@
 @import 'katex/dist/katex.min.css';
 @import '@fontsource-variable/cascadia-code/wght.css';
 
-/* HarmonyOS Sans SC is linked from BaseHead (three sliced stylesheets under
-   /fonts/), not imported here: Vite would try to inline 336 @font-face rules
-   into the bundle. */
+/* HarmonyOS Sans SC is linked from BaseHead (two sliced stylesheets, 400 and
+   700, under /fonts/), not imported here: Vite would try to inline 224
+   @font-face rules into the bundle. font-weight 500 resolves to the 400 face. */
 
 /* ============================================================
    Tokens. Dark is the design; light is derived from it.
