@@ -1,0 +1,106 @@
+---
+/**
+ * 第 8 篇：MoonEP 的去重发送。一个 token 的若干条路由落在同一个目标 rank 时，
+ * token 向量（payload，约 7 KB）只过一次 NVLink，后续条目存负偏移当标志，只带 4 字节的 router 分数。
+ * 示意用 6 条路由 / 4 个 rank；K3 实际是 16 / 896。
+ */
+import SvgTex from '../figures/SvgTex.astro';
+import { texMix } from '../figures/tex';
+const routes = [
+  { k: 0, e: 'E12',  rank: 0, off: 1024 },
+  { k: 1, e: 'E40',  rank: 0, off: 1050 },
+  { k: 2, e: 'E203', rank: 2, off: 88 },
+  { k: 3, e: 'E77',  rank: 0, off: 1099 },
+  { k: 4, e: 'E310', rank: 1, off: 512 },
+  { k: 5, e: 'E290', rank: 2, off: 130 },
+];
+const seen = new Set<number>();
+const rows = routes.map((r) => {
+  const dup = seen.has(r.rank);
+  seen.add(r.rank);
+  return { ...r, dup, stored: dup ? -r.off - 1 : r.off };
+});
+const RY = (rank: number) => 70 + rank * 62;
+const TX = 70, TY = 160, RX = 300;
+const TBX = 520, TBY = 52, RH = 30;
+const cols = [
+  { x: 0, w: 40, h: '$k$' }, { x: 40, w: 56, h: 'expert' }, { x: 96, w: 70, h: '目标 rank' },
+  { x: 166, w: 70, h: '写入偏移' }, { x: 236, w: 96, h: '存储值' }, { x: 332, w: 118, h: '发什么' },
+];
+---
+
+<figure class="dd">
+  <svg viewBox="0 0 1000 320" role="img" aria-label="MoonEP 去重发送：同一目标 rank 只发一次 payload">
+    <defs>
+      <marker id="dd-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+        <path d="M0 0 L10 5 L0 10 z" />
+      </marker>
+    </defs>
+
+    <rect class="tok" x={TX - 40} y={TY - 22} width="80" height="44" rx="8" />
+    <SvgTex x={TX} y={TY - 6} size={11.5} weight={600} src="token $i$" />
+    <SvgTex x={TX} y={TY + 9} size={9} color="var(--text-2)" src="3584 维，约 7 KB" />
+
+    {[0, 1, 2, 3].map((r) => (
+      <g>
+        <rect class="rank" x={RX} y={RY(r) - 18} width="120" height="36" rx="7" />
+        <SvgTex x={RX + 60} y={RY(r)} size={11} weight={600} src={`rank ${r}`} />
+      </g>
+    ))}
+
+    {rows.map((r, i) => {
+      const y0 = TY - 14 + i * 5.6;
+      return (
+        <g>
+          <path class:list={['edge', r.dup ? 'thin' : 'thick']} d={`M${TX + 40} ${y0} C ${TX + 150} ${y0}, ${RX - 110} ${RY(r.rank) - 8 + i * 3}, ${RX - 2} ${RY(r.rank) - 8 + i * 3}`} marker-end="url(#dd-arrow)" />
+        </g>
+      );
+    })}
+    <SvgTex x={RX + 130} y={RY(0) - 8} size={9} align="start" color="var(--text)" src="3 条路由，1 次 payload" />
+    <SvgTex x={RX + 130} y={RY(0) + 6} size={9} align="start" color="var(--text-2)" src="7 KB + 3 × 4 B" />
+    <SvgTex x={RX + 130} y={RY(1)} size={9} align="start" color="var(--text-2)" src="1 条路由：7 KB + 4 B" />
+    <SvgTex x={RX + 130} y={RY(2) - 8} size={9} align="start" color="var(--text)" src="2 条路由，1 次 payload" />
+    <SvgTex x={RX + 130} y={RY(2) + 6} size={9} align="start" color="var(--text-2)" src="7 KB + 2 × 4 B" />
+    <SvgTex x={RX + 130} y={RY(3)} size={9} align="start" color="var(--muted)" src="没有路由，不发" />
+
+    <line class="edge thick" x1={TX - 40} y1={286} x2={TX - 10} y2={286} />
+    <SvgTex x={TX - 4} y={286} size={9.5} align="start" color="var(--text-2)" src="粗线：payload 7 KB + 分数 4 B" />
+    <line class="edge thin" x1={TX + 190} y1={286} x2={TX + 220} y2={286} />
+    <SvgTex x={TX + 226} y={286} size={9.5} align="start" color="var(--text-2)" src="细线：只发分数 4 B，接收端本地复制那一行" />
+
+    <!-- 右侧：条目表 -->
+    {cols.map((c) => <SvgTex x={TBX + c.x + c.w / 2} y={TBY} size={9.5} weight={600} color="var(--text-2)" src={c.h} />)}
+    <line class="rule" x1={TBX} y1={TBY + 12} x2={TBX + 450} y2={TBY + 12} />
+    {rows.map((r, i) => {
+      const y = TBY + 22 + i * RH + RH / 2;
+      return (
+        <g>
+          {r.dup && <rect class="hl" x={TBX} y={y - RH / 2 + 2} width="450" height={RH - 4} rx="4" />}
+          <SvgTex x={TBX + 20} y={y} size={10} src={String(r.k)} />
+          <SvgTex x={TBX + 68} y={y} size={10} src={r.e} />
+          <SvgTex x={TBX + 131} y={y} size={10} src={String(r.rank)} />
+          <SvgTex x={TBX + 201} y={y} size={10} src={String(r.off)} />
+          <SvgTex x={TBX + 284} y={y} size={10} weight={r.dup ? 600 : 400} color={r.dup ? 'var(--cat-amber)' : 'var(--text)'} src={r.dup ? `$-${r.off} - 1 = ${r.stored}$` : String(r.stored)} />
+          <SvgTex x={TBX + 391} y={y} size={9.5} color={r.dup ? 'var(--cat-amber)' : 'var(--text)'} src={r.dup ? '只发 4 B 分数' : '7 KB + 4 B'} />
+        </g>
+      );
+    })}
+    <SvgTex x={TBX + 225} y={TBY + 22 + rows.length * RH + 16} size={9.5} color="var(--text-2)" src="负值就是标志位：发送路径跳过 payload，不多加一个字段" />
+    <SvgTex x={TBX + 225} y={TBY + 22 + rows.length * RH + 32} size={9.5} color="var(--text-2)" src="分数不能省：combine 要给每个 expert 的输出乘各自的分数" />
+  </svg>
+  <figcaption set:html={texMix('一个 token 的 6 条路由落在 3 个 rank 上（示意，K3 是 16 选 896）。每条路由条目存它在目标 rank 上的写入偏移；同一 token 里目标 rank 已出现过的条目改存 $-\\text{offset} - 1$。目标 rank 收到唯一一份 token 向量后，本地复制给其他 expert 的槽位。')} />
+</figure>
+
+<style>
+  .dd { margin: 2rem 0; padding: 0.8rem 0.6rem 0.6rem; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); overflow-x: auto; }
+  .dd svg { display: block; width: 100%; min-width: 760px; height: auto; font-family: var(--font-sans); }
+  .dd marker path { fill: var(--text-2); }
+  .edge { fill: none; stroke: var(--text-2); }
+  .edge.thick { stroke: var(--cat-cyan); stroke-width: 2.6; }
+  .edge.thin { stroke: var(--cat-amber); stroke-width: 1.1; stroke-dasharray: 4 3; }
+  .tok { fill: color-mix(in srgb, var(--cat-cyan) 22%, var(--bg-2)); stroke: var(--cat-cyan); stroke-width: 1.4; }
+  .rank { fill: color-mix(in srgb, var(--cat-indigo) 12%, var(--bg-2)); stroke: var(--cat-indigo); stroke-width: 1.3; }
+  .rule { stroke: var(--border-2); stroke-width: 1; }
+  .hl { fill: color-mix(in srgb, var(--cat-amber) 10%, var(--bg-2)); }
+  figcaption { margin-top: 0.6rem; font-size: 0.88rem; color: var(--text-2); line-height: 1.6; text-align: center; }
+</style>

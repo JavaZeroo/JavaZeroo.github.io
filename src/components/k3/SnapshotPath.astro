@@ -1,0 +1,50 @@
+---
+/**
+ * 第 10 篇：AgentENV 三个机制的流程。三条泳道：盘快照、内存快照、恢复与共享。
+ * 每条泳道末端标论文给的数字：checkpoint 133 ms、resume 49 ms、内存超售 6.5×。
+ */
+import FlowDiagram from '../figures/FlowDiagram.astro';
+const W = 170, H = 52;
+const row = (y: number, items: { id: string; lines: string[]; kind?: string; strong?: boolean; w?: number }[]) => {
+  let x = 30;
+  return items.map((it) => { const n = { id: it.id, x, y, w: it.w ?? W, h: H, lines: it.lines, kind: it.kind ?? 'op', strong: it.strong }; x += (it.w ?? W) + 40; return n; });
+};
+const nodes = [
+  ...row(50, [
+    { id: 'upper', lines: ['upper layer', 'overlaybd 唯一的可写层'], kind: 'in' },
+    { id: 'seal', lines: ['封印', '刷写、扫映射、追加索引'], kind: 'main' },
+    { id: 'rename', lines: ['改名', '常数时间'], kind: 'main', strong: true },
+    { id: 'stack', lines: ['叠一层新的空 upper', '沙箱继续写'] },
+    { id: 'ck', lines: ['checkpoint 133 ms'], kind: 'out', w: 150 },
+  ]),
+  ...row(160, [
+    { id: 'st', lines: ['状态快照', 'CPU 与设备，不含内存'], kind: 'in' },
+    { id: 'dirty', lines: ['查脏页', '/vm/dirty-memory-ranges，补丁接口'], kind: 'main' },
+    { id: 'readv', lines: ['process_vm_readv', '直接读 VM 进程的内存'], kind: 'main', strong: true },
+    { id: 'memlayer', lines: ['封成 overlaybd 层', '只含改过的页，无中间文件'] },
+    { id: 'nofile', lines: ['没改的页一字节不拷'], kind: 'out', w: 150 },
+  ]),
+  ...row(270, [
+    { id: 'tmpl', lines: ['内存层', '一个模板快照'], kind: 'in' },
+    { id: 'ublk', lines: ['ublk 只读块设备', 'Firecracker 写时复制映射'], kind: 'main' },
+    { id: 'fork', lines: ['N 个沙箱共用', '同一设备、同一份 page cache'], kind: 'main', strong: true },
+    { id: 'rc', lines: ['引用计数', '加 balloon 与 DAMON 回收'] },
+    { id: 'oc', lines: ['resume 49 ms，超售 6.5×'], kind: 'out', w: 150 },
+  ]),
+];
+const chain = (ids: string[]) => ids.slice(1).map((to, i) => ({ from: ids[i], to }));
+const edges = [
+  ...chain(['upper', 'seal', 'rename', 'stack', 'ck']),
+  ...chain(['st', 'dirty', 'readv', 'memlayer', 'nofile']),
+  ...chain(['tmpl', 'ublk', 'fork', 'rc', 'oc']),
+  { from: 'memlayer', to: 'tmpl', dashed: true, path: 'M745 212 V 240 H 115 V 268', label: '恢复时从这一层起', lx: 400, ly: 231 },
+];
+const groups = [
+  { x: 16, y: 26, w: 1010, h: 96, label: '盘' },
+  { x: 16, y: 136, w: 1010, h: 96, label: '内存' },
+  { x: 16, y: 246, w: 1010, h: 96, label: '恢复与共享' },
+];
+---
+<FlowDiagram id="snapshot-path" viewBox="0 0 1040 360" minWidth={820} nodes={nodes} edges={edges} groups={groups}
+  label="AgentENV 的盘快照、内存快照和恢复共享三条路径"
+  caption="三条泳道各对应一个数字。盘：封印后改名，改名是常数时间。内存：先问 Firecracker 哪些页脏了，再用 process_vm_readv 直接从运行中的 VM 进程读那些页，打包成 overlaybd 层，中间没有 mem.bin。恢复：内存层变成只读 ublk 设备，从同一模板 fork 出的沙箱共用它，引用计数加 guest 侧回收给出 6.5 倍超售。" />

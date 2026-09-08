@@ -1,0 +1,93 @@
+---
+/**
+ * 第 1 篇：为什么去掉 softmax 就不用存 KV。
+ * 左：softmax 的每个权重都含 q_t，只能等查询来了再对每个 key 算一次，所以 k_i、v_i 要一直存着。
+ * 右：线性注意力把 (q·k_i) v_i 改写成 q^T (k_i v_i^T)，查询在求和外面，外积可以提前累加进 S。
+ */
+import SvgTex from '../figures/SvgTex.astro';
+import { texMix } from '../figures/tex';
+const KS = ['k_1', 'k_2', 'k_3', '\\cdots', 'k_t'];
+const VS = ['v_1', 'v_2', 'v_3', '\\cdots', 'v_t'];
+const LX = (i: number) => 60 + i * 84;
+const RX0 = 560;
+const OP = (i: number) => RX0 + i * 62;
+---
+
+<figure class="fo">
+  <svg viewBox="0 0 1040 360" role="img" aria-label="softmax 注意力与线性注意力里查询所在的位置">
+    <defs>
+      <marker id="fo-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M0 0 L10 5 L0 10 z" />
+      </marker>
+    </defs>
+
+    <!-- 左：softmax -->
+    <SvgTex x={230} y={24} size={12.5} weight={600} color="var(--text-2)" src="softmax：查询在权重里面" />
+    <rect class="q" x="200" y="50" width="60" height="32" rx="7" />
+    <SvgTex x={230} y={66} size={12} weight={600} src="$q_t$" />
+    {KS.map((k, i) => (
+      <g>
+        {k !== '\\cdots' && <line class="edge soft" x1="230" y1="82" x2={LX(i)} y2="150" />}
+        {k !== '\\cdots' && <SvgTex x={(230 + LX(i)) / 2 + (i < 2 ? -22 : i > 2 ? 22 : 0)} y={118} size={9} color="var(--cat-rose)" src={`$e^{q_t\\cdot ${k}}$`} />}
+        <rect class:list={['k', { dots: k === '\\cdots' }]} x={LX(i) - 24} y="152" width="48" height="30" rx="6" />
+        <SvgTex x={LX(i)} y={167} size={11.5} src={`$${k}$`} />
+        <rect class:list={['v', { dots: k === '\\cdots' }]} x={LX(i) - 24} y="196" width="48" height="30" rx="6" />
+        <SvgTex x={LX(i)} y={211} size={11.5} src={`$${VS[i]}$`} />
+        {k !== '\\cdots' && <line class="edge" x1={LX(i)} y1="182" x2={LX(i)} y2="194" />}
+      </g>
+    ))}
+    <rect class="den" x="36" y="246" width="388" height="30" rx="6" />
+    <SvgTex x={230} y={261} size={10.5} color="var(--cat-rose)" src="分母 $\sum_j e^{q_t\cdot k_j}$：也含 $q_t$，且要遍历全部 $j$" />
+    <SvgTex x={230} y={300} size={10.5} color="var(--text-2)" src="$w_{t,i}$ 的指数和分母都钉在 $q_t$ 上，求和搬不进去" />
+    <SvgTex x={230} y={318} size={10.5} color="var(--text-2)" src="只能等 $q_t$ 来了再对每个 $k_i$ 算一次，所以 $k_i, v_i$ 要一直存着" />
+    <SvgTex x={230} y={342} size={10.5} weight={600} color="var(--text)" src="这就是 KV cache" />
+
+    <!-- 分隔 -->
+    <line class="sep" x1="500" y1="20" x2="500" y2="350" />
+
+    <!-- 右：线性 -->
+    <SvgTex x={780} y={24} size={12.5} weight={600} color="var(--text-2)" src="线性：查询在求和外面" />
+    {[0, 1, 2].map((i) => (
+      <g>
+        <rect class="op" x={OP(i) - 22} y="70" width="44" height="44" rx="5" />
+        <SvgTex x={OP(i)} y={92} size={10} src={`$k_${i + 1} v_${i + 1}^{\\!\\top}$`} />
+        <SvgTex x={OP(i)} y={126} size={8.5} color="var(--muted)" src="128 × 128" />
+      </g>
+    ))}
+    <SvgTex x={OP(3) - 4} y={92} size={12} color="var(--text-2)" src="$\cdots$" />
+    <rect class="op" x={OP(4) - 22} y="70" width="44" height="44" rx="5" />
+    <SvgTex x={OP(4)} y={92} size={10} src="$k_t v_t^{\!\top}$" />
+    <SvgTex x={OP(4)} y={126} size={8.5} color="var(--muted)" src="128 × 128" />
+    {[0, 1, 2, 4].map((i) => (
+      <path class="edge" d={`M${OP(i)} 116 V 150 H 800 V 178`} marker-end={i === 4 ? 'url(#fo-arrow)' : undefined} />
+    ))}
+    <SvgTex x={690} y={160} size={9.5} color="var(--text-2)" src="每个 token 到来时把自己的外积加进去，不必知道以后谁来查" />
+    <rect class="S" x="740" y="182" width="120" height="120" rx="8" />
+    <SvgTex x={800} y={232} size={16} weight={600} src="$S_t = \sum_{i\le t} k_i v_i^{\!\top}$" />
+    <SvgTex x={800} y={256} size={9.5} color="var(--text-2)" src="16,384 个滑动求和" />
+    <SvgTex x={800} y={272} size={9.5} color="var(--text-2)" src="$k_i, v_i$ 本身不存在任何地方" />
+    <rect class="q" x="930" y="226" width="60" height="32" rx="7" />
+    <SvgTex x={960} y={242} size={12} weight={600} src="$q_t$" />
+    <line class="edge" x1="930" y1="242" x2="862" y2="242" marker-end="url(#fo-arrow)" />
+    <SvgTex x={896} y={228} size={9} color="var(--text-2)" src="只和 $S$ 连一根线" />
+    <SvgTex x={780} y={328} size={11} color="var(--text)" src="$o_t = q_t^{\!\top} S_t = \sum_{i\le t}(q_t\cdot k_i)\,v_i$，读出精确，每步代价固定" />
+  </svg>
+  <figcaption set:html={texMix('同样是对过去的 value 加权求和。softmax 的权重里有查询，求和只能等查询来了再做，所以每个 key、value 都要留着；线性注意力的一项 $(q_t\\cdot k_i)v_i$ 可以写成 $q_t^\\top(k_i v_i^\\top)$，括号里只依赖 token $i$，可以提前累加。')} />
+</figure>
+
+<style>
+  .fo { margin: 2rem 0; padding: 0.8rem 0.6rem 0.6rem; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); overflow-x: auto; }
+  .fo svg { display: block; width: 100%; min-width: 760px; height: auto; font-family: var(--font-sans); }
+  .fo marker path { fill: var(--text-2); }
+  .edge { fill: none; stroke: var(--text-2); stroke-width: 1.3; }
+  .edge.soft { stroke: var(--cat-rose); opacity: 0.8; }
+  .sep { stroke: var(--border-2); stroke-width: 1.2; stroke-dasharray: 6 5; }
+  .q { fill: color-mix(in srgb, var(--cat-amber) 22%, var(--bg-2)); stroke: var(--cat-amber); stroke-width: 1.4; }
+  .k { fill: color-mix(in srgb, var(--cat-cyan) 14%, var(--bg-2)); stroke: var(--cat-cyan); stroke-width: 1.2; }
+  .v { fill: color-mix(in srgb, var(--cat-indigo) 14%, var(--bg-2)); stroke: var(--cat-indigo); stroke-width: 1.2; }
+  .k.dots, .v.dots { fill: none; stroke-dasharray: 3 3; opacity: 0.6; }
+  .den { fill: color-mix(in srgb, var(--cat-rose) 10%, var(--bg-2)); stroke: var(--cat-rose); stroke-width: 1.2; stroke-dasharray: 5 4; }
+  .op { fill: color-mix(in srgb, var(--cat-cyan) 22%, var(--bg-2)); stroke: var(--cat-cyan); stroke-width: 1.2; }
+  .S { fill: color-mix(in srgb, var(--cat-cyan) 30%, var(--bg-2)); stroke: var(--cat-cyan); stroke-width: 1.8; }
+  figcaption { margin-top: 0.6rem; font-size: 0.88rem; color: var(--text-2); line-height: 1.6; text-align: center; }
+</style>

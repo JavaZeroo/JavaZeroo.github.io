@@ -1,0 +1,61 @@
+---
+/**
+ * 第 1 篇：衰减为什么作用在键轴（行）而不是值轴（列）。
+ * 左：Diag(α) S 淡一行，等于削弱「方向接近这个键的所有值」。
+ * 右：S Diag(α) 淡一列，等于把所有存储值的同一个坐标一起缩，与键无关，改的是输出尺度。
+ */
+import SvgTex from '../figures/SvgTex.astro';
+import { texMix } from '../figures/tex';
+const N = 8, CS = 26;
+const cells = Array.from({ length: N }, (_, r) => Array.from({ length: N }, (_, c) => ({ r, c })));
+const panels = [
+  { ox: 90, title: '按行衰减：$\\operatorname{Diag}(\\alpha_t)\\, S$', fade: (r: number, _c: number) => r === 3, ok: true },
+  { ox: 600, title: '按列衰减：$S\\, \\operatorname{Diag}(\\alpha_t)$', fade: (_r: number, c: number) => c === 5, ok: false },
+];
+const GY = 60;
+---
+
+<figure class="kad">
+  <svg viewBox="0 0 1040 380" role="img" aria-label="按行衰减与按列衰减的区别">
+    <defs>
+      <marker id="kad-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M0 0 L10 5 L0 10 z" />
+      </marker>
+    </defs>
+    {panels.map((p) => (
+      <g>
+        <SvgTex x={p.ox + (N * CS) / 2} y={28} size={12.5} weight={600} color="var(--text-2)" src={p.title} />
+        {cells.flat().map(({ r, c }) => (
+          <rect class:list={['cell', { fade: p.fade(r, c) }]} x={p.ox + c * CS} y={GY + r * CS} width={CS - 3} height={CS - 3} rx="3" />
+        ))}
+        <SvgTex x={p.ox + (N * CS) / 2} y={GY + N * CS + 12} size={9.5} color="var(--text-2)" src="列 $b$：值通道，$v$ 的第 $b$ 个分量" />
+        <SvgTex x={p.ox - 8} y={GY + (N * CS) / 2} size={9.5} align="end" color="var(--text-2)" src="行 $a$：键通道" />
+        <SvgTex x={p.ox - 8} y={GY + (N * CS) / 2 + 14} size={9.5} align="end" color="var(--text-2)" src="$k$ 的第 $a$ 个分量" />
+        <path class="edge q" d={`M${p.ox - 70} ${GY + 3 * CS + CS / 2 - 1} H ${p.ox - 4}`} marker-end="url(#kad-arrow)" />
+        <SvgTex x={p.ox - 72} y={GY + 3 * CS - 10} size={9} align="start" color="var(--cat-amber)" src="$q$ 沿键轴进入" />
+      </g>
+    ))}
+
+    <!-- 左说明 -->
+    <SvgTex x={90 + (N * CS) / 2} y={GY + N * CS + 40} size={10.5} color="var(--text)" src="第 $a$ 行是「方向接近第 $a$ 个键分量的键」写进来的全部值" />
+    <SvgTex x={90 + (N * CS) / 2} y={GY + N * CS + 58} size={10.5} color="var(--text)" src="淡这一行 = 忘掉这一类键下面存的东西" />
+    <SvgTex x={90 + (N * CS) / 2} y={GY + N * CS + 82} size={10} weight={600} color="var(--cat-emerald)" src="这是遗忘。门的形状 $[B, T, H, K]$：每个键分量一个门" />
+
+    <!-- 右说明 -->
+    <SvgTex x={600 + (N * CS) / 2} y={GY + N * CS + 40} size={10.5} color="var(--text)" src="第 $b$ 列是所有存储值的第 $b$ 个坐标，不管是哪个键写的" />
+    <SvgTex x={600 + (N * CS) / 2} y={GY + N * CS + 58} size={10.5} color="var(--text)" src="淡这一列 = 每个读出向量的第 $b$ 维一起缩小" />
+    <SvgTex x={600 + (N * CS) / 2} y={GY + N * CS + 82} size={10} weight={600} color="var(--cat-rose)" src="这不是遗忘，是改输出尺度。没有 $V$ 轴的门" />
+  </svg>
+  <figcaption set:html={texMix('$S$ 的两个轴各由键和值的 128 个分量索引，读出 $S^\\top q$ 沿键轴乘进去，所以查询触及的和键写入的是同一组分量。只有沿键轴衰减才对应「忘掉某一类键下面的记录」。')} />
+</figure>
+
+<style>
+  .kad { margin: 2rem 0; padding: 0.8rem 0.6rem 0.6rem; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); overflow-x: auto; }
+  .kad svg { display: block; width: 100%; min-width: 760px; height: auto; font-family: var(--font-sans); }
+  .kad marker path { fill: var(--cat-amber); }
+  .edge { fill: none; stroke: var(--text-2); stroke-width: 1.4; }
+  .edge.q { stroke: var(--cat-amber); stroke-width: 1.8; }
+  .cell { fill: color-mix(in srgb, var(--cat-cyan) 45%, var(--bg-2)); stroke: var(--cat-cyan); stroke-width: 0.8; }
+  .cell.fade { fill: color-mix(in srgb, var(--cat-cyan) 8%, var(--bg-2)); stroke-dasharray: 2 2; }
+  figcaption { margin-top: 0.6rem; font-size: 0.88rem; color: var(--text-2); line-height: 1.6; text-align: center; }
+</style>

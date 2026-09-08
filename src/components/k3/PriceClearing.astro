@@ -1,0 +1,72 @@
+---
+/**
+ * 第 5 篇：路由偏置就是价格。一个 expert 的视角：横轴是它对各 token 的 margin s_{i,j} − α_i，
+ * 阈值 −b_j 右边的 token 选中它。QB 一步把阈值放在第 (q+1) 大的 margin 上；sign 更新每步只挪固定的 γ。
+ * margin 是示意用的手工数据。
+ */
+import SvgTex from '../figures/SvgTex.astro';
+import { texMix } from '../figures/tex';
+const margins = [-0.62, -0.48, -0.41, -0.30, -0.22, -0.11, -0.04, 0.06, 0.15, 0.27, 0.38, 0.52];
+const q = 4;
+const sorted = [...margins].sort((a, b) => b - a);
+const thr = sorted[q]; // 第 (q+1) 大的 margin，恰好 q 个在它右边（无并列）
+const X0 = 80, X1 = 720;
+const px = (m: number) => X0 + ((m + 0.7) / 1.4) * (X1 - X0);
+// sign 更新的示意：从 −0.7 起每步 γ = 0.12 往右挪，六步后越过 thr（0.06）再往回
+const gamma = 0.12;
+const steps = [-0.7, -0.58, -0.46, -0.34, -0.22, -0.10, 0.02, 0.14, 0.02];
+---
+
+<figure class="pc">
+  <svg viewBox="0 0 800 330" role="img" aria-label="路由偏置作为价格：QB 一步定价与 sign 更新的逐步试价">
+    <defs>
+      <marker id="pc-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+        <path d="M0 0 L10 5 L0 10 z" />
+      </marker>
+    </defs>
+
+    <SvgTex x={X0} y={26} size={12} weight={600} align="start" color="var(--text-2)" src="expert $j$ 眼里的 12 个 token：横轴是 margin $s_{i,j} - \alpha_i$，越靠右越想选它" />
+
+    <!-- 上：QB 一步 -->
+    <SvgTex x={X0} y={58} size={10.5} weight={600} align="start" color="var(--text)" src="QB：阈值 $-\hat b_j$ 直接放在第 $(q+1)$ 大的 margin 上，右边恰好 $q = 4$ 个" />
+    <rect class="win" x={px(thr)} y={72} width={X1 - px(thr) + 10} height={36} rx="4" />
+    <line class="axis" x1={X0 - 10} y1="90" x2={X1 + 10} y2="90" />
+    {margins.map((m) => <circle class:list={['tok', { sel: m > thr }]} cx={px(m)} cy="90" r="6" />)}
+    <line class="thr qb" x1={px(thr)} y1="66" x2={px(thr)} y2="114" />
+    <SvgTex x={px(thr)} y={126} size={9.5} color="var(--cat-emerald)" src="阈值 $= -\hat b_j$，一步落位" />
+    <SvgTex x={X1 + 12} y={90} size={9.5} align="start" color="var(--text-2)" src="选中" />
+    <SvgTex x={X0 - 14} y={90} size={9.5} align="end" color="var(--muted)" src="不选" />
+
+    <!-- 下：sign 更新 -->
+    <SvgTex x={X0} y={172} size={10.5} weight={600} align="start" color="var(--text)" src="DeepSeek-V3 的 sign 更新：每步只把阈值挪固定的 $\gamma$，不看差多少" />
+    <line class="axis" x1={X0 - 10} y1="205" x2={X1 + 10} y2="205" />
+    {margins.map((m) => <circle class="tok dim" cx={px(m)} cy="205" r="6" />)}
+    <line class="thr qb ghost" x1={px(thr)} y1="184" x2={px(thr)} y2="226" />
+    {steps.slice(0, -1).map((s, i) => (
+      <g>
+        <line class="thr sg" x1={px(s)} y1={188} x2={px(s)} y2={222} opacity={0.35 + (0.65 * i) / steps.length} />
+        <line class="step" x1={px(s) + 3} y1={i % 2 === 0 ? 238 : 250} x2={px(steps[i + 1]) - 3} y2={i % 2 === 0 ? 238 : 250} marker-end="url(#pc-arrow)" />
+      </g>
+    ))}
+    <SvgTex x={px(steps[0])} y={268} size={9.5} align="start" color="var(--cat-rose)" src="每步 $\pm\gamma$：$\gamma$ 大了在阈值两边来回震荡，小了追不上" />
+    <SvgTex x={(X0 + X1) / 2} y={300} size={10} color="var(--text-2)" src="两者找的是同一个量。偏置是价格：价格定对了，恰好 $q$ 个 token 仍然觉得这个 expert 值得选" />
+  </svg>
+  <figcaption set:html={texMix('平衡路由是一个指派问题，标准解法是给每个 expert 定价。路由偏置就是价格（符号相反：偏置越低相当于价格越高）。上：QB 从这个 batch 的 margin 分布一步算出让恰好 $q$ 个 token 过线的阈值。下：固定步长的 sign 更新只能一步一步试。margin 是手工示意数据。')} />
+</figure>
+
+<style>
+  .pc { margin: 2rem 0; padding: 0.8rem 0.6rem 0.6rem; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); overflow-x: auto; }
+  .pc svg { display: block; width: 100%; min-width: 620px; height: auto; font-family: var(--font-sans); }
+  .pc marker path { fill: var(--cat-rose); }
+  .axis { stroke: var(--border-2); stroke-width: 1.2; }
+  .win { fill: color-mix(in srgb, var(--cat-emerald) 12%, var(--bg-2)); stroke: none; }
+  .tok { fill: color-mix(in srgb, var(--cat-indigo) 25%, var(--bg-2)); stroke: var(--cat-indigo); stroke-width: 1.4; }
+  .tok.sel { fill: var(--cat-indigo); }
+  .tok.dim { opacity: 0.55; }
+  .thr { stroke-width: 2; }
+  .thr.qb { stroke: var(--cat-emerald); }
+  .thr.qb.ghost { stroke-dasharray: 3 3; opacity: 0.5; }
+  .thr.sg { stroke: var(--cat-rose); stroke-width: 1.6; }
+  .step { stroke: var(--cat-rose); stroke-width: 1.2; fill: none; }
+  figcaption { margin-top: 0.6rem; font-size: 0.88rem; color: var(--text-2); line-height: 1.6; text-align: center; }
+</style>

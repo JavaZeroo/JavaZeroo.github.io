@@ -1,0 +1,46 @@
+---
+/**
+ * 第 2 篇：chunkwise 的本质是给乘法凑出第二个矩阵维度。
+ * 左：逐 token 的外积和矩阵向量乘只有一个向量维，Tensor Core 的 tile 填不满，只能走通用核。
+ * 右：16 个 token 摞成 16 × 128 的矩阵，矩阵乘矩阵，tile 填满。
+ */
+import SvgTex from '../figures/SvgTex.astro';
+import { texMix } from '../figures/tex';
+const N = 16, CS = 11;
+const G = (ox: number, fill: (r: number) => boolean) =>
+  Array.from({ length: N }, (_, r) => Array.from({ length: N }, (_, c) => ({ x: ox + c * CS, y: 70 + r * CS, on: fill(r) })));
+const left = G(90, (r) => r === 0).flat();
+const right = G(600, () => true).flat();
+---
+
+<figure class="tf">
+  <svg viewBox="0 0 1040 380" role="img" aria-label="逐 token 与 16 token 一块的 Tensor Core tile 填充">
+    <SvgTex x={90 + (N * CS) / 2} y={30} size={12.5} weight={600} color="var(--text-2)" src="逐 token：一个向量维" />
+    {left.map((c) => <rect class:list={['cell', { on: c.on }]} x={c.x} y={c.y} width={CS - 2} height={CS - 2} rx="1.5" />)}
+    <SvgTex x={90 + (N * CS) / 2} y={70 + N * CS + 14} size={9.5} color="var(--text-2)" src="一个 tile（示意 16 × 16）" />
+    <SvgTex x={90 + (N * CS) / 2} y={70 + N * CS + 42} size={10.5} color="var(--text)" src="$k_t v_t^{\!\top}$ 是外积，$S^{\!\top} q_t$ 是矩阵乘向量" />
+    <SvgTex x={90 + (N * CS) / 2} y={70 + N * CS + 60} size={10.5} color="var(--text)" src="都只有一个向量维，填不满 tile" />
+    <SvgTex x={90 + (N * CS) / 2} y={70 + N * CS + 84} size={10} weight={600} color="var(--cat-rose)" src="走 CUDA core，FP32 约 67 TFLOPS" />
+    <SvgTex x={90 + (N * CS) / 2} y={70 + N * CS + 102} size={10} color="var(--cat-rose)" src="每个 token 重新读一遍整个 128 × 128 状态" />
+
+    <line class="sep" x1="500" y1="20" x2="500" y2="360" />
+
+    <SvgTex x={600 + (N * CS) / 2} y={30} size={12.5} weight={600} color="var(--text-2)" src="16 个 token 摞起来：两个矩阵维" />
+    {right.map((c) => <rect class:list={['cell', { on: c.on }]} x={c.x} y={c.y} width={CS - 2} height={CS - 2} rx="1.5" />)}
+    <SvgTex x={600 + (N * CS) / 2} y={70 + N * CS + 14} size={9.5} color="var(--text-2)" src="同一个 tile" />
+    <SvgTex x={600 + (N * CS) / 2} y={70 + N * CS + 42} size={10.5} color="var(--text)" src="$\mathbf{K}_{[t]}^{\!\top}\mathbf{V}_{[t]}$ 与 $\mathbf{Q}_{[t]}\mathbf{S}_{[t]}$，$\mathbf{K}, \mathbf{Q}, \mathbf{V} \in \mathbb{R}^{16\times 128}$" />
+    <SvgTex x={600 + (N * CS) / 2} y={70 + N * CS + 60} size={10.5} color="var(--text)" src="矩阵乘矩阵，tile 填满" />
+    <SvgTex x={600 + (N * CS) / 2} y={70 + N * CS + 84} size={10} weight={600} color="var(--cat-emerald)" src="走 Tensor Core，BF16 约 990 TFLOPS" />
+    <SvgTex x={600 + (N * CS) / 2} y={70 + N * CS + 102} size={10} color="var(--cat-emerald)" src="状态每 16 个 token 读写一次；1M 序列串行链 $10^6 \to 62{,}500$ 步" />
+  </svg>
+  <figcaption set:html={texMix('Tensor Core 只接受矩阵乘矩阵。递推形式每个 token 的代价已经是常数，但两个操作都只有一个向量维；把 $C$ 个 token 摞成矩阵，乘法才有第二个矩阵维度。数字是 H100 的峰值。')} />
+</figure>
+
+<style>
+  .tf { margin: 2rem 0; padding: 0.8rem 0.6rem 0.6rem; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); overflow-x: auto; }
+  .tf svg { display: block; width: 100%; min-width: 760px; height: auto; font-family: var(--font-sans); }
+  .sep { stroke: var(--border-2); stroke-width: 1.2; stroke-dasharray: 6 5; }
+  .cell { fill: none; stroke: var(--border-2); stroke-width: 0.6; }
+  .cell.on { fill: color-mix(in srgb, var(--cat-cyan) 45%, var(--bg-2)); stroke: var(--cat-cyan); stroke-width: 0.8; }
+  figcaption { margin-top: 0.6rem; font-size: 0.88rem; color: var(--text-2); line-height: 1.6; text-align: center; }
+</style>

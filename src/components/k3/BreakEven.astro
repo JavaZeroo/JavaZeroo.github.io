@@ -1,0 +1,92 @@
+---
+/**
+ * 第 3 篇：KDA 固定状态 vs 被它替换掉的 69 层 MLA 的盈亏点。
+ * 三条线：93 层全 MLA（K3 换掉的设计）、K3 混合（S 存 BF16）、K3 混合（S 存 FP32，vLLM 的做法）。
+ * 所有数字在构建期算出：MLA 每层每 token 576 个数 × 2 字节；KDA 每层 96 × 128 × 128 个数加三路 ShortConv 缓存。
+ */
+import SvgTex from '../figures/SvgTex.astro';
+import { texMix } from '../figures/tex';
+
+const MiB = 1024 * 1024;
+const mlaPerTokLayer = 576 * 2;                 // 1,152 B
+const kdaMat = 96 * 128 * 128;                  // 每层 S 的元素数
+const convCache = 3 * 12288 * 3 * 2;            // 三路 ShortConv 窗口，BF16，216 KiB
+const kdaFixedBf16 = 69 * (kdaMat * 2 + convCache);
+const kdaFixedFp32 = 69 * (kdaMat * 4 + convCache);
+const hybridSlope = 24 * mlaPerTokLayer;        // 27,648 B/token
+const allMlaSlope = 93 * mlaPerTokLayer;        // 107,136 B/token
+const replaced = 69 * mlaPerTokLayer;           // 79,488 B/token
+const beBf16 = kdaFixedBf16 / replaced;
+const beFp32 = kdaFixedFp32 / replaced;
+const fmt = (n: number) => Math.round(n).toLocaleString('en-US');
+
+// 画布
+const PL = 90, PR = 40, PT = 56, PB = 60, W = 820, H = 400;
+const XMAX = 8000, YMAX = 900 * MiB;
+const px = (t: number) => PL + (t / XMAX) * (W - PL - PR);
+const py = (b: number) => H - PB - (b / YMAX) * (H - PT - PB);
+const line = (f: (t: number) => number) => `M${px(0)} ${py(f(0))} L${px(XMAX)} ${py(f(XMAX))}`;
+const fAll = (t: number) => allMlaSlope * t;
+const fBf = (t: number) => kdaFixedBf16 + hybridSlope * t;
+const fFp = (t: number) => kdaFixedFp32 + hybridSlope * t;
+const yTicks = [0, 200, 400, 600, 800].map((m) => m * MiB);
+const xTicks = [0, 2000, 4000, 6000, 8000];
+---
+
+<figure class="be">
+  <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="每请求 cache 随上下文长度的增长：混合模型与全 MLA 的盈亏点">
+    {yTicks.map((b) => (
+      <g>
+        <line class="grid" x1={PL} y1={py(b)} x2={W - PR} y2={py(b)} />
+        <SvgTex x={PL - 8} y={py(b)} size={9.5} align="end" color="var(--muted)" src={`${b / MiB} MiB`} />
+      </g>
+    ))}
+    {xTicks.map((t) => (
+      <SvgTex x={px(t)} y={H - PB + 14} size={9.5} color="var(--muted)" src={t === 0 ? '0' : `${t / 1000}K`} />
+    ))}
+    <SvgTex x={(PL + W - PR) / 2} y={H - PB + 34} size={10} color="var(--text-2)" src="上下文长度（token）" />
+    <SvgTex x={PL} y={24} size={10} align="start" color="var(--text-2)" src="一个请求的注意力 cache，24 层 MLA 加 69 层 KDA 状态对 93 层全 MLA" />
+    <line class="axis" x1={PL} y1={py(0)} x2={W - PR} y2={py(0)} />
+
+    <path class="s all" d={line(fAll)} />
+    <path class="s hyb" d={line(fBf)} />
+    <path class="s hyb fp" d={line(fFp)} />
+
+    <!-- 盈亏点 -->
+    <circle class="pt" cx={px(beBf16)} cy={py(fBf(beBf16))} r="5" />
+    <SvgTex x={px(beBf16) + 10} y={py(fBf(beBf16)) - 28} size={10} weight={600} align="start" color="var(--text)" src={`约 ${fmt(beBf16)} token`} />
+    <SvgTex x={px(beBf16) + 10} y={py(fBf(beBf16)) - 15} size={9} align="start" color="var(--text-2)" src="BF16 状态的盈亏点" />
+    <circle class="pt" cx={px(beFp32)} cy={py(fFp(beFp32))} r="5" />
+    <SvgTex x={px(beFp32) + 10} y={py(fFp(beFp32)) - 28} size={10} weight={600} align="start" color="var(--text)" src={`约 ${fmt(beFp32)} token`} />
+    <SvgTex x={px(beFp32) + 10} y={py(fFp(beFp32)) - 15} size={9} align="start" color="var(--text-2)" src="FP32 状态的盈亏点" />
+
+    <!-- 直接标注 -->
+    <SvgTex x={px(XMAX) - 6} y={py(fAll(XMAX)) - 12} size={10} align="end" color="var(--text)" src={`93 层全 MLA：${fmt(allMlaSlope / 1024)} KiB / token`} />
+    <SvgTex x={px(XMAX) - 6} y={py(fBf(XMAX)) - 12} size={10} align="end" color="var(--text)" src={`K3 混合：${fmt(kdaFixedBf16 / MiB)} MiB 固定 + ${fmt(hybridSlope / 1024)} KiB / token`} />
+    <SvgTex x={px(2600)} y={py(fFp(2600)) - 12} size={9.5} color="var(--text-2)" src={`S 存 FP32：固定项 ${fmt(kdaFixedFp32 / MiB)} MiB`} />
+
+    <!-- 图例 -->
+    <g>
+      <line class="s all" x1={PL} y1={40} x2={PL + 22} y2={40} />
+      <SvgTex x={PL + 28} y={40} size={9.5} align="start" color="var(--text-2)" src="93 层全 MLA" />
+      <line class="s hyb" x1={PL + 130} y1={40} x2={PL + 152} y2={40} />
+      <SvgTex x={PL + 158} y={40} size={9.5} align="start" color="var(--text-2)" src="K3 混合，$S$ 存 BF16" />
+      <line class="s hyb fp" x1={PL + 300} y1={40} x2={PL + 322} y2={40} />
+      <SvgTex x={PL + 328} y={40} size={9.5} align="start" color="var(--text-2)" src="K3 混合，$S$ 存 FP32" />
+    </g>
+  </svg>
+  <figcaption set:html={texMix(`一个请求的注意力 cache 随上下文长度的变化。全 MLA 从零开始按每 token 105 KiB 增长；K3 混合从第一个 token 就要分配 ${fmt(kdaFixedBf16 / MiB)} MiB 的 KDA 状态，之后每 token 只长 27 KiB。两条线在约 ${fmt(beBf16)} token 处相交，短于此混合模型更费显存。`)} />
+</figure>
+
+<style>
+  .be { margin: 2rem 0; padding: 0.8rem 0.6rem 0.6rem; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); overflow-x: auto; }
+  .be svg { display: block; width: 100%; min-width: 640px; height: auto; font-family: var(--font-sans); }
+  .grid { stroke: var(--border); stroke-width: 1; }
+  .axis { stroke: var(--border-2); stroke-width: 1.2; }
+  .s { fill: none; stroke-width: 2; stroke-linecap: round; }
+  .s.all { stroke: var(--cat-indigo); }
+  .s.hyb { stroke: var(--cat-cyan); }
+  .s.fp { stroke-dasharray: 6 5; }
+  .pt { fill: var(--surface); stroke: var(--text); stroke-width: 2; }
+  figcaption { margin-top: 0.6rem; font-size: 0.88rem; color: var(--text-2); line-height: 1.6; text-align: center; }
+</style>
