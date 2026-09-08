@@ -18,6 +18,7 @@ import K3ArchDiagram from '../../components/k3/K3ArchDiagram.astro';
 import LatentMoeWidth from '../../components/k3/LatentMoeWidth.astro';
 import SituDemo from '../../components/k3/SituDemo.astro';
 import QbBipartite from '../../components/k3/QbBipartite.astro';
+import PriceClearing from '../../components/k3/PriceClearing.astro';
 
 对应论文 §2.3 和附录 B、C、D，公式 (11) 到 (14)。K3 的 93 层里有 92 层的 FFN 是这个模块，它占了模型 98% 的参数。上游是 NVIDIA 2026 年 1 月的 [LatentMoE](https://arxiv.org/abs/2601.18089)，K3 在它上面加了三个东西，合起来叫 "Stable"。
 
@@ -80,7 +81,7 @@ def forward(self, hidden_states):                    # KimiSparseMoeBlock
 - **$W^{\downarrow}$ 和 $W^{\uparrow}$ 每层只有一个**，所有 routed expert 共用。这和 MoLAE 那种每个 expert 各自低秩分解不同，只有共享的投影才能让 all-to-all 也变窄。
 - **加权求和发生在 latent 空间**，$W^{\uparrow}$ 每 token 只作用一次，在 all-to-all combine 之后。所以 dispatch 和 combine 两趟通信都是 3584 维。
 - **每个 routed expert** 是 3584 → 3072 → 3584 的三矩阵 GLU（`KimiBlockSparseMLP`，gate、up、down）。
-- **两个 shared expert** 在代码里合成了一个 `KimiMLP`，中间维 3072 × 2 = 6144，全宽 7168 → 6144 → 7168。数学上等价于两个并联的 3072 维 expert 相加。
+- **两个 shared expert** 在代码里合成了一个 `KimiMLP`，中间维 3072 × 2 = 6144，全宽 7168 → 6144 → 7168。数学上等价于两个并联的 3072 维 expert 相加。 为什么要有 shared expert：有些变换几乎每个 token 都需要，如果只住在 routed expert 里，896 个副本都得各存一份，因为去了 E5 的 token 用不上 E2。shared expert 看见所有 token、收到所有梯度，这类通用工作在训练中会自然沉到它那里，routed expert 就不必重复。这是训练偏好不是硬约束，代码没有强制分工。来源是 DeepSeekMoE。
 
 ## 为什么需要 "Stable"
 
@@ -142,6 +143,10 @@ $$
 
 ## Stable 之三：Quantile Balancing
 
+**先把偏置这个量看清楚：它是价格。** 平衡路由是一个指派问题：每个 token 去它分数最高的 expert，同时每个 expert 恰好收 $q$ 个 token。这类问题的标准解法是给每个 expert 定一个价格。价格高，愿意选它的 token 就少。**在正确的价格下，恰好 $q$ 个 token 仍然觉得它值得选。** 路由偏置就是这个价格，只是符号相反：偏置越低相当于价格越高。DeepSeek-V3 和 QB 找的是同一个量，区别在怎么找。
+
+<PriceClearing />
+
 **原方法的问题。** DeepSeek-V3 用固定步长更新偏置：$b_j \leftarrow b_j + \gamma\,\operatorname{sign}(\bar\ell - \ell_j)$，负载高于平均就减、低于就加。$\gamma$ 大了震荡，小了追不上。expert 到 896 个之后，这个折衷变得难调；不平衡的路由拖慢 expert 并行训练，还可能让一些 expert 训练不足。
 
 **QB 的做法：直接算出让每个 expert 恰好拿到目标负载的偏置。** 设一个 batch 有 $m$ 个 token、$n$ 个 expert、每 token 选 $k$ 个，目标负载 $q = mk/n$。一次前向里：
@@ -159,7 +164,11 @@ $$
 
 <QbBipartite />
 
-**为什么这是「对」的答案：附录 C 的推导。** 从最大分数的平衡指派问题出发：
+**为什么这是「对」的答案。** 上面的分位数不是启发式。把平衡路由写成一个最大分数的指派问题，取它的线性规划对偶，对偶变量正好是 token 侧的截止线 $\alpha$ 和 expert 侧的偏置 $\beta = -b$，对偶目标做坐标下降的闭式解就是这个分位数。同一个对偶目标做 SignSGD 得到的正是 DeepSeek-V3 的 sign 更新，所以两者找的是同一个价格，QB 只是直接跳到极小点，因此没有步长这个超参。完整推导（论文附录 C）折叠在下面。
+
+:::details[从指派问题的对偶推出分位数：附录 C 的推导]
+
+**从指派问题出发。** 这是上面价格解释的严格版本。从最大分数的平衡指派问题出发：
 
 $$
 \max_{x_{i,j} \in \{0,1\}} \sum_{i,j} x_{i,j}\, s_{i,j}
@@ -178,6 +187,8 @@ $$
 最优解处 $x^*_{i,j} = 1$ 当且仅当 $s_{i,j} - \alpha_i^* - \beta_j^* > 0$，结合 token 侧约束，选中的正好是 $s_i - \beta^*$ 的 top-$k$。**所以路由只需要 expert 侧的 $\beta$（$b = -\beta$），token 侧的 $\alpha$ 是随 batch 变的中间量，用完就丢。** 部署时是固定 top-$k$ 加冻结偏置，不算任何分位数。
 
 **和 DeepSeek-V3 的关系。** expert 侧子问题的次梯度是 $\frac{mk}{n} - \sum_i \mathbf 1[s_{i,j} - \alpha_i - \beta_j > 0]$，即目标负载减实际负载。对这个目标做 SignSGD，就是 DeepSeek-V3 的 sign 更新（差一个 $b = -\beta$ 的符号约定）。sign 更新只保留了负载误差的方向，QB 直接跳到同一个对偶目标的精确坐标极小点。这解释了 QB 为什么没有步长这个超参，以及为什么接近 $10^3$ 个 expert 也能在几步内平衡。
+
+:::
 
 **直方图估计（附录 D）。** 分位数要在整个全局 batch 上取，margin 有几百万个，散在各 rank 和梯度累积步里，收齐再排序不现实。观察：更新只需要每个 expert 的 margin **分布**，不需要值本身。做法：
 
