@@ -15,65 +15,69 @@ draft: false
 ---
 
 import K3ArchDiagram from '../../components/k3/K3ArchDiagram.astro';
+import KdaUpdate from '../../components/k3/KdaUpdate.astro';
 import ChunkLanes from '../../components/k3/ChunkLanes.astro';
 import DecayDemo from '../../components/k3/DecayDemo.astro';
+import TileFill from '../../components/k3/TileFill.astro';
 
-对应论文 §2.1.1 的后半：公式 (3) 到 (5) 和 Figure 3。上一篇的递推形式一个 token 走一步，全是向量和矩阵的逐元素运算，训练时用不上 Tensor Core。这一篇讲怎么把一个块（$C = 64$ 个 token）的计算改写成几次矩阵乘，然后你会看到 K3 为什么要动衰减函数。
+对应论文 §2.1.1 的后半：公式 (3) 到 (5) 和 Figure 3。上一篇的递推形式一个 token 走一步，全是向量和矩阵的逐元素运算，训练时用不上 Tensor Core。这一篇先给出结论：一个块（$C = 64$ 个 token）的计算可以改写成几次矩阵乘，状态只在块边界更新一次。推导折叠起来放在结论后面，可以跳过也可以逐步跟着算。最后你会看到 K3 为什么要动衰减函数。
 
 <K3ArchDiagram highlight="kda" caption="还在 KDA 里。这一篇讲的是同一个模块在训练和 prefill 时的算法形式。" />
 
-## 目标：块间递推，块内并行
+## 起点：公式 (1) 的递推，为什么训练时用不了
 
-把序列切成长度 $C$ 的块。记 $\mathbf{X}_{[t]}$ 为第 $t$ 块里的 token 堆成的矩阵（$\mathbf{Q}, \mathbf{K}, \mathbf{V} \in \mathbb{R}^{C \times d}$），$\mathbf{S}_{[t]}$ 为进入第 $t$ 块时的状态。想要的形式是：
-
-- **块间**：状态只在块边界更新一次，$\mathbf{S}_{[t]} \to \mathbf{S}_{[t+1]}$。
-- **块内**：块里 $C$ 个输出一起算，用矩阵乘。
-
-先定义逐通道的累积衰减（论文公式 (3)）：
+先把上一篇的公式 (1) 摆出来，这一篇所有推导都从它出发：
 
 $$
-\gamma_{[t]}^{i \to j} := \prod_{r=i}^{j} \alpha_{[t]}^{r},
+S_t = \big(I - \beta_t k_t k_t^\top\big)\operatorname{Diag}(\alpha_t)\,S_{t-1} + \beta_t k_t v_t^\top,
 \qquad
-\gamma_{[t]}^{r} := \gamma_{[t]}^{1 \to r},
+o_t = S_t^\top q_t .
+\tag{1}
 $$
 
-$\Gamma_{[t]}^{1\to C} \in \mathbb{R}^{C \times d_k}$ 把 $\gamma^1, \dots, \gamma^C$ 按行堆起来。$\gamma^r$ 是「从块开头到位置 $r$ 一共衰减了多少」，逐通道。
+<KdaUpdate />
 
-## 块内展开：$P$ 和 $H$
+一个 token 走一步：先把旧状态每一行按 $\alpha_t$ 衰减，再沿 $k_t$ 方向擦掉 $\beta_t$ 的比例，最后写入 $\beta_t k_t v_t^\top$。每步代价固定，对序列长度已经是线性的了，为什么还要改？答案在硬件上。
 
-把递推在块内展开 $r$ 步（Kimi Linear 公式 (2)）：
+Tensor Core 只接受矩阵乘矩阵。H100 上 BF16 矩阵乘的峰值约 990 TFLOPS，通用 CUDA core 上的 FP32 约 67 TFLOPS，差十几倍。公式 (1) 里的两个操作，外积 $k_t v_t^\top$ 和矩阵乘向量 $S^\top q_t$，都只有一个向量维，填不满一个 tile，只能走慢的那一边。更糟的是每个 token 都要把整个 128×128 的状态读一遍再写一遍，而且第 $t$ 步必须等第 $t-1$ 步做完，1M 的序列就是一百万步串行。
 
-$$
-\mathbf{S}^{r}_{[t]}
-= \underbrace{\prod_{i=1}^{r} \big(I - \beta^i k^i k^{i\top}\big)\operatorname{Diag}(\alpha^i)}_{\mathbf{P}^r}\ \mathbf{S}^0_{[t]}
-\ +\ \underbrace{\sum_{i=1}^{r} \Big(\prod_{j=i+1}^{r} \big(I - \beta^j k^j k^{j\top}\big)\operatorname{Diag}(\alpha^j)\Big)\beta^i k^i v^{i\top}}_{\mathbf{H}^r}.
-$$
+把 $C$ 个 token 摞在一起，向量就变成 $C \times 128$ 的矩阵，乘法有了第二个矩阵维度，可以上 Tensor Core。状态每 $C$ 个 token 读写一次，串行链从一百万步变成 $10^6 / C$ 步。代价是块内 $C$ 个 token 之间的依赖要另外算，这就是下面全部推导要解决的事。**结果和逐 token 递推完全一致，变的只是硬件调度。**
 
-$\mathbf{P}^r$ 是进入块时的状态被怎样变换，$\mathbf{H}^r$ 是块内写入的贡献。两项都是一串带衰减的 Householder 矩阵的乘积，直接算还是顺序的。
+<TileFill />
 
-## WY 表示：一串 Householder 乘积等于「对角减低秩和」
+## 终点：块间一步递推，块内一次矩阵乘
 
-Kimi Linear 附录 B 的两个命题（归纳法证）：
+把序列切成长度 $C$ 的块（Kimi Linear 按 $C = 64$ 分析）。记 $\mathbf{Q}_{[t]}, \mathbf{K}_{[t]}, \mathbf{V}_{[t]} \in \mathbb{R}^{C \times d}$ 为第 $t$ 块里的 token 堆成的矩阵，一行一个 token；$\mathbf{S}_{[t]}$ 为进入第 $t$ 块时的状态。还要一个记号来表示「从块内位置 $i$ 走到位置 $j$ 一共衰减了多少」，逐通道：
 
 $$
-\mathbf{P}^r = \operatorname{Diag}(\gamma^r) - \sum_{i=1}^{r} \operatorname{Diag}(\gamma^{i\to r})\, k^i w^{i\top},
+\gamma^{i \to j} := \prod_{r=i+1}^{j} \alpha^{r} \in \mathbb{R}^{d_k},
 \qquad
-\mathbf{H}^r = \sum_{i=1}^{r} \operatorname{Diag}(\gamma^{i\to r})\, k^i u^{i\top},
+\gamma^{r} := \gamma^{0 \to r} = \alpha^1 \odot \cdots \odot \alpha^r,
 $$
 
-其中辅助向量由两个三角递推给出：
+$\Gamma^{1\to C} \in \mathbb{R}^{C \times d_k}$ 把 $\gamma^1, \dots, \gamma^C$ 按行堆起来。$\gamma^r$ 是「从块开头到位置 $r$」的累积衰减，$\gamma^{i\to j} = \gamma^j / \gamma^i$（逐元素除）。
+
+这一篇的核心公式是块间的状态更新（Kimi Linear 公式 (8)）：
 
 $$
-w^r = \beta^r \Big(\operatorname{Diag}(\gamma^r) k^r - \sum_{i=1}^{r-1} w^i \big(k^{i\top}\operatorname{Diag}(\gamma^{i\to r}) k^r\big)\Big),
+\boxed{\;
+\mathbf{S}_{[t+1]} = \operatorname{Diag}(\gamma^C_{[t]})\,\mathbf{S}_{[t]} + \big(\Gamma^{i\to C}_{[t]} \odot \mathbf{K}_{[t]}\big)^{\!\top}\,\widetilde{\mathbf{V}}_{[t]},
 \qquad
-u^r = \beta^r \Big(v^r - \sum_{i=1}^{r-1} u^i \big(k^{i\top}\operatorname{Diag}(\gamma^{i\to r}) k^r\big)\Big).
+\widetilde{\mathbf{V}}_{[t]} := \mathbf{U}_{[t]} - \mathbf{W}_{[t]}\mathbf{S}_{[t]}
+\;}
+\tag{8}
 $$
 
-怎么理解 $u$ 和 $w$：$u^r$ 是**伪值**，等于 $v^r$ 减掉块内更早的键已经解释掉的部分，也就是 delta rule 的「先擦再写」被限制在块内的版本。$w^r$ 是配套的衰减键，告诉你这个修正要怎么作用到进入块时的状态上。
+配套的是块内的输出（Kimi Linear 公式 (9)，K3 论文公式 (4)）：
 
-## UT 变换：一次 $C \times C$ 三角求逆
+$$
+\mathbf{A}_{[t]} = \operatorname{Tril}\!\Big[(\Gamma_{[t]}^{1\to C} \odot \mathbf{Q}_{[t]})\big(\mathbf{K}_{[t]} / \Gamma_{[t]}^{1\to C}\big)^{\!\top}\Big],
+\qquad
+\mathbf{O}_{[t]} = \underbrace{(\Gamma_{[t]}^{1\to C} \odot \mathbf{Q}_{[t]})\,\mathbf{S}_{[t]}}_{\text{块间}} + \underbrace{\mathbf{A}_{[t]}\,\widetilde{\mathbf{V}}_{[t]}}_{\text{块内}}.
+\tag{9}
+$$
 
-两个递推可以对整个块一次解出（Kimi Linear 公式 (6)、(7)）：
+两条公式里的 $\mathbf{U}$、$\mathbf{W}$ 由一次 $C \times C$ 的三角求逆给出（Kimi Linear 公式 (6)、(7)），这一步叫 UT 变换：
 
 $$
 \mathbf{M} = \Big(I + \operatorname{StrictTril}\Big(\operatorname{Diag}(\beta)\,(\Gamma \odot \mathbf{K})\Big(\frac{\mathbf{K}}{\Gamma}\Big)^{\!\top}\Big)\Big)^{-1} \operatorname{Diag}(\beta),
@@ -81,33 +85,262 @@ $$
 \mathbf{W} = \mathbf{M}(\Gamma \odot \mathbf{K}),
 \qquad
 \mathbf{U} = \mathbf{M}\mathbf{V}.
-$$
-
-单位下三角矩阵的逆用前向替换做，代价 $O(C^2)$ 一次，之后全是矩阵乘。这一步把非矩阵乘的顺序工作变成了矩阵乘，Kimi Linear 说它「对硬件利用率至关重要」。
-
-## 块间递推与块内输出
-
-有了 $\mathbf{U}$、$\mathbf{W}$，定义伪值项 $\widetilde{\mathbf{V}}_{[t]} := \mathbf{U}_{[t]} - \mathbf{W}_{[t]}\mathbf{S}_{[t]}$，K3 论文公式 (4)：
-
-$$
-\mathbf{A}_{[t]} = \operatorname{Tril}\!\Big[(\mathbf{Q}_{[t]} \odot \Gamma_{[t]}^{1\to C})\big(\mathbf{K}_{[t]} / \Gamma_{[t]}^{1\to C}\big)^{\!\top}\Big],
-\qquad
-\mathbf{O}_{[t]} = \underbrace{(\Gamma_{[t]}^{1\to C} \odot \mathbf{Q}_{[t]})\,\mathbf{S}_{[t]}}_{\text{块间}} + \underbrace{\mathbf{A}_{[t]}\,\widetilde{\mathbf{V}}_{[t]}}_{\text{块内}}.
-$$
-
-状态更新（Kimi Linear 公式 (8)）：
-
-$$
-\mathbf{S}_{[t+1]} = \operatorname{Diag}(\gamma^C_{[t]})\,\mathbf{S}_{[t]} + \big(\Gamma^{i\to C}_{[t]} \odot \mathbf{K}_{[t]}\big)^{\!\top}\,\widetilde{\mathbf{V}}_{[t]}.
+\tag{6, 7}
 $$
 
 <ChunkLanes />
 
 读法：
 
-- 块间那一行，先把整个状态按这一块的总衰减 $\gamma^C$ 逐通道缩一下，再加上这一块的写入。写入是「每个键按它到块尾的剩余距离衰减」乘「修正后的伪值」。
-- 块内那一行，$\mathbf{A}$ 是一个 $C \times C$ 的下三角矩阵，第 $(i, j)$ 项是 $q_i$ 和 $k_j$ 的内积，每个通道再乘上 $\gamma^i / \gamma^j$，也就是从 $j$ 到 $i$ 之间的衰减。保留对角线，因为每个输出读的是「当前 token 更新之后」的状态。
+- **块间那一行**，先把整个状态按这一块的总衰减 $\gamma^C$ 逐通道缩一下，再加上这一块的写入。写入是「每个键按它到块尾的剩余距离衰减」乘「修正后的伪值」$\widetilde{\mathbf{V}}$。伪值的意思是：$\mathbf{U}$ 是 $\mathbf{V}$ 减掉块内更早的键已经解释掉的部分，也就是 delta rule 的「先擦再写」被限制在块内的版本；$\mathbf{W}\mathbf{S}_{[t]}$ 是这些擦除作用到进入块时的状态上的那一部分。
+- **块内那一行**，$\mathbf{A}$ 是一个 $C \times C$ 的下三角矩阵，第 $(i, j)$ 项是 $q_i$ 和 $k_j$ 的内积，每个通道再乘上 $\gamma^i / \gamma^j$，也就是从 $j$ 到 $i$ 之间的衰减。保留对角线，因为每个输出读的是「当前 token 更新之后」的状态。
+- **哪些是矩阵乘**：$\mathbf{A}$ 是 $(C \times d_k)(d_k \times C)$，$\mathbf{A}\widetilde{\mathbf{V}}$ 是 $(C \times C)(C \times d_v)$，块间写入是 $(d_k \times C)(C \times d_v)$，$\mathbf{W}\mathbf{S}$ 是 $(C \times d_k)(d_k \times d_v)$。除了求逆，全是 Tensor Core 能吃的形状。
 - Kimi Linear 的 FLOPs 公式（每头，$C = 64$）：$6Td_h^2 + 3TCd_h + TC^2$，对 $T$ 线性；softmax 注意力是 $2T^2 d_h$。
+
+公式 (1) 是怎么变成公式 (8) 和 (9) 的，完整推导折叠在下面。只想知道结论的话可以跳过，读后面 K3 的改动不需要它；想跟着算一遍的话，只用到矩阵乘法的结合律、对角矩阵的性质和数学归纳法。
+
+:::details[从公式 (1) 到公式 (8)、(9)：完整推导]
+
+**记号。** 只看一个块，省掉下标 $[t]$。块内位置 $r = 1, \dots, C$，$k^r, v^r, q^r, \alpha^r$ 是第 $r$ 个 token 的向量，$\beta^r$ 是标量。$S^0$ 是进入块时的状态（也就是 $\mathbf{S}_{[t]}$），$S^r$ 是处理完第 $r$ 个 token 之后的状态，所以 $S^C = \mathbf{S}_{[t+1]}$。把公式 (1) 每一步的转移矩阵记成
+
+$$
+T^r := \big(I - \beta^r k^r k^{r\top}\big)\operatorname{Diag}(\alpha^r) \in \mathbb{R}^{d_k \times d_k},
+\qquad
+S^r = T^r S^{r-1} + \beta^r k^r v^{r\top}.
+$$
+
+**第 1 步：把递推在块内展开，得到 $P$ 和 $H$。**
+
+一步步代入。$r = 1$ 时就是定义：
+
+$$
+S^1 = T^1 S^0 + \beta^1 k^1 v^{1\top}.
+$$
+
+$r = 2$ 时把 $S^1$ 代进去，用矩阵乘法的分配律拆开：
+
+$$
+S^2 = T^2 S^1 + \beta^2 k^2 v^{2\top}
+= T^2 T^1 S^0 + T^2\,\beta^1 k^1 v^{1\top} + \beta^2 k^2 v^{2\top}.
+$$
+
+规律出来了：每个 $S^0$ 前面是所有转移矩阵的乘积，每个第 $i$ 步的写入 $\beta^i k^i v^{i\top}$ 前面是它之后的转移矩阵 $T^{i+1}, \dots, T^r$ 的乘积（后发生的在左边，因为每次都是左乘）。一般地
+
+$$
+S^{r}
+= \underbrace{\Big(\prod_{i=1}^{r} T^i\Big)}_{P^r}\ S^0
+\ +\ \underbrace{\sum_{i=1}^{r} \Big(\prod_{j=i+1}^{r} T^j\Big)\beta^i k^i v^{i\top}}_{H^r},
+$$
+
+这里的 $\prod$ 约定按 $T^r T^{r-1} \cdots T^1$ 的顺序排，空乘积是 $I$。这就是 Kimi Linear 的公式 (2)。$P^r$ 是「进入块时的状态被怎样变换」，$H^r$ 是「块内写入的贡献」，两者满足和 $S$ 一样的递推：
+
+$$
+P^r = T^r P^{r-1},\quad P^0 = I;
+\qquad
+H^r = T^r H^{r-1} + \beta^r k^r v^{r\top},\quad H^0 = 0 .
+$$
+
+到这里只是换了个写法，$P^r$ 和 $H^r$ 里的连乘还是顺序的，没有省任何计算。
+
+**第 2 步：先看只有衰减的情形，看 $\gamma$ 是从哪来的。**
+
+假设所有 $\beta^r = 0$，即没有擦除，那么 $T^r = \operatorname{Diag}(\alpha^r)$。对角矩阵相乘等于对角线逐元素相乘：
+
+$$
+\operatorname{Diag}(\alpha^r)\cdots\operatorname{Diag}(\alpha^{i+1}) = \operatorname{Diag}(\alpha^{i+1}\odot\cdots\odot\alpha^r) = \operatorname{Diag}(\gamma^{i\to r}).
+$$
+
+于是 $P^r = \operatorname{Diag}(\gamma^r)$，$H^r = \sum_i \operatorname{Diag}(\gamma^{i\to r})\,\beta^i k^i v^{i\top}$。$\gamma^{i\to r}$ 就是「从位置 $i$ 写进去的东西，到位置 $r$ 时还剩多少」，逐通道。$i = r$ 时是空乘积，$\gamma^{r\to r} = \mathbf{1}$，刚写进去的还没来得及衰减。
+
+后面还会反复用到两条对角矩阵的性质：
+
+- $\operatorname{Diag}(\alpha^r)\operatorname{Diag}(\gamma^{i\to r-1}) = \operatorname{Diag}(\gamma^{i\to r})$，衰减累乘一步。
+- $x^\top \operatorname{Diag}(\gamma) y = \sum_c \gamma_c x_c y_c$，是一个标量，且等于 $y^\top\operatorname{Diag}(\gamma)x$。
+
+**第 3 步：加回擦除，$P^r$ 的 WY 表示。**
+
+现在 $\beta^r \ne 0$。要证的命题（Kimi Linear 附录 B，命题 1）是：一串带衰减的 Householder 矩阵的乘积，等于「一个对角矩阵减去 $r$ 个秩 1 项」：
+
+$$
+P^r = \operatorname{Diag}(\gamma^r) - \sum_{i=1}^{r} \operatorname{Diag}(\gamma^{i\to r})\, k^i w^{i\top},
+\qquad
+w^r := \beta^r \Big(\operatorname{Diag}(\gamma^r) k^r - \sum_{i=1}^{r-1} \big(k^{i\top}\operatorname{Diag}(\gamma^{i\to r}) k^r\big)\, w^i\Big).
+$$
+
+这种「对角减低秩和」的写法叫 WY 表示，来自数值线性代数里把一串 Householder 反射合并成 $I - YWY^\top$ 的技巧。$w^i \in \mathbb{R}^{d_k}$ 是要构造的辅助向量，它的定义看起来循环（$w^r$ 用到 $w^1,\dots,w^{r-1}$），但这是一个三角递推，从 $w^1$ 开始一个个算就行。
+
+用归纳法。
+
+*起点 $r = 1$。* 直接乘开 $T^1$：
+
+$$
+P^1 = T^1 = \big(I - \beta^1 k^1 k^{1\top}\big)\operatorname{Diag}(\alpha^1)
+= \operatorname{Diag}(\alpha^1) - \beta^1 k^1 \big(k^{1\top}\operatorname{Diag}(\alpha^1)\big).
+$$
+
+$\gamma^1 = \alpha^1$，而 $k^{1\top}\operatorname{Diag}(\alpha^1)$ 是行向量，它的转置是 $\operatorname{Diag}(\alpha^1)k^1$（对角矩阵是对称的）。所以第二项是 $k^1 w^{1\top}$，其中 $w^1 = \beta^1\operatorname{Diag}(\gamma^1)k^1$，和定义里 $r=1$ 的情形（求和为空）一致。前面的系数 $\operatorname{Diag}(\gamma^{1\to 1}) = I$。命题在 $r = 1$ 成立。
+
+*归纳步。* 假设 $P^{r-1}$ 满足命题，计算 $P^r = T^r P^{r-1}$。$T^r$ 有两个因子，先乘右边的 $\operatorname{Diag}(\alpha^r)$：
+
+$$
+Y := \operatorname{Diag}(\alpha^r) P^{r-1}
+= \operatorname{Diag}(\alpha^r)\operatorname{Diag}(\gamma^{r-1}) - \sum_{i=1}^{r-1} \operatorname{Diag}(\alpha^r)\operatorname{Diag}(\gamma^{i\to r-1})\, k^i w^{i\top}
+= \operatorname{Diag}(\gamma^r) - \sum_{i=1}^{r-1} \operatorname{Diag}(\gamma^{i\to r})\, k^i w^{i\top}.
+$$
+
+用的是第 2 步的第一条性质：衰减多累乘了一步。注意 $Y$ 已经具有命题要的形状，只是求和还差 $i = r$ 这一项。再乘左边的 $(I - \beta^r k^r k^{r\top})$：
+
+$$
+P^r = Y - \beta^r k^r \big(k^{r\top} Y\big).
+$$
+
+关键在于 $k^{r\top}Y$ 是一个行向量（$1 \times d_k$），所以 $\beta^r k^r (k^{r\top}Y)$ 是一个秩 1 矩阵，正好是命题里缺的那一项。把它算出来：
+
+$$
+k^{r\top} Y
+= k^{r\top}\operatorname{Diag}(\gamma^r) - \sum_{i=1}^{r-1} \underbrace{\big(k^{r\top}\operatorname{Diag}(\gamma^{i\to r}) k^i\big)}_{\text{标量}}\, w^{i\top}.
+$$
+
+第二项里 $k^{r\top}\operatorname{Diag}(\gamma^{i\to r})k^i$ 是标量，可以挪到前面；按第 2 步第二条性质它等于 $k^{i\top}\operatorname{Diag}(\gamma^{i\to r})k^r$。把整个行向量转置成列向量，乘上 $\beta^r$：
+
+$$
+\beta^r \big(k^{r\top} Y\big)^{\!\top}
+= \beta^r\Big(\operatorname{Diag}(\gamma^r)k^r - \sum_{i=1}^{r-1} \big(k^{i\top}\operatorname{Diag}(\gamma^{i\to r})k^r\big)\, w^i\Big)
+= w^r .
+$$
+
+这正是 $w^r$ 的定义。于是
+
+$$
+P^r = Y - k^r w^{r\top}
+= \operatorname{Diag}(\gamma^r) - \sum_{i=1}^{r-1} \operatorname{Diag}(\gamma^{i\to r})\, k^i w^{i\top} - \operatorname{Diag}(\gamma^{r\to r})\, k^r w^{r\top},
+$$
+
+最后一项补上了 $\operatorname{Diag}(\gamma^{r\to r}) = I$，求和就凑齐到 $i = r$。命题得证。
+
+回头看 $w^r$ 的含义：$\operatorname{Diag}(\gamma^r)k^r$ 是「从块开头看过去的键 $k^r$」，减去的每一项是块内更早的键 $k^i$ 与 $k^r$ 的（带衰减的）内积乘上 $w^i$，也就是更早的擦除已经覆盖掉的方向。$w^r$ 告诉你第 $r$ 步的擦除要怎么作用到进入块时的状态 $S^0$ 上。
+
+**第 4 步：$H^r$ 的 WY 表示，同样的归纳。**
+
+命题 2：
+
+$$
+H^r = \sum_{i=1}^{r} \operatorname{Diag}(\gamma^{i\to r})\, k^i u^{i\top},
+\qquad
+u^r := \beta^r \Big(v^r - \sum_{i=1}^{r-1} \big(k^{i\top}\operatorname{Diag}(\gamma^{i\to r}) k^r\big)\, u^i\Big).
+$$
+
+*起点 $r = 1$。* $H^1 = \beta^1 k^1 v^{1\top} = k^1 u^{1\top}$，$u^1 = \beta^1 v^1$，$\operatorname{Diag}(\gamma^{1\to 1}) = I$。成立。
+
+*归纳步。* $H^r = T^r H^{r-1} + \beta^r k^r v^{r\top}$。和第 3 步一样先乘 $\operatorname{Diag}(\alpha^r)$，衰减累乘一步：
+
+$$
+\operatorname{Diag}(\alpha^r) H^{r-1} = \sum_{i=1}^{r-1} \operatorname{Diag}(\gamma^{i\to r})\, k^i u^{i\top} =: Z .
+$$
+
+再乘 $(I - \beta^r k^r k^{r\top})$，并把本步写入加上：
+
+$$
+H^r = Z - \beta^r k^r \big(k^{r\top} Z\big) + \beta^r k^r v^{r\top}
+= Z + k^r\,\underbrace{\beta^r\big(v^{r\top} - k^{r\top} Z\big)}_{\text{行向量}} .
+$$
+
+算 $k^{r\top}Z = \sum_{i<r} \big(k^{r\top}\operatorname{Diag}(\gamma^{i\to r})k^i\big)\,u^{i\top}$，标量系数和第 3 步一样对称。把行向量转置：
+
+$$
+\beta^r\big(v^{r\top} - k^{r\top}Z\big)^{\!\top}
+= \beta^r\Big(v^r - \sum_{i=1}^{r-1}\big(k^{i\top}\operatorname{Diag}(\gamma^{i\to r})k^r\big)\,u^i\Big) = u^r .
+$$
+
+所以 $H^r = Z + k^r u^{r\top}$，补上 $\operatorname{Diag}(\gamma^{r\to r}) = I$ 后求和凑齐到 $i = r$。得证。
+
+$u^r$ 是**伪值**：$v^r$ 减掉块内更早的键已经解释掉的部分。对比公式 (1) 里逐 token 的擦除 $(I - \beta k k^\top)$ 作用在整个状态上，这里的减法只针对块内前 $r-1$ 个写入，剩下针对 $S^0$ 的那部分由 $w^r$ 负责。
+
+到这一步，$P^r$ 和 $H^r$ 都不再是连乘了，但 $w^r$ 和 $u^r$ 的定义还是一个个算的三角递推。第 5 步把它们变成矩阵运算。
+
+**第 5 步：UT 变换，把两个三角递推写成一次 $C\times C$ 求逆。**
+
+两个递推里出现的标量系数是同一个：
+
+$$
+a_{ri} := k^{i\top}\operatorname{Diag}(\gamma^{i\to r})k^r
+= \sum_{c} k^i_c\, \frac{\gamma^r_c}{\gamma^i_c}\, k^r_c
+= \sum_{c} \big(\gamma^r_c k^r_c\big)\Big(\frac{k^i_c}{\gamma^i_c}\Big),
+\qquad i < r .
+$$
+
+第二个等号用了 $\gamma^{i\to r} = \gamma^r/\gamma^i$。最后的形式是两个向量的内积：$\gamma^r \odot k^r$ 和 $k^i / \gamma^i$。把所有 $r$ 的 $\gamma^r \odot k^r$ 按行堆起来就是 $\Gamma \odot \mathbf{K}$（$C \times d_k$），所有 $k^i/\gamma^i$ 堆起来是 $\mathbf{K}/\Gamma$，于是
+
+$$
+a_{ri} = \big[(\Gamma \odot \mathbf{K})(\mathbf{K}/\Gamma)^{\!\top}\big]_{ri},
+$$
+
+这是一个 $C \times C$ 的矩阵乘。我们只用到 $i < r$ 的元素，即严格下三角部分，记 $\mathbf{L} := \operatorname{StrictTril}\big[(\Gamma \odot \mathbf{K})(\mathbf{K}/\Gamma)^{\!\top}\big]$。
+
+现在把 $w^r$ 的递推按行堆起来。令 $\mathbf{W} \in \mathbb{R}^{C \times d_k}$ 的第 $r$ 行是 $w^{r\top}$，$\operatorname{Diag}(\beta)$ 是 $C \times C$ 的对角矩阵，对角线是 $\beta^1, \dots, \beta^C$。递推 $w^r = \beta^r(\gamma^r\odot k^r - \sum_{i<r} a_{ri} w^i)$ 的第 $r$ 行写成矩阵是
+
+$$
+\mathbf{W} = \operatorname{Diag}(\beta)\big(\Gamma \odot \mathbf{K} - \mathbf{L}\mathbf{W}\big),
+$$
+
+检查一下：$(\mathbf{L}\mathbf{W})$ 的第 $r$ 行是 $\sum_i \mathbf{L}_{ri}\, w^{i\top} = \sum_{i<r} a_{ri} w^{i\top}$，正是递推里的求和。把 $\mathbf{W}$ 移到一边：
+
+$$
+\big(I + \operatorname{Diag}(\beta)\mathbf{L}\big)\mathbf{W} = \operatorname{Diag}(\beta)(\Gamma \odot \mathbf{K})
+\quad\Longrightarrow\quad
+\mathbf{W} = \underbrace{\big(I + \operatorname{Diag}(\beta)\mathbf{L}\big)^{-1}\operatorname{Diag}(\beta)}_{\mathbf{M}}\,(\Gamma \odot \mathbf{K}).
+$$
+
+$\operatorname{Diag}(\beta)\mathbf{L}$ 仍是严格下三角（对角矩阵左乘只缩放每一行），所以 $I + \operatorname{Diag}(\beta)\mathbf{L}$ 是对角线全为 1 的下三角矩阵，行列式为 1，一定可逆。这就是公式 (6) 的 $\mathbf{M}$（论文把 $\operatorname{Diag}(\beta)$ 写进了 StrictTril 里面，是同一个矩阵）。
+
+$u^r$ 的递推形状完全一样，只是 $\gamma^r \odot k^r$ 换成 $v^r$：$\mathbf{U} = \operatorname{Diag}(\beta)(\mathbf{V} - \mathbf{L}\mathbf{U})$，解出 $\mathbf{U} = \mathbf{M}\mathbf{V}$。公式 (7) 得证。一次求逆，两个递推一起解掉。
+
+**第 6 步：代回去，得到公式 (8) 和 (9)。**
+
+*状态更新。* 块末的状态是 $S^C = P^C S^0 + H^C$。把两个 WY 表示代入：
+
+$$
+S^C = \operatorname{Diag}(\gamma^C) S^0 - \sum_{i=1}^{C}\operatorname{Diag}(\gamma^{i\to C})k^i \big(w^{i\top}S^0\big) + \sum_{i=1}^{C}\operatorname{Diag}(\gamma^{i\to C})k^i u^{i\top}
+= \operatorname{Diag}(\gamma^C) S^0 + \sum_{i=1}^{C}\big(\gamma^{i\to C}\odot k^i\big)\big(u^i - S^{0\top}w^i\big)^{\!\top}.
+$$
+
+第二个等号把两个求和合并，并用 $\operatorname{Diag}(\gamma)k = \gamma \odot k$。求和是 $C$ 个秩 1 项相加，写成矩阵乘：左边把 $\gamma^{i\to C}\odot k^i$ 按行堆成 $\Gamma^{i\to C}\odot\mathbf{K}$（$C \times d_k$）再转置，右边把 $(u^i - S^{0\top}w^i)^\top$ 按行堆起来就是 $\mathbf{U} - \mathbf{W}S^0$（$C \times d_v$，因为 $(S^{0\top}w^i)^\top = w^{i\top}S^0$ 是 $\mathbf{W}S^0$ 的第 $i$ 行）。于是
+
+$$
+\mathbf{S}_{[t+1]} = S^C = \operatorname{Diag}(\gamma^C)\,\mathbf{S}_{[t]} + \big(\Gamma^{i\to C}\odot\mathbf{K}\big)^{\!\top}\big(\mathbf{U} - \mathbf{W}\mathbf{S}_{[t]}\big),
+$$
+
+这就是公式 (8)。
+
+*输出。* 位置 $r$ 的输出是 $o^r = S^{r\top}q^r$，转置成行向量 $o^{r\top} = q^{r\top}S^r = q^{r\top}P^r S^0 + q^{r\top}H^r$。分别代入 WY 表示：
+
+$$
+q^{r\top}P^r S^0 = \big(\gamma^r\odot q^r\big)^{\!\top}S^0 - \sum_{i=1}^{r}\underbrace{\big(q^{r\top}\operatorname{Diag}(\gamma^{i\to r})k^i\big)}_{b_{ri}}\,w^{i\top}S^0,
+\qquad
+q^{r\top}H^r = \sum_{i=1}^{r} b_{ri}\,u^{i\top}.
+$$
+
+合并：
+
+$$
+o^{r\top} = \big(\gamma^r\odot q^r\big)^{\!\top}S^0 + \sum_{i=1}^{r} b_{ri}\big(u^i - S^{0\top}w^i\big)^{\!\top}.
+$$
+
+标量 $b_{ri}$ 和第 5 步的 $a_{ri}$ 是同一种东西，只是把 $k^r$ 换成 $q^r$：$b_{ri} = \sum_c (\gamma^r_c q^r_c)(k^i_c/\gamma^i_c) = [(\Gamma\odot\mathbf{Q})(\mathbf{K}/\Gamma)^\top]_{ri}$。这次求和到 $i = r$，包含对角线（$b_{rr} = q^{r\top}k^r$，因为 $\gamma^{r\to r} = \mathbf{1}$），所以取的是 $\operatorname{Tril}$ 而不是 $\operatorname{StrictTril}$。把 $C$ 行堆起来：
+
+$$
+\mathbf{O} = (\Gamma\odot\mathbf{Q})\,\mathbf{S}_{[t]} + \operatorname{Tril}\!\big[(\Gamma\odot\mathbf{Q})(\mathbf{K}/\Gamma)^{\!\top}\big]\big(\mathbf{U} - \mathbf{W}\mathbf{S}_{[t]}\big),
+$$
+
+这就是公式 (9)。
+
+**回顾整条链。** 公式 (1) 展开成 $P$、$H$（第 1 步，纯改写）；只看衰减时连乘变成 $\gamma$（第 2 步）；加回擦除后，归纳法证明连乘等于「对角减秩 1 之和」（第 3、4 步，WY 表示），代价是引入两个三角递推定义的 $w$、$u$；把三角递推按行堆起来就是一个单位下三角线性方程组，一次求逆解掉（第 5 步，UT 变换）；最后代回 $S^C$ 和 $o^r$，秩 1 之和恰好能写成矩阵乘（第 6 步）。整个过程没有任何近似。
+
+:::
+
+## 内核里怎么求逆
+
+公式 (6) 的求逆，教科书做法是前向替换，代价 $O(C^2)$，但一行要等上一行，在 GPU 上不好并行。FlashKDA 的做法更适合硬件。要逆的是 $I + L$，$L$ 严格下三角。FlashKDA 的块是 16 个 token，$L$ 是 16×16，于是 $L^{16} = 0$，Neumann 级数是有限的：$(I + L)^{-1} = \sum_{i=0}^{15} (-L)^i$，精确，没有截断。再把这个和写成乘积 $(I - L)(I + L^2)(I + L^4)(I + L^8)$，三轮平方就得到全部 16 项。每一轮都是 16×16 的矩阵乘，前向替换那种一行等一行的顺序依赖没有了。
 
 ## 数值问题：$1/\Gamma$ 会溢出
 
@@ -148,6 +381,27 @@ $g_{\min} = -5$ 固定，$A_h$ 是每头一个的可学习 log 尺度，初始�
 
 **后果三：$A_h$ 的作用变了。** 在负 softplus 里 $e^{A_h}$ 是纵向的尺度，直接决定衰减能多狠；在 scaled sigmoid 里它只能改横向的斜率，衰减的上限被 $g_{\min}$ 钉死。
 
+## 为什么是 16，为什么拆两个内核
+
+flash-linear-attention 的默认块大小是 64，Kimi Linear 的 FLOPs 分析和伪代码也按 $C = 64$ 写，16 只是它内核里的二级 tile。FlashKDA 直接把块定成 16，仓库的设计文档给了三个理由，每条接一个后果。
+
+- **BF16 范围。** 下界衰减保证 16 步累乘的 $\exp(g_s - g_j) < e^{80}$ 在 BF16 之内，这是上面的后果一。64 步就是 $e^{320}$，溢出，块内要再做一次缩放。$g_{\min} = -5$ 和 $C = 16$ 是配套选的。
+- **求逆。** 16×16 的逆用 Neumann 三轮就精确。64×64 要六轮，中间矩阵大 16 倍。
+- **指令形状。** 块内所有运算都落在 SM80 就有的 MMA 指令形状上，内核的数学部分不依赖 Hopper 专用指令。完整实现仍要 SM90 或更新，因为装载和存储路径用了 Hopper 的 TMA 和 STSM。
+
+块内计算按 token 并行，块间递推按序列串行、按头并行。融合在一个内核里，并行的部分要等串行的部分。FlashKDA 拆成两次 launch。Kernel 1 每个 16-token 块每个头一个 CTA，算块内的矩阵写到工作区，满占用。Kernel 2 每条序列每个头一个 CTA，四个 MMA warp 加一个装载 warp 和一个存储 warp，走块间递推，128×128 的状态以 BF16 常驻共享内存，更新用 FP32 FMA 再转回 BF16。仓库文档说拆分比融合原型端到端快至少 15%。两个阶段有各自的 launch 形状，可以分开调度和调优。
+
+下界作为一个 host 端常数进内核：
+
+```cpp
+// FlashKDA/csrc/flash_kda.cpp
+float gate_scale = float(lower_bound * 1.4426950408889634);
+```
+
+乘的是 $\log_2 e$，因为内核用以 2 为底的指数。
+
+**开源边界。** 公开的是 forward-only 的 prefill，头维固定 128，在 `torch.inference_mode()` 下且输入为 BF16、`safe_gate` 打开时自动分发为 FLA 的一个后端，所以有下界的门是快路径的前提。backward、decode 内核和 SM 级的上下文并行规划器没有公开。[第 7 篇](/2026/09/05/kimi-k3-07-systems/)讲三种执行形态时会再回到这里。
+
 ## 为什么 KDA 内核比通用 DPLR 快一倍
 
 上一篇提到 KDA 的转移是 $D - a_t b_t^\top$，且 $a_t = \beta_t k_t$、$b_t = k_t \odot \alpha_t$ 都绑在 $k_t$ 上。在 chunkwise 形式里这意味着：通用 DPLR 内核需要四张二级 tile 矩阵（$\mathbf{A}_{ab}, \mathbf{A}_{ak}, \mathbf{A}_{qb}, \mathbf{A}_{qk}$），KDA 只需要两张（$\mathbf{A}_{qk}, \mathbf{A}_{kk}$）；输出阶段 DPLR 的三项输出和两次状态更新，在 KDA 里合成一行输出和一次状态更新。Kimi Linear Figure 2 显示在 2K 到 64K 长度上 KDA 内核约为 DPLR 内核的 2 倍速度。K3 在此基础上做的 FlashKDA 内核放到第 7 篇。
@@ -164,8 +418,9 @@ HF 代码里 `mode = 'fused_recurrent' if use_cache and q_len == 1 else 'chunk'`
 
 ## 术语坑
 
+- **$\gamma^{i\to j}$ 的端点。** Kimi Linear 公式 (3) 把 $\gamma^{i\to j}$ 写成从 $k = i$ 起连乘到 $j$，但附录 B 的两个命题和公式 (8) 只有在「从 $k = i+1$ 起乘」时才成立（拿 $r = 1$ 验算：$P^1 = T^1$ 的秩 1 项前面没有 $\operatorname{Diag}(\alpha^1)$）。本文统一按后者写，$\gamma^{i\to j}$ 是「从位置 $i$ 走到位置 $j$ 经历的衰减」，$\gamma^{r\to r} = \mathbf{1}$。两种写法在 $\gamma^r$ 上一致。
 - **两个 $\mathbf{A}$。** 公式 (4) 的 $\mathbf{A}_{[t]}$ 是 $C\times C$ 的块内注意力矩阵，公式 (5) 的 $A_h$ 是每头的标量 log 尺度。上一篇 NoPE 那段的 $A_j = \operatorname{Diag}(\alpha_j)$ 又是第三个。
-- **16 和 64。** 块大小 $C = 64$ 来自 Kimi Linear 的 FLOPs 分析和伪代码，16-token 二级 tile 是 FLA 内核的实现细节，K3 论文第一次把它写进正文。
+- **16 和 64。** 公式里的 $C = 64$ 来自 Kimi Linear 的 FLOPs 分析和伪代码，那是 FLA 内核里 64 的块套 16 的二级 tile；FlashKDA 的块就是 16，K3 论文第一次把它写进正文。这一篇的公式对两种块大小都成立，只是 $C$ 不同。
 - **HF 权重里 `A_log` 的初始化**是 $\log(\mathrm{Uniform}(1,16))$，那是 Kimi Linear 的初始化写法留在代码里；K3 论文说 $A_h$ 初始化为 0。推理时无所谓，复现训练时以论文为准。
 
 ## 下一篇
