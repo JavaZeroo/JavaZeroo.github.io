@@ -25,3 +25,6 @@ npm-debug.log*
 .env
 .edgeone/*
 .tef_dist/*
+
+# Claude Code worktrees
+.claude/worktrees/
