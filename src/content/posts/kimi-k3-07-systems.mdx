@@ -18,6 +18,7 @@ draft: false
 import K3ArchDiagram from '../../components/k3/K3ArchDiagram.astro';
 import PrefixCache from '../../components/k3/PrefixCache.astro';
 import KcpFlow from '../../components/k3/KcpFlow.astro';
+import KcpCompose from '../../components/k3/KcpCompose.astro';
 
 对应论文 §5.1、§5.2.2 的一部分、§5.2.3 和 §5.4。这一篇不讲新的结构，讲结构的后果：一个模块换掉之后，训练和推理系统里哪些东西跟着变。只挑和结构直接相关的部分，MoonEP、显存、RL 基础设施和集群调度放在第 8 到 10 篇。
 
@@ -37,11 +38,13 @@ KDA 用固定大小的状态换掉了随长度增长的 KV cache。论文说这�
 
 ## KDA 上下文并行：为什么不能直接把状态加起来
 
-上下文并行把一条长序列切到 $P$ 个 rank 上。softmax 注意力的 CP 要在 rank 间交换 KV 块，大小随序列长度增长。线性注意力只需要传固定大小的状态。
+上一节的设备内 CP 解决的是「一个 rank 上 SM 闲着」。但训练一条百万 token 的序列时（§3.4 说的序列维度切分），问题变成一张卡根本放不下：激活随长度线性增长，一层 KDA 的 $q, k, v$ 和 chunkwise 中间量在 $10^6$ 个 token 上就是几十 GB。这时序列必须切到 $P$ 张卡上，每张只拿一段，这就是上下文并行（CP）。通用的 CP 是怎么做的，见[并行总览](/2026/09/05/llm-parallel-overview/)里的上下文并行一节；这里只讲 KDA 的状态跨卡怎么传。
 
-普通线性注意力的 CP 很简单：每个 rank 从 $S = 0$ 出发算本地 token 产生的状态，把前面所有 rank 的本地状态**加起来**就是进入本 rank 的状态。因为更新是加法 $S_t = S_{t-1} + k_t v_t^\top$，各段的贡献线性叠加。
+**softmax 注意力和线性注意力的 CP 通信不是一个量级。** softmax 注意力里每个 token 要看到前面所有 token 的 $K, V$，所以 ring attention 让 $P$ 张卡轮转 KV 块，每张卡前向收发约 $4bSd$ 字节，随序列长度 $S$ 线性增长。线性注意力把前面的上下文压进一个固定大小的状态 $S \in \mathbb{R}^{d_k \times d_v}$，跨卡只需要传这个状态，通信量与序列长度无关。这是线性注意力做 CP 的先天优势，KCP 要保住它。
 
-KDA 不行。它的更新是
+**普通线性注意力：本地状态相加就够。** 更新是 $S_t = S_{t-1} + k_t v_t^\top$，段尾状态等于段内所有写入之和再加进入状态。于是每张卡从 $S = 0$ 出发算本地 token 产生的状态 $\widetilde S_{[i]}$，进入第 $i+1$ 段的状态就是 $\widetilde S_{[1]} + \cdots + \widetilde S_{[i]}$，一次 all-gather 各自求和即可。之前的线性注意力 CP 方法（LASP 等）都是这样做的。
+
+**KDA 不行。** 回顾[第 1 篇](/2026/09/05/kimi-k3-01-kda-recurrence/)的公式 (1)：
 
 $$
 S_t = M_t S_{t-1} + \beta_t k_t v_t^\top,
@@ -49,29 +52,71 @@ S_t = M_t S_{t-1} + \beta_t k_t v_t^\top,
 M_t := (I - \beta_t k_t k_t^\top)\operatorname{Diag}(\alpha_t),
 $$
 
-delta rule 把一个依赖 token 的矩阵 $M_t$ 作用在进入的状态上。一段序列的效果取决于进入这段时的状态，从 $S = 0$ 算出来的本地状态不足以确定它。
+delta rule 先把一个依赖 token 的矩阵 $M_t$ 作用在进入的状态上，再加当前写入。前面几段写进状态的东西，会被本段每个 token 的 $M_t$ 衰减和擦除，所以本段的效果取决于进入本段时的状态；从 $S = 0$ 算出来的 $\widetilde S_{[i]}$ 只包含本段自己的写入，丢掉了「进入状态被本段怎么改」这一半。
 
-**KCP 的分解（论文公式 (17)）。** 记 rank $i$ 那一段有 $T_i$ 个 token，$S^{t}_{[i]}$ 是段内第 $t$ 个 token 之后的状态，$\widetilde S^{t}_{[i]}$ 是同一个递推从 $S = 0$ 出发得到的状态。对任意进入 rank $i+1$ 的状态，本地 $t$ 个 token 之后
+<KcpCompose />
+
+**KCP 的分解（论文公式 (17)）。** 出路在于「被本段怎么改」这件事本身不依赖进入状态的取值。记 rank $i$ 那一段有 $T_i$ 个 token，$S^{t}_{[i]}$ 是段内第 $t$ 个 token 之后的状态，$\widetilde S^{t}_{[i]}$ 是同一个递推从 $S = 0$ 出发得到的状态。对任意进入 rank $i+1$ 的状态，本地 $t$ 个 token 之后
 
 $$
 S^{t}_{[i+1]} = \widetilde S^{t}_{[i+1]} + M^{t \leftarrow 1}_{[i+1]}\, S^{T_i}_{[i]},
 \qquad
 M^{t \leftarrow 1}_{[i+1]} := \prod_{r \leftarrow 1}^{t} M_r \in \mathbb{R}^{d_k \times d_k}.
+\tag{17}
 $$
 
-第一项是本地 token 自己生成的状态，第二项是前面 rank 的上下文经过本地 KDA 更新传播过来的部分。到段尾 $t = T_{i+1}$ 时，**累积转移 $M^{T_{i+1} \leftarrow 1}_{[i+1]}$ 和零初始状态 $\widetilde S^{T_{i+1}}_{[i+1]}$ 都只用本地 token 就能算**，不需要等前面的状态。这两个就是各 rank 交换的「片段」。
+第一项是本地 token 自己生成的状态，第二项是前面 rank 的上下文经过本地 KDA 更新传播过来的部分。到段尾 $t = T_{i+1}$ 时，**累积转移 $M_{[i+1]} := M^{T_{i+1} \leftarrow 1}_{[i+1]}$ 和零初始状态 $\widetilde S_{[i+1]} := \widetilde S^{T_{i+1}}_{[i+1]}$ 都只用本地 token 就能算**，不需要等前面的状态。这两个矩阵就是各 rank 交换的「片段」。
 
-把递归展开，每个 rank 的进入状态都由这些片段组成：
+这个分解你在[第 2 篇](/2026/09/05/kimi-k3-02-kda-chunkwise/)已经见过：那里把一个 chunk 的效果写成 $S^C = P^C S^0 + H^C$，$P^C$ 是块内转移的累乘，$H^C$ 是从零出发的块内写入。KCP 的 $M_{[i]}$ 和 $\widetilde S_{[i]}$ 就是把 $P$ 和 $H$ 从 16 个 token 的 chunk 放大到一整段的版本。这也意味着算它们不需要新的数学：把本段按 chunk 跑一遍 chunkwise 递推，起点取 $S = 0$ 就得到 $\widetilde S_{[i]}$；$M_{[i]}$ 是各 chunk 的 $P$ 依次相乘。论文只说这两个量「可本地计算」，这个对应关系是我的解读，FLA 里的实现是一个单独的预处理内核。
+
+:::details[公式 (17) 的推导，以及为什么可以前缀扫描]
+
+**第 1 步：归纳出段内的仿射形式。** 对进入状态 $S^0$ 和本段前 $t$ 个 token，断言 $S^t = \widetilde S^t + M^{t\leftarrow 1} S^0$，其中 $\widetilde S^t$ 是同一递推从 $0$ 出发的结果。$t = 0$ 时 $\widetilde S^0 = 0$、$M^{0 \leftarrow 1} = I$（空乘积），成立。假设对 $t-1$ 成立，代入公式 (1)：
 
 $$
-S^{T_i}_{[i]} = \sum_{j=1}^{i} \Big(\prod_{l \leftarrow j+1}^{i} M^{T_l \leftarrow 1}_{[l]}\Big)\widetilde S^{T_j}_{[j]} .
+S^t = M_t S^{t-1} + \beta_t k_t v_t^\top
+= M_t \widetilde S^{t-1} + \beta_t k_t v_t^\top + M_t M^{t-1 \leftarrow 1} S^0 .
 $$
 
-rank 级的更新 $S \leftarrow M_{[j]} S + \widetilde S_{[j]}$ 是可结合的，所以进入状态可以用前缀扫描恢复。流程：
+前两项恰好是从零出发的递推走到第 $t$ 步，等于 $\widetilde S^t$；第三项用矩阵乘的结合律合并成 $M^{t \leftarrow 1} S^0$。归纳完成。这一步只用了递推对 $S$ 是线性的，没有用 $M_t$ 的任何结构，所以对任何形如 $S_t = M_t S_{t-1} + B_t$ 的递推都成立。
+
+**第 2 步：段是仿射映射，复合仍是仿射映射。** 第 1 步说第 $j$ 段把进入状态 $S$ 映成 $M_{[j]} S + \widetilde S_{[j]}$。连续过两段：
+
+$$
+M_{[j+1]}\big(M_{[j]} S + \widetilde S_{[j]}\big) + \widetilde S_{[j+1]}
+= \big(M_{[j+1]} M_{[j]}\big) S + \big(M_{[j+1]}\widetilde S_{[j]} + \widetilde S_{[j+1]}\big),
+$$
+
+还是同一形状，新的转移是两个转移的乘积，新的零初始状态是「前一段的零初始状态穿过后一段的转移，再加后一段自己的」。把「片段对」$(M, \widetilde S)$ 的复合定义成 $(M_2, \widetilde S_2)\circ(M_1, \widetilde S_1) := (M_2 M_1,\ M_2\widetilde S_1 + \widetilde S_2)$，它继承矩阵乘的结合律，但不可交换：$M_2 \widetilde S_1 \ne M_1 \widetilde S_2$。普通线性注意力是 $M \equiv I$ 的特例，复合退化成 $\widetilde S_1 + \widetilde S_2$，可交换，所以才能「直接相加」。
+
+**第 3 步：展开得到公式 (17) 的求和形式。** 从 $S = 0$ 开始，依次复合第 $1$ 到第 $i$ 段，进入 rank $i+1$ 的状态是
+
+$$
+S^{T_i}_{[i]} = \sum_{j=1}^{i} \Big(\prod_{l \leftarrow j+1}^{i} M_{[l]}\Big)\widetilde S_{[j]} ,
+$$
+
+第 $j$ 段写进去的东西要穿过第 $j+1$ 到 $i$ 段所有的转移。每一项都只由各段本地算出的片段构成。
+
+**第 4 步：为什么是前缀扫描。** 有结合律的二元运算，前缀 $x_1 \circ \cdots \circ x_i$ 对所有 $i$ 的计算就是前缀扫描（prefix scan）问题，可以并行或按顺序做。KCP 选最简单的做法：all-gather 之后每个 rank 手里有全部 $P$ 对片段，rank $i+1$ 从 $S = 0$ 出发顺序做 $i$ 次 $S \leftarrow M_{[j]} S + \widetilde S_{[j]}$。每次是一个 $(d_k \times d_k)(d_k \times d_v)$ 的矩阵乘加一个加法，每头 $128 \times 128 \times 128$ 次乘加，$P$ 路 CP 最多做 $P - 1$ 次，和一个 chunk 的计算量同量级，不值得再并行。
+
+:::
+
+流程：
 
 <KcpFlow />
 
-代价是一次固定大小的 all-gather，计算随长度线性扩展。这个构造建立在 DeltaNet 的上下文并行之上，KDA 版本在 flash-linear-attention 的 PR #691 里。§3.4 说的「让百万 token 训练可行的序列维度切分」就是它。
+**通信量：一个数字。** 每头的 $M_{[i]}$ 是 $d_k \times d_k = 128 \times 128$，$\widetilde S_{[i]}$ 是 $d_k \times d_v = 128 \times 128$，bf16 下两者合计 64 KB。K3 的 KDA 有 96 个头（config `linear_attn_config.num_heads`），一层的片段是 6 MB；all-gather 后每个 rank 收到其余 $P-1$ 份，$P = 8$ 时一层收 42 MB，再乘 KDA 层数。这个数**和序列长度无关**：1M token 和 32K token 传的一样多。对照 ring attention 的 $4bSd$：$d = 7168$、$S = 10^6$ 时一层每卡收发约 30 GB。FLA 的实现把总通信量写成 $P \times H \times d_k \times (d_k + d_v)$，就是上面这笔账。计算方面每个 rank 只算自己那 $S/P$ 个 token，加上 $P-1$ 步扫描，随长度线性扩展。
+
+**文档边界。** 预训练的序列是打包的，一个 CP 组里的 $S$ 个 token 可能包含多个文档，状态在文档边界要清零。所以 rank $i+1$ 的扫描不是无条件走完前面所有片段，而是只按顺序合并**同一文档**的片段：文档从本 rank 内部开始的部分进入状态就是 $0$；跨了 rank 边界的文档才需要前面那些 rank 的片段。实现里这由 `cu_seqlens` 决定，每个 rank 要知道自己段首的那个文档是从哪个 rank 开始的。
+
+**backward、short conv 和 MLA 层。** 论文只写了前向。下面这几条来自 FLA PR #691 的实现，论文没提：
+
+- 反向要把状态的梯度沿序列反着传：每个 rank 先本地算自己那段对片段的梯度贡献，all-reduce 求和，进入状态的梯度用 rank 之间的点对点 send/recv 传回前一个 rank。
+- KDA 前面的 short conv（核宽 4）也跨段：每个 rank 段首的 3 个 token 需要前一个 rank 段尾的 3 个 token，前向和反向各一次点对点收发。
+- PR 给的数据：H800、32K 序列、$P = 4$，KDA 前向比 all-to-all 式 CP 快 76%，前向加反向快 86%；同一 PR 也给 Gated DeltaNet 做了同样的事，因为 GDN 的 $M_t$ 有同样的结构。
+- K3 是混合架构，每 4 层有一层 MLA。KCP 只管 KDA 层，MLA 层的 CP 仍然要交换 KV，论文没有写这部分怎么做。
+
+这个构造建立在 DeltaNet 的上下文并行之上。上一节设备内的 SM 级 CP 用的是同一个分解，只是把「rank」换成「SM」、把 all-gather 换成片上合并。§3.4 说的「让百万 token 训练可行的序列维度切分」就是这一节。
 
 ## Block AttnRes：内存和通信
 

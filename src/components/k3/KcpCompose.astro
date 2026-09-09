@@ -1,0 +1,67 @@
+---
+/**
+ * 上下文并行里状态怎么跨段传递的并排对照（第 7 篇 KCP 节）。
+ * 上：普通线性注意力，每一段对进入状态只做平移 S ↦ S + S̃，段与段的效果直接相加，顺序无关。
+ * 下：KDA，每一段是仿射映射 S ↦ M S + S̃，M 由这一段的 token 决定，进入状态先被 M 作用再加本地写入，
+ *     复合仍是仿射映射但顺序不能换。两行都从 S = 0 起，走三段（三个 rank）。
+ */
+import SvgTex from '../figures/SvgTex.astro';
+import { texMix } from '../figures/tex';
+const N = 3;
+const X0 = 214, STEP = 156, BW = 118, BH = 46;
+const rows = [
+  { y: 46, name: '普通线性注意力', tag: '$M = I$，每段只是平移', kind: 'lin',
+    box: (j: number) => `$S + \\tilde S_{[${j}]}$`, out: '$\\tilde S_{[1]} + \\tilde S_{[2]} + \\tilde S_{[3]}$' },
+  { y: 164, name: 'KDA', tag: '$M_{[j]}$ 随 token 变，先作用再写入', kind: 'kda',
+    box: (j: number) => `$M_{[${j}]} S + \\tilde S_{[${j}]}$`, out: '$M_{[3]} M_{[2]} \\tilde S_{[1]} + M_{[3]} \\tilde S_{[2]} + \\tilde S_{[3]}$' },
+];
+---
+
+<figure class="kc">
+  <svg viewBox="0 0 1000 250" role="img" aria-label="普通线性注意力的段间状态相加，与 KDA 的段间仿射映射复合的对照">
+    <defs>
+      <marker id="kc-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M0 0 L10 5 L0 10 z" />
+      </marker>
+    </defs>
+
+    {rows.map((r) => (
+      <g class={r.kind}>
+        <text class="name" x="14" y={r.y + BH / 2 - 2}>{r.name}</text>
+        <SvgTex x={14} y={r.y + BH / 2 + 14} w={190} size={10.5} align="start" color="var(--text-2)" src={r.tag} />
+
+        <SvgTex x={X0 - 30} y={r.y + BH / 2} w={50} size={12.5} src="$S = 0$" />
+        <line class="edge" x1={X0 - 12} y1={r.y + BH / 2} x2={X0 - 2} y2={r.y + BH / 2} marker-end="url(#kc-arrow)" />
+        {Array.from({ length: N }, (_, s) => {
+          const x = X0 + s * STEP;
+          return (
+            <g>
+              <rect class="box" x={x} y={r.y} width={BW} height={BH} rx="6" />
+              <SvgTex x={x + BW / 2} y={r.y + BH / 2} w={BW - 8} size={13} src={r.box(s + 1)} />
+              <text class="rank" x={x + BW / 2} y={r.y - 7} text-anchor="middle">rank {s + 1} 那一段</text>
+              <line class="edge" x1={x + BW + 2} y1={r.y + BH / 2} x2={x + STEP - 2} y2={r.y + BH / 2} marker-end="url(#kc-arrow)" />
+            </g>
+          );
+        })}
+        <SvgTex x={X0 + N * STEP + 4} y={r.y + BH / 2} w={320} size={12} align="start" src={r.out} />
+      </g>
+    ))}
+
+    <SvgTex x={X0} y={116} w={760} size={10.5} align="start" color="var(--muted)" src="三段的贡献线性叠加，交换顺序结果不变，进入状态 $=$ 本地状态之和。" />
+    <SvgTex x={X0} y={234} w={760} size={10.5} align="start" color="var(--muted)" src="每一段是仿射映射 $S \mapsto M S + \tilde S$，两段复合仍是仿射映射 $(M_2 M_1,\; M_2\tilde S_1 + \tilde S_2)$，可结合但不可交换。" />
+  </svg>
+  <figcaption set:html={texMix('普通线性注意力的段间状态可以直接相加；KDA 的每一段先用 $M_{[j]}$ 作用进入状态再加本地写入，前面各段的贡献要穿过后面所有段的转移矩阵。两行里的 $\\tilde S_{[j]}$ 与 $M_{[j]}$ 都只用第 $j$ 段的 token 就能算出。')} />
+</figure>
+
+<style>
+  .kc { margin: 2rem 0; padding: 0.8rem 0.6rem 0.4rem; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); overflow-x: auto; }
+  .kc svg { display: block; width: 100%; min-width: 760px; height: auto; font-family: var(--font-sans); }
+  .kc figcaption { margin-top: 0.6rem; font-size: 0.88rem; color: var(--text-2); line-height: 1.6; text-align: center; }
+  .name { fill: var(--text); font-size: 13px; font-weight: 600; }
+  .rank { fill: var(--text-2); font-size: 10px; }
+  .box { stroke-width: 1.5; }
+  .lin .box { fill: color-mix(in srgb, var(--cat-indigo) 22%, var(--bg-2)); stroke: var(--cat-indigo); }
+  .kda .box { fill: color-mix(in srgb, var(--cat-amber) 40%, var(--bg-2)); stroke: var(--cat-amber); }
+  .edge { stroke: var(--text-2); stroke-width: 1.4; }
+  #kc-arrow path { fill: var(--text-2); }
+</style>
