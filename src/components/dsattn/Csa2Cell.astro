@@ -1,0 +1,115 @@
+---
+/**
+ * CSA2（DeepSeek-V4.1-Flash）三种层模式的算子流：Full / Reindex / Reuse 三列并排，
+ * 底部一条跨层共享池（SharedAttentionRuntime 的四个槽：compress_kv、index_k、topk_idxs、
+ * candidates；356 B/条 × 2.5 条/token = 890 B/token）。
+ * Full（层 2/8/14：m=2 有 wgate；层 20：m=1 无 wgate）：自己压 main KV（Compressor：
+ * softmax(gate)⊙kv 按 m 个不重叠 token 求和、无 APE），indexer K 从主 KV latent 投影
+ * （wk 512→128，无 Hadamard），跑 indexer 产 top-512（层 20 另产 candidates 候选池
+ * ≤2048 块×8=16384），全部写进共享池。Reindex（层 24/28/32/36）：只有自己的 indexer Q
+ * 和 weights_proj，读共享 index_k 重打分、先经 candidates 掩码再 top-512，把新 topk_idxs
+ * 写回。Reuse（30 层）：只有自己的 Q/SWA/O，直接读共享 compress_kv + topk_idxs 进
+ * sparse_attn。Q 低秩（wq_a 5120→1280 → wq_b →64×512）、SWA（128 槽 FP8 ring）、
+ * sparse_attn + sink + 反旋转、分组输出（wo_a 8 组 ×(4096→1024) → wo_b 8192→5120）
+ * 是三列每层自有的公共部分。实线 = 层内流 / 写池，虚线 = 从池读。无 props。
+ */
+import FlowDiagram from '../figures/FlowDiagram.astro';
+
+const own = (lines: string[]) => lines; // 语义标记：每层自有的公共部分
+
+const nodes = [
+  // ---- Full 列 ----
+  { id: 'f_in', x: 45, y: 55, w: 150, kind: 'in', lines: ['$x$ [B, N, 5120]', 'mHC + norm 后'] },
+  { id: 'f_qr', x: 45, y: 130, w: 180, h: 56, kind: 'op', lines: own(['Q 低秩（每层自有）', 'wq_a 5120→1280', '+ q_norm → $q_r$']) },
+  { id: 'f_q', x: 45, y: 215, w: 180, h: 56, kind: 'op', lines: own(['wq_b 1280→64×512', 'RoPE 末 64 维', '$q$ [64, 512]']) },
+  { id: 'f_iq', x: 45, y: 320, w: 180, h: 76, kind: 'idx', lines: ['indexer Q（每层自有）', 'wq_b 1280→32×128', 'weights_proj 5120→32', 'FP4'] },
+  { id: 'f_swa', x: 45, y: 440, w: 180, h: 76, kind: 'op', lines: own(['SWA 路径（每层自有）', 'wkv 5120→512 + kv_norm', 'RoPE 末 64 → FP8', 'ring cache 128 槽']) },
+  { id: 'f_attn', x: 45, y: 545, w: 180, h: 64, kind: 'main', strong: true, lines: own(['sparse_attn（每层自有）', 'SWA 128 + 全局 top-512', '+ sink → 反旋转 RoPE']) },
+  { id: 'f_comp', x: 245, y: 130, w: 190, h: 88, kind: 'mla', lines: ['Compressor', 'wkv、wgate 5120→512', 'softmax(gate)⊙kv', '按 m 求和（不重叠）', 'm=1 无 wgate（层 20）'] },
+  { id: 'f_lat', x: 245, y: 250, w: 190, h: 64, kind: 'mla', lines: ['latent [N/m, 512]', 'RoPE 末 64 维 → FP4', 'E2M1 + E4M3 scale/16'] },
+  { id: 'f_ik', x: 245, y: 360, w: 190, h: 76, kind: 'idx', lines: ['indexer K', 'wk 512→128 + k_norm', 'RoPE θ=160000 → FP4', 'E8M0/32，无 Hadamard'] },
+  { id: 'f_score', x: 245, y: 480, w: 190, h: 88, kind: 'idx', strong: true, lines: ['打分 $\\sum_h w_h\\,\\mathrm{ReLU}(qk)$', '因果掩码 → top-512', '按位置 sort', '层 20 另产 candidates', '（2048 块 × 8 = 16384）'] },
+  { id: 'f_out', x: 245, y: 545, w: 190, h: 64, kind: 'out', lines: own(['输出投影（每层自有）', 'wo_a 8 组 ×(4096→1024)', 'wo_b 8192→5120']) },
+  // ---- Reindex 列 ----
+  { id: 'ri_qr', x: 505, y: 130, w: 180, h: 56, kind: 'op', lines: own(['Q 低秩（每层自有）', 'wq_a 5120→1280', '+ q_norm → $q_r$']) },
+  { id: 'ri_q', x: 505, y: 215, w: 180, h: 56, kind: 'op', lines: own(['wq_b 1280→64×512', 'RoPE 末 64 维', '$q$ [64, 512]']) },
+  { id: 'ri_score', x: 505, y: 300, w: 180, h: 88, kind: 'idx', strong: true, lines: ['重打分', '读共享 index_k', 'candidates 掩码 $-\\infty$', '→ top-512，sort', '写回 topk_idxs（覆盖）'] },
+  { id: 'ri_attn', x: 505, y: 545, w: 180, h: 64, kind: 'main', strong: true, lines: own(['sparse_attn（每层自有）', 'SWA 128 + 全局 top-512', '+ sink → 反旋转 RoPE']) },
+  { id: 'ri_swa', x: 705, y: 55, w: 190, h: 76, kind: 'op', lines: own(['SWA 路径（每层自有）', 'wkv 5120→512 + kv_norm', 'RoPE 末 64 → FP8', 'ring cache 128 槽']) },
+  { id: 'ri_iq', x: 705, y: 170, w: 190, h: 76, kind: 'idx', lines: ['indexer Q（每层自有）', 'wq_b 1280→32×128', 'weights_proj 5120→32', 'FP4；K 从共享池读'] },
+  { id: 'ri_none', x: 705, y: 320, w: 190, h: 64, kind: 'in', lines: ['本层不产 KV / index_k', '无 Compressor', '无 wk / k_norm'] },
+  { id: 'ri_out', x: 705, y: 545, w: 190, h: 64, kind: 'out', lines: own(['输出投影（每层自有）', 'wo_a 8 组 ×(4096→1024)', 'wo_b 8192→5120']) },
+  // ---- Reuse 列 ----
+  { id: 'r_qr', x: 965, y: 130, w: 180, h: 56, kind: 'op', lines: own(['Q 低秩（每层自有）', 'wq_a 5120→1280', '+ q_norm → $q_r$']) },
+  { id: 'r_q', x: 965, y: 215, w: 180, h: 56, kind: 'op', lines: own(['wq_b 1280→64×512', 'RoPE 末 64 维', '$q$ [64, 512]']) },
+  { id: 'r_none', x: 965, y: 320, w: 180, h: 64, kind: 'in', lines: ['无 indexer、无 Compressor', '注意力参数清单', '与纯 SWA 层相同'] },
+  { id: 'r_swa', x: 1165, y: 55, w: 190, h: 76, kind: 'op', lines: own(['SWA 路径（每层自有）', 'wkv 5120→512 + kv_norm', 'RoPE 末 64 → FP8', 'ring cache 128 槽']) },
+  { id: 'r_attn', x: 965, y: 420, w: 180, h: 76, kind: 'main', strong: true, lines: own(['sparse_attn（每层自有）', '读共享 compress_kv', '+ 共享 topk_idxs', '+ SWA 128 + sink → 反旋转']) },
+  { id: 'r_out', x: 1165, y: 420, w: 190, h: 64, kind: 'out', lines: own(['输出投影（每层自有）', 'wo_a 8 组 ×(4096→1024)', 'wo_b 8192→5120']) },
+  // ---- 跨层共享池 ----
+  { id: 'p_kv', x: 60, y: 705, w: 280, h: 56, kind: 'pool', strong: true, lines: ['compress_kv', '主 KV latent，FP4（288 B/条）'] },
+  { id: 'p_ik', x: 380, y: 705, w: 240, h: 56, kind: 'pool', strong: true, lines: ['index_k', 'indexer K，FP4（68 B/条）'] },
+  { id: 'p_top', x: 660, y: 705, w: 240, h: 56, kind: 'pool', strong: true, lines: ['topk_idxs', '最新 top-512 索引'] },
+  { id: 'p_cand', x: 940, y: 705, w: 280, h: 56, kind: 'pool', strong: true, lines: ['candidates（仅 decoder）', '≤ 2048 块 × 8 = 16384', '层 20 产出'] },
+];
+
+const edges = [
+  // ---- Full 列内部 ----
+  { from: 'f_in', to: 'f_qr' },
+  { from: 'f_qr', to: 'f_q' },
+  { from: 'f_q', to: 'f_attn', path: 'M225 243 H 461 V 561 H 227', label: '$q$ [64,512]', lx: 280, ly: 235 },
+  { from: 'f_in', to: 'f_swa', path: 'M45 77 H 35 V 478 H 43' },
+  { from: 'f_in', to: 'f_comp', path: 'M195 77 H 340 V 128' },
+  { from: 'f_comp', to: 'f_lat' },
+  { from: 'f_lat', to: 'f_ik', label: 'RoPE 前 latent', lx: 348, ly: 338 },
+  { from: 'f_qr', to: 'f_iq', path: 'M225 158 H 235 V 346 H 227', label: '$q_r$', lx: 130, ly: 300 },
+  { from: 'f_iq', to: 'f_score', path: 'M225 370 H 239 V 524 H 243' },
+  { from: 'f_ik', to: 'f_score', label: 'index_k', lx: 348, ly: 460 },
+  { from: 'f_score', to: 'f_attn', path: 'M300 568 V 600 H 227', label: 'top-512', lx: 150, ly: 532 },
+  { from: 'f_swa', to: 'f_attn' },
+  { from: 'f_attn', to: 'f_out' },
+  // Full → 共享池（写，实线）
+  { from: 'f_lat', to: 'p_kv', path: 'M245 282 H 231 V 703', label: '写 compress_kv', lx: 120, ly: 624 },
+  { from: 'f_ik', to: 'p_ik', path: 'M435 398 H 448 V 703', label: '写 index_k', lx: 350, ly: 470 },
+  { from: 'f_score', to: 'p_top', path: 'M340 568 V 622 H 780 V 703', label: '写 topk_idxs', lx: 790, ly: 652 },
+  { from: 'f_score', to: 'p_cand', path: 'M420 568 V 608 H 1070 V 703', label: '层 20：写 candidates', lx: 700, ly: 598 },
+  // 共享池 → Full（读回自己刚写的，虚线）
+  { from: 'p_kv', to: 'f_attn', path: 'M150 705 V 660 H 105 V 611', dashed: true, label: '读 compress_kv', lx: 112, ly: 640 },
+  // ---- Reindex 列内部 ----
+  { from: 'ri_qr', to: 'ri_q' },
+  { from: 'ri_q', to: 'ri_attn', path: 'M685 243 H 697 V 561 H 687' },
+  { from: 'ri_qr', to: 'ri_iq', path: 'M685 158 H 790 V 168', label: '$q_r$', lx: 710, ly: 150 },
+  { from: 'ri_iq', to: 'ri_score', path: 'M800 246 V 280 H 660 V 298', label: '$q^I$、$w$', lx: 700, ly: 270 },
+  { from: 'ri_score', to: 'ri_attn', label: '新 top-512', lx: 603, ly: 460 },
+  { from: 'ri_swa', to: 'ri_attn', path: 'M800 131 V 150 H 908 V 642 H 595 V 611' },
+  { from: 'ri_attn', to: 'ri_out' },
+  // Reindex ↔ 共享池
+  { from: 'p_ik', to: 'ri_score', path: 'M500 705 V 344 H 503', dashed: true, label: '读 index_k', lx: 385, ly: 520 },
+  { from: 'p_cand', to: 'ri_score', path: 'M1100 705 V 692 H 462 V 360 H 503', dashed: true, label: '读 candidates', lx: 700, ly: 684 },
+  { from: 'ri_score', to: 'p_top', path: 'M595 388 V 424 H 489 V 630 H 850 V 703', label: '写回 topk_idxs（覆盖）', lx: 505, ly: 416 },
+  { from: 'p_kv', to: 'ri_attn', path: 'M200 705 V 652 H 470 V 561 H 503', dashed: true, label: '读 compress_kv', lx: 300, ly: 644 },
+  // ---- Reuse 列 ----
+  { from: 'r_qr', to: 'r_q' },
+  { from: 'r_q', to: 'r_attn', path: 'M1145 243 H 1155 V 458 H 1147' },
+  { from: 'r_swa', to: 'r_attn', path: 'M1260 131 V 150 H 1365 V 440 H 1147' },
+  { from: 'p_kv', to: 'r_attn', path: 'M300 705 V 662 H 1390 V 430 H 1147', dashed: true, label: '读 compress_kv', lx: 1240, ly: 510 },
+  { from: 'p_top', to: 'r_attn', path: 'M800 705 V 670 H 1400 V 476 H 1147', dashed: true, label: '读 topk_idxs（最新）', lx: 1240, ly: 530 },
+  { from: 'r_attn', to: 'r_out', path: 'M1100 420 V 404 H 1250 V 418' },
+];
+
+const groups = [
+  { x: 25, y: 15, w: 430, h: 600, label: 'Full：层 2/8/14（m=2）、层 20（m=1，无 wgate）' },
+  { x: 485, y: 15, w: 430, h: 600, label: 'Reindex：层 24/28/32/36' },
+  { x: 945, y: 15, w: 430, h: 600, label: 'Reuse：30 层' },
+  { x: 25, y: 655, w: 1350, h: 130, label: '跨层共享池 SharedAttentionRuntime（356 B/条 × 2.5 条/token = 890 B/token）' },
+];
+---
+
+<FlowDiagram id="csa2-cell" viewBox="0 0 1420 800" minWidth={1080} nodes={nodes} edges={edges} groups={groups}
+  label="CSA2 三种层模式：Full 产 KV 与索引写共享池，Reindex 读共享 K 重打分写回索引，Reuse 全复用"
+  caption="三种模式各自算什么、复用什么：Full 自己压 main KV（softmax(gate)⊙kv 按 m 个不重叠 token 求和、无 APE）、从 latent 投出 indexer K（无 Hadamard）、跑 indexer 产 top-512（层 20 另产 candidates 候选池），统统写进跨层共享池；Reindex 只带自己的 indexer Q，读共享 index_k 重打分（先经 candidates 掩码），把新 topk_idxs 写回；Reuse 只有自己的 Q / SWA / O，直接读共享 compress_kv + topk_idxs 进 sparse_attn。实线是层内数据流与写池，虚线是从池里读。" />
+
+<style is:global>
+  .fd .node.idx { --c: var(--cat-rose); }
+  .fd .node.pool { --c: var(--cat-amber); }
+</style>

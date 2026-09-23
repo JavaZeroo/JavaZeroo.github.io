@@ -1,0 +1,157 @@
+---
+/**
+ * DeepSeek 系列注意力结构对比 · 总览思维导图。
+ * 左侧主题「长上下文注意力的账」：KV cache ∝ 头数 × 条目维度 × 条目数 × 层数 × 每数字节，
+ * 注意力 FLOPs ∝ 头数 × 维度 × 看的条目数。中间列是六个「砍哪个因子」的类别节点，
+ * 右侧每片叶子是一代真实结构（3–5 行：目标 + 手段）。边上标的是砍掉的那个量的具体变化。
+ * 回答的问题：每一代结构的目标是什么、靠什么手段达到。无 props。
+ */
+import SvgTex from '../figures/SvgTex.astro';
+
+// 主题节点（左）
+const topic = { x: 30, y: 270, w: 250, h: 180 };
+const topicLines = [
+  'KV cache $\\propto$ 头数 × 条目维度',
+  '× 条目数 × 层数 × 每数字节',
+  '注意力 FLOPs $\\propto$ 头数 × 维度',
+  '× 看的条目数',
+];
+
+// 类别节点（中）：cy 与对应叶子对齐
+interface Cat { id: string; name: string; cy: number; cls: string; edge: string; lx: number; ly: number }
+const cats: Cat[] = [
+  { id: 'c0', name: '基线', cy: 68, cls: 'mha', edge: '起点', lx: 88, ly: 160 },
+  { id: 'c1', name: '砍头数', cy: 168, cls: 'gqa', edge: 'K/V 头数 ÷ 8', lx: 148, ly: 215 },
+  { id: 'c2', name: '砍条目维度', cy: 268, cls: 'mla', edge: '40960 → 576 数', lx: 250, ly: 258 },
+  { id: 'c3', name: '砍看的条目数', cy: 368, cls: 'dsa', edge: 'L → top-2048', lx: 330, ly: 358 },
+  { id: 'c4', name: '砍存的条目数', cy: 511, cls: 'csa', edge: '每 4 / 128 token → 1 条', lx: 300, ly: 524 },
+  { id: 'c5', name: '砍层数 × 精度', cy: 646, cls: 'csa2', edge: '层 ÷ 10 · 字节 ÷ 4', lx: 228, ly: 560 },
+];
+const CAT_X = 440, CAT_W = 150, CAT_H = 46;
+
+// 叶子（右）：一代结构一片
+interface Leaf { cls: string; y: number; h: number; lines: string[] }
+const LEAF_X = 780, LEAF_W = 380;
+const leaves: Leaf[] = [
+  { cls: 'mha', y: 30, h: 76, lines: [
+    'MHA · DeepSeek-V1-7B / MoE-16B（2024.01）',
+    '每个头各有自己的 K、V（7B：32 头）',
+    'full RoPE，$\\theta = 10^4$，全部 128 维',
+    'KV cache：16 KiB / token / 层（7B）',
+  ] },
+  { cls: 'gqa', y: 130, h: 76, lines: [
+    'GQA · DeepSeek-V1-67B（2024.01）',
+    '目标：cache / 带宽 ÷ 8',
+    '64 个 Q 头共享 8 组 K/V',
+    'repeat_kv 只在算分时逻辑复制，不占 cache',
+  ] },
+  { cls: 'mla', y: 230, h: 76, lines: [
+    'MLA · DeepSeek-V2 / V3（2024.05 / 2024.12）',
+    '目标：每 token 每层 576 维',
+    'K、V 低秩压成 latent + 64 维共享 RoPE key',
+    '推理吸收上投影，折叠成 MQA 形态',
+  ] },
+  { cls: 'dsa', y: 330, h: 76, lines: [
+    'DSA · DeepSeek-V3.2（2025.09，论文 2512.02556）',
+    '目标：核心注意力 ÷ 488',
+    'lightning indexer（ReLU 打分、FP8）选 top-2048 token',
+    'cache 不变，一字节没省',
+  ] },
+  { cls: 'csa', y: 435, h: 60, lines: [
+    'CSA · DeepSeek-V4（2026.06）',
+    '每 4 token 重叠压成 1 条 512 维（K = V）',
+    '块级 indexer 选 top-1024 + 128 条滑窗',
+  ] },
+  { cls: 'csa', y: 525, h: 60, lines: [
+    'HCA · DeepSeek-V4（2026.06）',
+    '每 128 token 压成 1 条',
+    '压缩率够大：无 indexer，全看',
+  ] },
+  { cls: 'csa2', y: 600, h: 92, lines: [
+    'CSA2 · DeepSeek-V4.1-Flash（2026.09）',
+    '目标：890 B / token（全局 KV）',
+    '4 Full + 4 Reindex + 30 Reuse 跨层共享 KV / 索引',
+    'indexer K 从主 KV 投影；FP4 E2M1',
+    'CED：decoder 全局 KV 由 encoder 末层投影',
+  ] },
+];
+
+// 主题 → 类别：向上三支从主题顶边走出、向下两支从底边走出、中间一支走右边，
+// 每条边只拐一个弯，标签写「砍了什么」
+const catEdges = [
+  { d: 'M80 270 V 68 H 438', lx: cats[0].lx, ly: cats[0].ly, label: cats[0].edge },
+  { d: 'M140 270 V 168 H 438', lx: cats[1].lx, ly: cats[1].ly, label: cats[1].edge },
+  { d: 'M200 270 V 268 H 438', lx: cats[2].lx, ly: cats[2].ly, label: cats[2].edge },
+  { d: 'M280 368 H 438', lx: cats[3].lx, ly: cats[3].ly, label: cats[3].edge },
+  { d: 'M120 450 V 511 H 438', lx: cats[4].lx, ly: cats[4].ly, label: cats[4].edge },
+  { d: 'M220 450 V 646 H 438', lx: cats[5].lx, ly: cats[5].ly, label: cats[5].edge },
+];
+// 类别 → 叶子
+const leafEdges = [
+  ...cats.filter((c) => c.id !== 'c4').map((c) => ({ d: `M590 ${c.cy} H 778` })),
+  { d: 'M590 500 H 650 V 465 H 778' },   // 砍存的条目数 → CSA
+  { d: 'M590 522 H 664 V 555 H 778' },   // 砍存的条目数 → HCA
+];
+---
+
+<figure class="mind">
+  <svg viewBox="0 0 1180 712" role="img" aria-label="DeepSeek 系列注意力结构总览：每一代砍的是 KV cache 账里的哪个因子">
+    <defs>
+      <marker id="mind-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" /></marker>
+    </defs>
+
+    {catEdges.map((e) => (
+      <g>
+        <path class="edge" d={e.d} marker-end="url(#mind-arrow)" />
+        <SvgTex x={e.lx} y={e.ly} size={9.5} align="start" color="var(--muted)" src={e.label} />
+      </g>
+    ))}
+    {leafEdges.map((e) => <path class="edge" d={e.d} marker-end="url(#mind-arrow)" />)}
+
+    <g class="node topic">
+      <rect x={topic.x} y={topic.y} width={topic.w} height={topic.h} rx="10" />
+      <SvgTex x={topic.x + topic.w / 2} y={topic.y + 28} size={13.5} weight={600} src="长上下文注意力的账" />
+      {topicLines.map((t, i) => (
+        <SvgTex x={topic.x + topic.w / 2} y={topic.y + 62 + i * 22} size={10.5} src={t} />
+      ))}
+      <SvgTex x={topic.x + topic.w / 2} y={topic.y + 160} size={10} color="var(--muted)" src="每一代挑其中一个或几个因子砍" />
+    </g>
+
+    {cats.map((c) => (
+      <g class:list={['node', c.cls]}>
+        <rect x={CAT_X} y={c.cy - CAT_H / 2} width={CAT_W} height={CAT_H} rx="9" />
+        <SvgTex x={CAT_X + CAT_W / 2} y={c.cy} size={11.5} weight={600} src={c.name} />
+      </g>
+    ))}
+
+    {leaves.map((l) => (
+      <g class:list={['node', l.cls]}>
+        <rect x={LEAF_X} y={l.y} width={LEAF_W} height={l.h} rx="9" />
+        {l.lines.map((t, i) => (
+          i === 0
+            ? <SvgTex x={LEAF_X + 14} y={l.y + 19} size={11.5} weight={600} align="start" src={t} />
+            : <SvgTex x={LEAF_X + 14} y={l.y + 19 + i * 15} size={10} align="start" color="var(--text-2)" src={t} />
+        ))}
+      </g>
+    ))}
+  </svg>
+  <figcaption>总览：每一代结构的目标是什么、靠什么手段达到。账摆在那儿——KV cache 正比于头数 × 条目维度 × 条目数 × 层数 × 每数字节，注意力 FLOPs 正比于头数 × 维度 × 看的条目数；MHA → GQA → MLA → DSA → CSA/HCA → CSA2 每一代挑其中一个或几个因子砍。</figcaption>
+</figure>
+
+<style>
+  .mind { margin: 2rem 0; padding: 0.8rem 0.6rem 0.4rem; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); overflow-x: auto; }
+  .mind svg { display: block; width: 100%; min-width: 960px; height: auto; font-family: var(--font-sans); }
+  .mind marker path { fill: var(--text-2); }
+  .edge { fill: none; stroke: var(--text-2); stroke-width: 1.3; }
+  .node { --c: var(--text-2); }
+  .node rect { fill: color-mix(in srgb, var(--c) 12%, var(--bg-2)); stroke: var(--c); stroke-width: 1.5; }
+  .node.topic rect { fill: color-mix(in srgb, var(--muted) 14%, var(--bg-2)); stroke: var(--muted); stroke-width: 1.8; }
+  .node.mha { --c: var(--muted); }
+  .node.gqa { --c: var(--cat-emerald); }
+  .node.mla { --c: var(--cat-amber); }
+  .node.dsa { --c: var(--cat-rose); }
+  .node.csa { --c: var(--cat-cyan); }
+  .node.csa2 { --c: var(--cat-indigo); }
+  .node.csa2 rect { fill: color-mix(in srgb, var(--c) 22%, var(--bg-2)); stroke-width: 1.9; }
+  figcaption { margin-top: 0.6rem; font-size: 0.88rem; color: var(--text-2); line-height: 1.6; }
+</style>

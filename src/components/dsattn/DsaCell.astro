@@ -1,0 +1,86 @@
+---
+/**
+ * DSA（DeepSeek-V3.2）单层的双泳道算子流，decode 一步：query 是 token t，上下文 L 条。
+ * 上泳道 = lightning indexer：wq_a + q_norm 产出的 qr [1536] 与下泳道共享（画在中间），
+ * indexer 自己的 wq_b 展开成 64 头 × 128；K 侧 wk 7168→128 单头共享 + LayerNorm；
+ * 前 64 维加 RoPE（非交错，≠ 主路的交错布局），再 Hadamard 旋转 + FP8 量化；
+ * weights_proj（fp32，×64^-1/2）给逐头权重；fp8_index kernel 算 Σ_h w·ReLU(q·k) 得 I[L]，
+ * 加 causal mask 后取 top-2048。下泳道 = 主注意力（MLA，与 V3 同骨架）：wkv_a 7168→576
+ * （512 latent + 64 rope，交错 RoPE），cache 仍是 576 维/token/层——DSA 省的是计算，
+ * cache 一字节没省。FLOPs（@1M）：indexer 打分 ≈16.4 GFLOP（FP8） vs 核心注意力 ≈168 MFLOP
+ * （dense 82 GFLOP 的 1/488）。无 props。
+ */
+import FlowDiagram from '../figures/FlowDiagram.astro';
+
+const nodes = [
+  // 公共入口（qr 画在中间，两条泳道共享）
+  { id: 'in', x: 20, y: 260, w: 90, h: 50, kind: 'in', lines: ['$h_t$', '7168'] },
+  { id: 'wqa', x: 140, y: 260, w: 150, kind: 'mla', lines: ['wq_a（共享）', '7168 → 1536'] },
+  { id: 'qn', x: 320, y: 260, w: 110, kind: 'op', lines: ['q_norm', 'RMSNorm'] },
+  { id: 'qr', x: 460, y: 255, w: 140, h: 56, kind: 'main', strong: true, lines: ['$q_r$ [1536]', '主路 / indexer 共享'] },
+  // 上泳道：lightning indexer
+  { id: 'iwp', x: 660, y: 40, w: 190, h: 56, kind: 'idx', lines: ['weights_proj（fp32）', '7168 → 64', '$\\times\\, 64^{-1/2}$'] },
+  { id: 'iqb', x: 660, y: 125, w: 190, h: 56, kind: 'idx', lines: ['indexer wq_b', '1536 → 8192', '= 64 头 × 128'] },
+  { id: 'iroq', x: 880, y: 125, w: 200, h: 64, kind: 'op', lines: ['RoPE 前 64 维', '非交错（≠ MLA 交错）', '$\\theta = 10^4$，YaRN ×40'] },
+  { id: 'ihq', x: 1110, y: 125, w: 180, h: 56, kind: 'op', lines: ['Hadamard 旋转', '+ FP8 量化（e4m3）'] },
+  { id: 'iwk', x: 660, y: 225, w: 180, kind: 'idx', lines: ['wk', '7168 → 128，单头'] },
+  { id: 'ikn', x: 870, y: 225, w: 110, kind: 'op', lines: ['LayerNorm', '128'] },
+  { id: 'ihk', x: 1010, y: 220, w: 180, h: 56, kind: 'op', lines: ['RoPE 非交错 + Hadamard', '+ FP8 量化'] },
+  { id: 'ikc', x: 1230, y: 215, w: 200, h: 64, kind: 'cache', lines: ['indexer k_cache（FP8）', '$[L, 128]$ + scale', '128 B + 4 B / token'] },
+  { id: 'score', x: 880, y: 300, w: 250, h: 76, kind: 'idx', lines: ['fp8_index kernel', '$\\sum_h w_h\\,\\mathrm{ReLU}(q_h \\cdot k)$', '$I$ [L] fp32', '≈ 16.4 GFLOP / token @ 1M'] },
+  { id: 'topk', x: 1180, y: 300, w: 250, h: 64, kind: 'idx', strong: true, lines: ['+ causal mask → top-2048', 'indices [2048]', '< 2048 时等价稠密'] },
+  // 下泳道：主注意力（MLA，与 V3 同骨架）
+  { id: 'wkva', x: 660, y: 440, w: 180, kind: 'mla', lines: ['wkv_a', '7168 → 576'] },
+  { id: 'kvsplit', x: 870, y: 435, w: 220, h: 64, kind: 'op', lines: ['split', 'latent 512（RMSNorm）', '+ $k^{pe}$ 64（RoPE 交错）'] },
+  { id: 'kvca', x: 1130, y: 435, w: 220, h: 64, kind: 'cache', strong: true, lines: ['KV cache（主）', '576 维 / token / 层', '与 V3 相同，一字节没省'] },
+  { id: 'mqb', x: 660, y: 545, w: 190, kind: 'mla', lines: ['主注意力 wq_b', '1536 → 128 × 192'] },
+  { id: 'gather', x: 880, y: 540, w: 230, h: 76, kind: 'op', lines: ['按 indices gather', '2048 条 × 576 维', '参考实现用 $-\\infty$ mask 模拟', '生产：FlashMLA 真 gather'] },
+  { id: 'mattn', x: 1170, y: 540, w: 260, h: 88, kind: 'main', strong: true, lines: ['稀疏主注意力（MQA 模式）', '128 头 × 2048 条', 'scale 同 V3 ≈ 0.1352', '≈ 168 MFLOP @1M（dense 82 GFLOP 的 1/488）'] },
+  { id: 'mo', x: 1180, y: 640, w: 190, kind: 'mla', lines: ['o_proj', '16384 → 7168'] },
+];
+
+const edges = [
+  { from: 'in', to: 'wqa' },
+  { from: 'wqa', to: 'qn' },
+  { from: 'qn', to: 'qr' },
+  // qr / h_t 分发给 indexer
+  { from: 'qr', to: 'iqb', path: 'M600 283 H 630 V 153 H 658', label: '共享 $q_r$', lx: 634, ly: 210 },
+  { from: 'in', to: 'iwk', path: 'M45 260 V 247 H 658' },
+  { from: 'in', to: 'iwp', path: 'M85 260 V 68 H 658' },
+  // indexer q / k / w 三路汇入打分 kernel
+  { from: 'iwp', to: 'score', path: 'M850 68 H 862 V 338 H 878', label: '$w$ [64]', lx: 700, ly: 330 },
+  { from: 'iqb', to: 'iroq' },
+  { from: 'iroq', to: 'ihq' },
+  { from: 'ihq', to: 'score', path: 'M1200 181 V 338 H 1132', label: '$q^I$ FP8', lx: 1210, ly: 250 },
+  { from: 'iwk', to: 'ikn' },
+  { from: 'ikn', to: 'ihk' },
+  { from: 'ihk', to: 'ikc' },
+  { from: 'ikc', to: 'score', path: 'M1230 247 H 1160 V 320 H 1132', label: '$k^I$（FP8）', lx: 1170, ly: 290 },
+  { from: 'score', to: 'topk', path: 'M1130 356 H 1178' },
+  // 主注意力
+  { from: 'in', to: 'wkva', path: 'M25 310 V 462 H 658' },
+  { from: 'qr', to: 'mqb', path: 'M530 311 V 567 H 658', label: '$q_r$', lx: 540, ly: 440 },
+  { from: 'wkva', to: 'kvsplit' },
+  { from: 'kvsplit', to: 'kvca' },
+  { from: 'topk', to: 'gather', path: 'M1305 364 V 392 H 1105 V 538', label: 'indices [2048]', lx: 1115, ly: 384 },
+  { from: 'kvca', to: 'gather', path: 'M1240 499 V 515 H 1120 V 578 H 1112', label: 'cache 一字节没省', lx: 1130, ly: 508 },
+  { from: 'mqb', to: 'mattn', path: 'M850 567 H 864 V 636 H 1300 V 630', label: '$q$ [128 头, 192]', lx: 1000, ly: 622 },
+  { from: 'gather', to: 'mattn' },
+  { from: 'mattn', to: 'mo' },
+];
+
+const groups = [
+  { x: 640, y: 15, w: 800, h: 375, label: 'lightning indexer（只决定看哪 2048 个 token；打分仍是 O(L)，但常数小、FP8）' },
+  { x: 640, y: 400, w: 800, h: 285, label: '主注意力（MLA，与 V3 同骨架）' },
+];
+---
+
+<FlowDiagram id="dsa-cell" viewBox="0 0 1460 700" minWidth={1000} nodes={nodes} edges={edges} groups={groups}
+  label="DeepSeek-V3.2 的 DSA 单层结构：上泳道 lightning indexer，下泳道 MLA 主注意力"
+  caption="DSA 回答「省的是计算不是显存」：indexer 给每个 query 从 L 条里选出 top-2048（ReLU 打分、FP8，≈16.4 GFLOP/token @1M），主注意力只对这 2048 条算（≈168 MFLOP，是 dense 82 GFLOP 的 1/488）；KV cache 仍是每 token 每层 576 维，和 V3 一字节不差（还多了 indexer 自己的 128 B FP8 键）。序列短于 2048 时等价稠密。" />
+
+<style is:global>
+  .fd .node.cache { --c: var(--cat-amber); }
+  .fd .node.cache rect { stroke-dasharray: 4 3; }
+  .fd .node.idx { --c: var(--cat-rose); }
+</style>

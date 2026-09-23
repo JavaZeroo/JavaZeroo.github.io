@@ -1,0 +1,92 @@
+---
+/**
+ * DeepSeek-V1 的小算子级注意力张量流（decode 视角：query 是当前 1 个 token，cache 里已有 t 条）。
+ * prop model：'7b' = MHA（d=4096，32 头各自 K/V，cache [t,32,128]×2 = 16 KiB/token/层）；
+ *             '67b' = GQA（d=8192，64 个 Q 头共享 8 组 K/V，cache [t,8,128]×2 = 4 KiB/token/层）。
+ * 67b 的关键画法：KV cache 画在 repeat_kv 之前——cache 只存 8 组，复制只是算分时的逻辑 expand。
+ * 两者都是 full RoPE（θ=10000，全部 128 维，只加在 Q/K 上）。
+ */
+import FlowDiagram from '../figures/FlowDiagram.astro';
+interface Props { model?: '7b' | '67b' }
+const { model = '7b' } = Astro.props;
+const gqa = model === '67b';
+
+const nodes = gqa
+  ? [
+      { id: 'in', x: 20, y: 150, w: 100, h: 50, kind: 'in', lines: ['$h_t$（当前 token）', '8192'] },
+      { id: 'qp', x: 160, y: 30, w: 170, kind: 'mla', lines: ['q_proj（64 头）', '8192 → 8192'] },
+      { id: 'kp', x: 160, y: 150, w: 170, kind: 'mla', lines: ['k_proj（8 组）', '8192 → 1024'] },
+      { id: 'vp', x: 160, y: 270, w: 170, kind: 'mla', lines: ['v_proj（8 组）', '8192 → 1024'] },
+      { id: 'vq', x: 370, y: 30, w: 150, kind: 'op', lines: ['view 分头', '[64, 128]'] },
+      { id: 'vk', x: 370, y: 150, w: 150, kind: 'op', lines: ['view 分头', '[8, 128]'] },
+      { id: 'vv', x: 370, y: 270, w: 150, kind: 'op', lines: ['view 分头', '[8, 128]'] },
+      { id: 'rope', x: 560, y: 85, w: 210, h: 70, kind: 'op', lines: ['RoPE（只对 Q / K）', 'full：全部 128 维', '$\\theta = 10000$'] },
+      { id: 'cache', x: 810, y: 140, w: 210, h: 64, kind: 'cache', strong: true, lines: ['KV cache', '$[t,\\ 8,\\ 128] \\times 2$', '4 KiB / token / 层'] },
+      { id: 'rep', x: 810, y: 280, w: 210, h: 64, kind: 'rep', lines: ['repeat_kv × 8', 'expand 逻辑复制，不占 cache', '→ $[t,\\ 64,\\ 128]$'] },
+      { id: 'scores', x: 1070, y: 90, w: 200, h: 56, kind: 'main', lines: ['scores $= QK^\\top / \\sqrt{128}$', '[64, 1, t]'] },
+      { id: 'mask', x: 1070, y: 190, w: 200, kind: 'op', lines: ['+ causal mask', '上三角 $-\\infty$'] },
+      { id: 'sm', x: 1070, y: 270, w: 200, kind: 'op', lines: ['softmax（fp32）', '→ $P$ [64, 1, t]'] },
+      { id: 'pv', x: 1070, y: 350, w: 200, kind: 'op', lines: ['$P V$', '[64, 128]'] },
+      { id: 'cat', x: 1070, y: 440, w: 200, kind: 'op', lines: ['concat 64 头', '→ 8192'] },
+      { id: 'op', x: 810, y: 440, w: 190, kind: 'mla', lines: ['o_proj', '8192 → 8192'] },
+      { id: 'out', x: 560, y: 440, w: 150, kind: 'out', lines: ['out', '8192'] },
+    ]
+  : [
+      { id: 'in', x: 20, y: 150, w: 100, h: 50, kind: 'in', lines: ['$h_t$（当前 token）', '4096'] },
+      { id: 'qp', x: 160, y: 30, w: 170, kind: 'mla', lines: ['q_proj', '4096 → 4096'] },
+      { id: 'kp', x: 160, y: 150, w: 170, kind: 'mla', lines: ['k_proj', '4096 → 4096'] },
+      { id: 'vp', x: 160, y: 270, w: 170, kind: 'mla', lines: ['v_proj', '4096 → 4096'] },
+      { id: 'vq', x: 370, y: 30, w: 150, kind: 'op', lines: ['view 分头', '[32, 128]'] },
+      { id: 'vk', x: 370, y: 150, w: 150, kind: 'op', lines: ['view 分头', '[32, 128]'] },
+      { id: 'vv', x: 370, y: 270, w: 150, kind: 'op', lines: ['view 分头', '[32, 128]'] },
+      { id: 'rope', x: 560, y: 85, w: 210, h: 70, kind: 'op', lines: ['RoPE（只对 Q / K）', 'full：全部 128 维', '$\\theta = 10000$'] },
+      { id: 'cache', x: 810, y: 140, w: 210, h: 64, kind: 'cache', strong: true, lines: ['KV cache', '$[t,\\ 32,\\ 128] \\times 2$', '16 KiB / token / 层'] },
+      { id: 'scores', x: 1070, y: 90, w: 200, h: 56, kind: 'main', lines: ['scores $= QK^\\top / \\sqrt{128}$', '[32, 1, t]'] },
+      { id: 'mask', x: 1070, y: 190, w: 200, kind: 'op', lines: ['+ causal mask', '上三角 $-\\infty$'] },
+      { id: 'sm', x: 1070, y: 270, w: 200, kind: 'op', lines: ['softmax（fp32）', '→ $P$ [32, 1, t]'] },
+      { id: 'pv', x: 1070, y: 350, w: 200, kind: 'op', lines: ['$P V$', '[32, 128]'] },
+      { id: 'cat', x: 1070, y: 440, w: 200, kind: 'op', lines: ['concat 32 头', '→ 4096'] },
+      { id: 'op', x: 810, y: 440, w: 190, kind: 'mla', lines: ['o_proj', '4096 → 4096'] },
+      { id: 'out', x: 560, y: 440, w: 150, kind: 'out', lines: ['out', '4096'] },
+    ];
+
+const edges = [
+  { from: 'in', to: 'qp', orient: 'h' as const },
+  { from: 'in', to: 'kp', orient: 'h' as const },
+  { from: 'in', to: 'vp', orient: 'h' as const },
+  { from: 'qp', to: 'vq' },
+  { from: 'kp', to: 'vk' },
+  { from: 'vp', to: 'vv' },
+  { from: 'vq', to: 'rope', path: 'M520 52 H 540 V 105 H 558' },
+  { from: 'vk', to: 'rope', path: 'M520 172 H 540 V 140 H 558' },
+  { from: 'rope', to: 'cache', path: 'M770 120 H 790 V 165 H 808', label: "$K'$", lx: 778, ly: 105 },
+  { from: 'vv', to: 'cache', path: 'M520 292 H 700 V 195 H 808', label: 'V（不过 RoPE）', lx: 590, ly: 284 },
+  { from: 'rope', to: 'scores', path: 'M700 85 V 60 H 1170 V 88', label: "$Q'$", lx: 900, ly: 50 },
+  ...(gqa
+    ? [
+        { from: 'cache', to: 'rep', path: 'M915 204 V 278', label: 'cache 在复制之前', lx: 925, ly: 245 },
+        { from: 'rep', to: 'scores', path: 'M1020 312 H 1045 V 118 H 1068', label: '$\\hat{K}, \\hat{V}$ [64]', lx: 1022, ly: 258 },
+      ]
+    : [{ from: 'cache', to: 'scores', orient: 'h' as const }]),
+  { from: 'scores', to: 'mask' },
+  { from: 'mask', to: 'sm' },
+  { from: 'sm', to: 'pv' },
+  { from: 'pv', to: 'cat' },
+  { from: 'cat', to: 'op', path: 'M1070 462 H 1002' },
+  { from: 'op', to: 'out', path: 'M810 462 H 712' },
+];
+
+const caption = gqa
+  ? 'DeepSeek-V1-67B 的 GQA（decode 一步，t = cache 里已有的 token 数）。64 个 query 头共享 8 组 K/V；注意 KV cache 画在 repeat_kv 之前——cache 只存 8 组（4 KiB / token / 层，若用 MHA 则是 32 KiB），repeat_kv 的 8 倍复制只是算分时的逻辑 expand，不占显存。RoPE 是 full 的（全部 128 维，θ = 10000），只加在 Q/K 上。'
+  : 'DeepSeek-V1-7B 的 MHA（decode 一步，t = cache 里已有的 token 数）。32 个头各有自己的 K、V，KV cache 每 token 每层 16 KiB；RoPE 是 full 的（全部 128 维，θ = 10000），只加在 Q/K 上。这是后续所有结构的基线形态。';
+---
+
+<FlowDiagram id={`mha-gqa-${model}`} viewBox="0 0 1300 520" minWidth={920} nodes={nodes} edges={edges}
+  label={gqa ? 'DeepSeek-V1-67B 的 GQA 算子级张量流' : 'DeepSeek-V1-7B 的 MHA 算子级张量流'}
+  caption={caption} />
+
+<style is:global>
+  .fd .node.cache { --c: var(--cat-amber); }
+  .fd .node.cache rect { stroke-dasharray: 4 3; }
+  .fd .node.rep { --c: var(--cat-emerald); }
+</style>

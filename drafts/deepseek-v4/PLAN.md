@@ -119,3 +119,8 @@
 - NSA https://arxiv.org/abs/2502.11089 ；Moonlight/Muon https://arxiv.org/abs/2502.16982 ；Kimi K2 MuonClip https://arxiv.org/abs/2507.20534
 - Hash Layers https://arxiv.org/abs/2106.04426 ；gpt-oss（attention sink、SwiGLU clamp）https://arxiv.org/abs/2508.10925
 - Kimi K3 连载（本站）里的 AttnRes 一篇可与 mHC 对照
+
+## 5. 衍生文
+
+- `src/content/posts/deepseek-attention-structures.mdx`（2026-09-23，独立篇不在系列内）：跨代注意力对比 MHA/GQA/MLA/DSA/CSA/HCA/CSA2，
+  素材在 `refs/attn-mha-gqa.md`、`attn-mla.md`、`attn-dsa.md`、`attn-csa-hca.md`、`attn-csa2.md`；图组件在 `src/components/dsattn/`，复用 v4/CsaCell、v4/HcaCell。

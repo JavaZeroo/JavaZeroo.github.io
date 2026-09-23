@@ -1,0 +1,76 @@
+---
+/**
+ * MLA 小算子级张量流（DeepSeek-V3 数字，decode 单 token，naive 展开路径为主）。
+ * 上泳道是 query 低秩链（q_a 7168→1536 → RMSNorm → q_b →24576 → [128头,192]，split nope/rope），
+ * 下泳道是 KV 链（kv_a_proj_with_mqa 一口气出 576 = c^KV[512] + k_pe[64]，c^KV 经 RMSNorm、
+ * kv_b_proj 展开成 [128头,256]，split 成 k_nope 与 v）。RoPE 只加在 64 维 rope 分量上
+ * （θ=10000，YaRN factor 40）。重点节点是两个叠放的 cache 框：实线 = HF repo modeling 代码
+ * 实际存法（展开的 K[128,192]+V[128,128]，40,960 数/token/层），虚线 = 官方推理代码 absorb
+ * 路径（只存 latent 512 + rope 64 = 576 数），两者差 71×。核心注意力的 scale 按拼接后的
+ * 192 维算再乘 mscale² ≈ 0.1352。无 props。
+ */
+import FlowDiagram from '../figures/FlowDiagram.astro';
+
+const nodes = [
+  { id: 'in', x: 20, y: 180, w: 90, h: 50, kind: 'in', lines: ['$h_t$', '7168'] },
+  // Q 支路
+  { id: 'qa', x: 140, y: 30, w: 170, kind: 'mla', lines: ['q_a_proj', '7168 → 1536'] },
+  { id: 'qn', x: 340, y: 30, w: 120, kind: 'op', lines: ['RMSNorm', '1536'] },
+  { id: 'qb', x: 490, y: 30, w: 170, kind: 'mla', lines: ['q_b_proj', '1536 → 24576'] },
+  { id: 'qv', x: 690, y: 30, w: 230, h: 64, kind: 'op', lines: ['view → [128 头, 192]', 'split：$q^{nope}$ [128,128]', '$q^{pe}$ [128,64]'] },
+  { id: 'catq', x: 950, y: 30, w: 260, h: 48, kind: 'op', lines: ['concat', 'query [128 头, 192]'] },
+  // RoPE：只加 64 维 rope 分量
+  { id: 'rope', x: 950, y: 105, w: 260, h: 60, kind: 'op', lines: ['RoPE：只加 64 维 rope 分量', '$\\theta = 10^4$，YaRN factor 40'] },
+  // KV 支路
+  { id: 'kva', x: 140, y: 170, w: 180, kind: 'mla', lines: ['kv_a_proj_with_mqa', '7168 → 576'] },
+  { id: 'kvs', x: 350, y: 170, w: 180, h: 64, kind: 'op', lines: ['split', '$c^{KV}$ [512]', '$k^{pe}$ [64]（全头共享一份）'] },
+  { id: 'kvn', x: 560, y: 180, w: 110, kind: 'op', lines: ['RMSNorm', '512'] },
+  { id: 'kvb', x: 700, y: 180, w: 170, kind: 'mla', lines: ['kv_b_proj', '512 → 32768'] },
+  { id: 'kvv', x: 900, y: 170, w: 220, h: 64, kind: 'op', lines: ['view → [128 头, 256]', 'split：$k^{nope}$ [128,128]', '$v$ [128,128]'] },
+  { id: 'catk', x: 660, y: 290, w: 230, h: 48, kind: 'op', lines: ['concat：key [128 头, 192]', '$[k^{nope};\\ k^{pe}{\\prime}]$'] },
+  // 两种 cache 口径（重点）
+  { id: 'cachen', x: 940, y: 350, w: 280, h: 72, kind: 'cachen', strong: true, lines: ['KV cache —— HF repo modeling 代码（naive）', '存展开的 K [128,192] + V [128,128]', '40,960 数 / token / 层'] },
+  { id: 'cachea', x: 940, y: 440, w: 280, h: 64, kind: 'cachea', lines: ['官方推理代码（absorb，默认）', '只存 latent 512 + rope 64 = 576 数', '两条路径差 71×'] },
+  // 核心注意力与输出
+  { id: 'core', x: 620, y: 420, w: 250, h: 76, kind: 'main', strong: true, lines: ['核心注意力（128 头）', 'scale $= 192^{-1/2} \\times m_{\\mathrm{scale}}^2 \\approx 0.1352$', 'softmax（fp32）→ $\\times V$'] },
+  { id: 'reshape', x: 380, y: 420, w: 180, h: 56, kind: 'op', lines: ['输出 [128, 128]', 'reshape → 16384'] },
+  { id: 'op', x: 160, y: 420, w: 170, kind: 'mla', lines: ['o_proj', '16384 → 7168'] },
+  { id: 'out', x: 20, y: 420, w: 100, kind: 'out', lines: ['out', '7168'] },
+];
+
+const edges = [
+  { from: 'in', to: 'qa', orient: 'h' as const },
+  { from: 'in', to: 'kva', orient: 'h' as const },
+  { from: 'qa', to: 'qn' },
+  { from: 'qn', to: 'qb' },
+  { from: 'qb', to: 'qv' },
+  { from: 'qv', to: 'catq' },
+  { from: 'qv', to: 'rope', path: 'M800 94 V 100 H 1010 V 103', label: '$q^{pe}$', lx: 830, ly: 112 },
+  { from: 'rope', to: 'catq', path: 'M1100 105 V 80', label: 'RoPE 后拼回', lx: 1110, ly: 92 },
+  { from: 'kva', to: 'kvs' },
+  { from: 'kvs', to: 'kvn', label: '$c^{KV}$', lx: 534, ly: 192 },
+  { from: 'kvn', to: 'kvb' },
+  { from: 'kvb', to: 'kvv' },
+  { from: 'kvs', to: 'rope', path: 'M440 234 V 258 H 1150 V 167', label: '$k^{pe}$（共享，只存一份）', lx: 600, ly: 250 },
+  { from: 'rope', to: 'catk', path: 'M1180 165 V 268 H 830 V 288', label: '$k^{pe}{\\prime}$', lx: 880, ly: 260 },
+  { from: 'kvv', to: 'catk', path: 'M950 234 V 250 H 775 V 288', label: '$k^{nope}$', lx: 800, ly: 242 },
+  { from: 'kvv', to: 'cachen', path: 'M1050 234 V 348', label: '$v$ [128,128]', lx: 1058, ly: 300 },
+  { from: 'catk', to: 'cachen', path: 'M890 314 H 915 V 380 H 938', label: 'key [128,192]', lx: 898, ly: 306 },
+  { from: 'cachen', to: 'core', path: 'M940 386 H 905 V 458 H 872', label: '读全量 K、V', lx: 876, ly: 434 },
+  { from: 'cachen', to: 'cachea', path: 'M1080 422 V 438', dashed: true, label: '替代', lx: 1088, ly: 434 },
+  { from: 'catq', to: 'core', path: 'M1210 54 H 1232 V 458 H 872', label: 'query [128,192]', lx: 1000, ly: 448 },
+  { from: 'core', to: 'reshape', path: 'M620 458 H 592 V 448 H 562' },
+  { from: 'reshape', to: 'op', orient: 'h' as const },
+  { from: 'op', to: 'out', path: 'M160 444 H 122' },
+];
+---
+
+<FlowDiagram id="mla-flow" viewBox="0 0 1250 540" minWidth={940} nodes={nodes} edges={edges}
+  label="DeepSeek-V3 的 MLA 算子级张量流（naive 路径 + absorb cache 对照）"
+  caption="MLA（V3 数字，naive 展开路径）：K、V 由 512 维 latent 现场展开，RoPE 只加在 64 维共享 rope 分量上，所以推理时可以把上投影吸收掉、直接缓存 latent。两个 cache 框是本图重点：HF 参考实现（modeling_deepseek.py）只有 naive 路径，实际存展开的 K/V（40,960 数 / token / 层）；官方推理代码默认 absorb，只存 512 + 64 = 576 数——两条路径差 71×。" />
+
+<style is:global>
+  .fd .node.cachen { --c: var(--cat-rose); }
+  .fd .node.cachea { --c: var(--cat-emerald); }
+  .fd .node.cachea rect { stroke-dasharray: 5 4; }
+</style>

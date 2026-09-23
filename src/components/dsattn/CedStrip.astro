@@ -1,0 +1,100 @@
+---
+/**
+ * DeepSeek-V4.1-Flash 层排布条（0 基，43 格 = 40 主干 + 3 个 DSpark 草稿层）+ CED 数据来源。
+ * 层 0–1 纯 SWA；层 2–19 encoder（m=2，Full={2,8,14}，其余 Reuse）；层 20 Full（m=1，
+ * encoder/decoder 分界，它的输入就是 encoder 末态 H_20）；层 21–23 Reuse；
+ * 层 24/28/32/36 Reindex；其余 decoder 层 Reuse；层 40–42 DSpark 草稿层（纯 SWA，斜纹弱化）。
+ * 箭头：decoder 全局 KV 由 H_20 逐层投影（论文式 1，CED）。无 props。
+ */
+import SvgTex from '../figures/SvgTex.astro';
+
+const full = new Set([2, 8, 14, 20]);
+const reindex = new Set([24, 28, 32, 36]);
+const kind = (l: number) =>
+  l >= 40 ? 'dspark' : l <= 1 ? 'swa' : full.has(l) ? 'full' : reindex.has(l) ? 'reindex' : 'reuse';
+const desc = (l: number) =>
+  l >= 40 ? 'DSpark 草稿层：纯 SWA（window 128）'
+  : l <= 1 ? '纯 SWA（window 128）'
+  : full.has(l) ? `Full（m=${l === 20 ? 1 : 2}）：自产 main KV + indexer K + top-512${l === 20 ? '，另产 candidates；输入 = encoder 末态 H_20' : ''}`
+  : reindex.has(l) ? 'Reindex：读共享 index_k 重打分，写回 topk_idxs'
+  : 'Reuse：复用共享 compress_kv + topk_idxs';
+
+const X0 = 30, CELL = 13, STEP = 15.2, Y0 = 36, H = 30;
+const cx = (l: number) => X0 + l * STEP;
+const ticks = [0, 2, 8, 14, 20, 24, 28, 32, 36, 39];
+const XB = cx(20) - (STEP - CELL) / 2;          // encoder / decoder 分界线
+const cedEnd = cx(39) + CELL;                    // CED 箭头终点（层 39 右缘）
+const ds0 = cx(40), ds1 = cx(42) + CELL;         // DSpark 区间
+
+const legend = [
+  { c: 'var(--cat-indigo)', t: 'Full ×4（层 2/8/14/20）', x: 30 },
+  { c: 'var(--cat-amber)', t: 'Reindex ×4（24/28/32/36）', x: 225 },
+  { c: 'var(--cat-cyan)', t: 'Reuse ×30', x: 445 },
+  { c: 'var(--muted)', t: '纯 SWA ×2（层 0/1）', x: 545 },
+];
+---
+
+<figure class="ced">
+  <svg viewBox="0 0 716 178" role="img" aria-label="DeepSeek-V4.1-Flash 层排布与 CED 全局 KV 来源">
+    <defs>
+      <marker id="ced-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" /></marker>
+      <pattern id="dspark-hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+        <rect width="6" height="6" class="hatch-bg" />
+        <line x1="0" y1="0" x2="0" y2="6" class="hatch-ln" />
+      </pattern>
+    </defs>
+
+    <!-- 层格 -->
+    {Array.from({ length: 43 }, (_, l) => (
+      <g>
+        <title>{`第 ${l} 层：${desc(l)}`}</title>
+        <rect class:list={['cell', kind(l)]} x={cx(l)} y={Y0} width={CELL} height={H} rx="1.5" />
+      </g>
+    ))}
+    {ticks.map((l) => (
+      <text class="tick" x={cx(l) + CELL / 2} y={Y0 - 8} text-anchor="middle">{l}</text>
+    ))}
+
+    <!-- encoder / decoder 分界 -->
+    <line class="boundary" x1={XB} y1={16} x2={XB} y2={Y0 + H + 4} />
+    <text class="side" x={XB - 8} y={11} text-anchor="end">encoder（0–19）</text>
+    <text class="side" x={XB + 8} y={11} text-anchor="start">decoder（20–39）</text>
+
+    <!-- CED：decoder 全局 KV 由 H_20 投影 -->
+    <path class="cedflow" d={`M${XB} ${Y0 + 8} V 70 H ${cedEnd - 2}`} marker-end="url(#ced-arrow)" />
+    <SvgTex x={(XB + cedEnd) / 2 + 20} y={88} size={10.5} color="var(--text-2)" src="decoder 全局 KV 由 $H_{20}$（encoder 末态）逐层投影（式 1）" />
+
+    <!-- DSpark 标注 -->
+    <path class="dsbr" d={`M${ds0} 96 v5 H ${ds1} v-5`} />
+    <text class="tick" x={ds0 - 8} y={107} text-anchor="end">40–42：DSpark 草稿层（纯 SWA）</text>
+
+    <!-- 图例 -->
+    {legend.map((g) => (
+      <g>
+        <rect x={g.x} y={130} width={10} height={10} rx="2" fill={g.c} />
+        <text class="side" x={g.x + 15} y={139}>{g.t}</text>
+      </g>
+    ))}
+    <SvgTex x={30} y={162} size={10} align="start" color="var(--muted)" src="Full = 4、Reindex = 4、Reuse = 30；SWA 仍逐层自产（window 128，FP8），CED 只改全局 KV 的来源" />
+  </svg>
+  <figcaption>V4.1-Flash 层排布（0 基，43 格 = 40 主干 + 3 DSpark 草稿层）与 CED 的数据来源：分界线以下 20 层是 encoder、以上 20 层是 decoder；decoder 每一层的全局 KV 都不从自己层的隐藏态产生，而是由 encoder 末态 H<sub>20</sub> 逐层投影（论文式 1），所以 prefill 只需算前半层。层 20 是 decoder 唯一的 Full 层（m=1），它的输入就是 H<sub>20</sub>。</figcaption>
+</figure>
+
+<style>
+  .ced { margin: 2rem 0; padding: 0.8rem 0.6rem 0.4rem; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); overflow-x: auto; }
+  .ced svg { display: block; width: 100%; min-width: 680px; height: auto; font-family: var(--font-sans); }
+  .ced marker path { fill: var(--cat-indigo); }
+  .cell.full { fill: var(--cat-indigo); }
+  .cell.reindex { fill: var(--cat-amber); }
+  .cell.reuse { fill: color-mix(in srgb, var(--cat-cyan) 70%, var(--bg-2)); }
+  .cell.swa { fill: color-mix(in srgb, var(--muted) 55%, var(--bg-2)); }
+  .cell.dspark { fill: url(#dspark-hatch); stroke: var(--muted); stroke-width: 0.8; stroke-dasharray: 2 1.5; }
+  .hatch-bg { fill: color-mix(in srgb, var(--muted) 22%, var(--bg-2)); }
+  .hatch-ln { stroke: var(--muted); stroke-width: 1.1; }
+  .tick { fill: var(--muted); font-size: 9.5px; }
+  .side { fill: var(--text-2); font-size: 10.5px; }
+  .boundary { stroke: var(--text-2); stroke-width: 1.2; stroke-dasharray: 5 4; }
+  .cedflow { fill: none; stroke: var(--cat-indigo); stroke-width: 1.8; }
+  .dsbr { fill: none; stroke: var(--muted); stroke-width: 1.2; }
+  figcaption { margin-top: 0.6rem; font-size: 0.88rem; color: var(--text-2); line-height: 1.6; }
+</style>

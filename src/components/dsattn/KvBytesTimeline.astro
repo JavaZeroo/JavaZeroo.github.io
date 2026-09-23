@@ -1,0 +1,73 @@
+---
+/**
+ * 每 token 全局 KV cache 字节数对比（log10 对数轴，横跨 437× 所以线性轴画不下）。
+ * 六行：V1-67B（GQA-8，BF16，95 层）389,120 = 2×8×128×2B×95；
+ * V3（MLA latent，BF16，61 层）70,272 = 576×2B×61；
+ * V3.2（+DSA）48,068、V4-Flash 3,514、V4.1-Flash（CSA2+FP4）890 三行取自 V4.1 论文 Figure 1b；
+ * V4-Pro 5,424 是本站按 config 手算口径（refs/attn-csa-hca.md §4）。轴下 100 B / 1 KB / 10 KB / 100 KB 刻度。
+ * 无 props。
+ */
+import SvgTex from '../figures/SvgTex.astro';
+
+const rows = [
+  { name: 'DeepSeek-V1-67B（GQA-8，BF16）', bytes: 389120, note: '2 × 8 × 128 × 2 B × 95 层', c: 'var(--muted)' },
+  { name: 'DeepSeek-V3（MLA latent，BF16）', bytes: 70272, note: '576 × 2 B × 61 层', c: 'var(--cat-amber)' },
+  { name: 'DeepSeek-V3.2（+ DSA）', bytes: 48068, note: 'V4.1 论文 Figure 1b（FP8 口径）', c: 'var(--cat-rose)' },
+  { name: 'DeepSeek-V4-Pro', bytes: 5424, note: '本站手算口径（attn-csa-hca.md §4）', c: 'var(--cat-indigo)' },
+  { name: 'DeepSeek-V4-Flash', bytes: 3514, note: 'V4.1 论文 Figure 1b', c: 'var(--cat-cyan)' },
+  { name: 'DeepSeek-V4.1-Flash（CSA2 + FP4）', bytes: 890, note: '356 B/条 × 2.5 条（Figure 1b）', c: 'var(--cat-emerald)' },
+];
+
+const L0 = 2, L1 = 5.7;                       // log10 轴域：100 B … ~500 KB
+const X0 = 268, BW = 520, Y0 = 30, RH = 52, BH = 24;
+const x = (b: number) => X0 + ((Math.log10(b) - L0) / (L1 - L0)) * BW;
+const fmt = (b: number) => b.toLocaleString('en-US');
+const grid = [
+  { b: 100, t: '100 B' },
+  { b: 1024, t: '1 KB' },
+  { b: 10240, t: '10 KB' },
+  { b: 102400, t: '100 KB' },
+];
+const AXIS_Y = Y0 + rows.length * RH + 4;
+---
+
+<figure class="kvt">
+  <svg viewBox="0 0 960 402" role="img" aria-label="每 token 全局 KV cache 字节数对比（对数轴），V1 389,120 B 到 V4.1 890 B，437 倍">
+    <text class="ratio" x={950} y={18} text-anchor="end">V1 → V4.1：437×</text>
+
+    {grid.map((g) => (
+      <g>
+        <line class="grid" x1={x(g.b)} y1={Y0 - 8} x2={x(g.b)} y2={AXIS_Y} />
+        <text class="glabel" x={x(g.b)} y={AXIS_Y + 16} text-anchor="middle">{g.t}</text>
+      </g>
+    ))}
+
+    {rows.map((r, i) => {
+      const y = Y0 + i * RH;
+      const w = x(r.bytes) - X0;
+      return (
+        <g>
+          <text class="name" x={X0 - 12} y={y + BH / 2 - 3} text-anchor="end">{r.name}</text>
+          <text class="note" x={X0 - 12} y={y + BH / 2 + 11} text-anchor="end">{r.note}</text>
+          <rect x={X0} y={y} width={w} height={BH} rx="4" fill={r.c} opacity="0.88" />
+          <text class="val" x={x(r.bytes) + 8} y={y + BH / 2 + 4}>{fmt(r.bytes)} B</text>
+        </g>
+      );
+    })}
+
+    <SvgTex x={268} y={AXIS_Y + 38} size={10.5} align="start" color="var(--muted)" src="对数轴（log10）：相邻刻度 10×；V4.1 的 890 B 只计 HBM 常驻的全局 KV，SWA ring buffer 与长度无关、不计入" />
+  </svg>
+  <figcaption>每 token 全局 KV cache 字节数。口径差异：V3.2 / V4-Flash / V4.1 三行取自 V4.1 论文 Figure 1b；V4-Pro 一行是本站按 config 手算（≈5.4 KB，含 CSA + HCA + indexer + 滑窗），与论文口径的差别在量化 scale 与滑窗的记法。前两行（V1 GQA、V3 MLA）由结构参数直接算出。</figcaption>
+</figure>
+
+<style>
+  .kvt { margin: 2rem 0; padding: 0.8rem 0.6rem 0.6rem; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); overflow-x: auto; }
+  .kvt svg { display: block; width: 100%; min-width: 760px; height: auto; font-family: var(--font-sans); }
+  .name { fill: var(--text); font-size: 11.5px; font-weight: 600; }
+  .note { fill: var(--muted); font-size: 9px; }
+  .val { fill: var(--text-2); font-size: 11px; }
+  .grid { stroke: var(--border); stroke-width: 1; stroke-dasharray: 3 4; }
+  .glabel { fill: var(--muted); font-size: 10px; }
+  .ratio { fill: var(--text); font-size: 12px; font-weight: 600; }
+  figcaption { margin-top: 0.6rem; font-size: 0.88rem; color: var(--text-2); line-height: 1.6; }
+</style>

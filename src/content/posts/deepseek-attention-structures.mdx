@@ -1,0 +1,159 @@
+---
+title: "DeepSeek 注意力结构对比：MHA、GQA、MLA、DSA、CSA、HCA、CSA2"
+pubDate: 2026-09-23 11:20:00
+description: "以 HuggingFace 上 deepseek-ai 各代模型的官方推理代码为准，把七种注意力结构逐个拆成小算子级张量流图：每一代的目标是什么、砍的是哪个量、怎么做到的、账是多少。"
+categories:
+  - "📝学习"
+tags:
+  - "大模型"
+  - "模型结构"
+  - "DeepSeek"
+  - "注意力"
+draft: false
+---
+
+import DsAttnMindmap from '../../components/dsattn/DsAttnMindmap.astro';
+import MhaGqaCell from '../../components/dsattn/MhaGqaCell.astro';
+import MlaFlow from '../../components/dsattn/MlaFlow.astro';
+import DsaCell from '../../components/dsattn/DsaCell.astro';
+import CsaCell from '../../components/v4/CsaCell.astro';
+import HcaCell from '../../components/v4/HcaCell.astro';
+import Csa2Cell from '../../components/dsattn/Csa2Cell.astro';
+import CedStrip from '../../components/dsattn/CedStrip.astro';
+import KvBytesTimeline from '../../components/dsattn/KvBytesTimeline.astro';
+
+DeepSeek 从 2024 年初的 V1 到 2026 年 9 月的 V4.1-Flash，注意力结构改了六轮：MHA → GQA → MLA → DSA → CSA / HCA → CSA2。每一轮都有明确的目标——砍掉 KV cache 或注意力计算里的某一个量。这篇把七代结构放在一起对比，每种结构配一张小算子级的张量流图（单个算子怎么进怎么出，不涉及 kernel 融合），最后给总表。
+
+**口径说明**：所有结构与数字以 HuggingFace 上 `deepseek-ai` 各 repo 的官方推理代码和 `config.json` 为准——V1 两个 repo 不带代码、`model_type` 是 `llama`，以其声明的 transformers 4.33.1 的 `LlamaAttention` 为准；V2/V3 以 repo 自带的 `modeling_deepseek.py` 为准；V3.2 与 V4.1 以 repo 的 `inference/model.py` 为准；V4 以 `inference/` 目录与 `modeling_deepseek_v4.py` 为准。论文没写、只在代码里能看到的细节会单独标出。CSA / HCA 的完整推导在本站 [DeepSeek-V4 连载](/2026/09/05/deepseek-v4-00-overview/)的[第 1–3 篇](/2026/09/05/deepseek-v4-01-kv-compression/)，这篇不重复展开，只做对比。
+
+## 注意力的账挂在五个量上
+
+先想清楚 decode 时一个 token 的注意力要花多少钱。每层每 token 要把前文所有缓存的 K、V 读一遍，和当前 query 算内积、softmax、再加权求和。所以
+
+$$
+\text{KV cache / token} = 2 \cdot n_{kv} \cdot c \cdot L \cdot b,
+\qquad
+\text{注意力 FLOPs / token} \approx 4 \cdot n_h \cdot c \cdot n_{\text{看}} \cdot L .
+$$
+
+$n_{kv}$ 是 KV 头数，$c$ 是每条缓存条目的维度，$L$ 是层数，$b$ 是每个元素的字节数，$n_{\text{看}}$ 是每个 query 实际要看的条目数，$n_h$ 是 query 头数。能拧的旋钮就这么几个：**头数**、**条目维度**、**存的条目数**、**看的条目数**、**层数与精度**。七种结构各自拧了不同的旋钮——这就是它们全部的区别。
+
+## 思维导图：每一代改了什么、怎么改的
+
+<DsAttnMindmap />
+
+读法：中间一列是被砍的量，右边是动手的结构与手段。注意最后一代 CSA2 砍的「层数」是前几代都没碰过的维度——它问的是「40 层每层都自己压一份 KV、自己跑一遍索引，真的有必要吗」。
+
+## MHA（DeepSeek-V1-7B / DeepSeekMoE-16B）：基线
+
+**目标**：基线结构，表达力满配——每个 query 头都有自己独立的 K、V。DeepSeek 的第一代模型没有任何自研注意力：deepseek-llm-7B 和 DeepSeekMoE-16B 都是标准 MHA（分别是 32/32 头、16/16 头），而且 deepseek-llm 的 repo 里连模型代码都没有，直接复用 transformers 的 Llama 实现（config 里 `model_type: llama`、`transformers_version: 4.33.1`）。
+
+<MhaGqaCell model="7b" caption="一层 MHA（DeepSeek-V1-7B 维度）。RoPE 加在全部 128 个维度上；写进 KV cache 的是 [t, 32, 128] 的 K 和 V，每 token 每层 16 KiB（BF16）。" />
+
+小算子流水（decode 一个 token，$t$ 条缓存）：`q/k/v_proj` 各自把 4096 维投到 4096 维 → 分成 32 头 × 128 维 → Q、K 加 full RoPE（$\theta = 10^4$，无长度外推）→ K、V 追加进 cache → $\mathrm{softmax}(QK^\top / \sqrt{128} + \text{causal mask})$ → 乘 V → 拼回 4096 维 → `o_proj`。
+
+**账**：每 token 每层 $2 \times 32 \times 128 \times 2\,\text{B} = 16$ KiB，30 层共 480 KiB；4096 token 的上下文约 1.9 GiB。**代价**：cache 和访存都正比于头数，模型越大越贵——67B 若按 MHA 算是每 token 3 MiB，这就是下一代要解决的问题。
+
+## GQA（DeepSeek-V1-67B）：第一刀砍在 KV 头数上
+
+**目标**：decode 是显存带宽瓶颈，KV cache 的大小和每步要读的字节数都正比于 $n_{kv}$。GQA（Google 2023 年提出，DeepSeek 在 67B 上采用）把 K、V 砍到 8 组，64 个 query 头每 8 个共享一组。
+
+<MhaGqaCell model="67b" caption="一层 GQA（DeepSeek-V1-67B 维度）。注意 KV cache 画在 repeat_kv 之前：缓存里只有 8 组，复制发生在读出之后、算分之前，只是逻辑上的 expand，不占显存。" />
+
+与 MHA 的唯一差别是 `repeat_kv`：读出 cache 后把 `[t, 8, 128]` 在第 1 维上 `expand` 成 `[t, 64, 128]` 再算分，注意力公式本身不变。
+
+**账**：每 token 每层 $2 \times 8 \times 128 \times 2\,\text{B} = 4$ KiB，95 层共 380 KiB——比小它十倍的 7B（480 KiB）还少，是假想 MHA 版 67B 的 1/8。**代价**：KV 侧的表达容量降到 8 组，质量微降但远小于 8 倍的账（这也是 GQA 论文的消融结论）；另外 cache 不因为 repeat 变大，这是个常见误解。
+
+## MLA（DeepSeek-V2 / V3）：砍每个条目的维度
+
+**动机**：GQA 还在按「组」存完整的 K 和 V，组数再少每组还是 $2c$ 个数。V2 问了一个更激进的问题：能不能把 K、V 联合压成一个低秩 latent，只缓存 latent？这就是 MLA（Multi-head Latent Attention），公式是低秩联合压缩：
+
+$$
+c_t^{KV} = W^{DKV} h_t,
+\qquad
+k_t^C = W^{UK} c_t^{KV},
+\qquad
+v_t^C = W^{UV} c_t^{KV},
+$$
+
+$c_t^{KV}$ 只有 512 维。由矩阵乘法结合律，$W^{UK}$ 可以吸收进 $W^Q$、$W^{UV}$ 可以吸收进 $W^O$，于是推理时直接在 latent 空间做注意力、128 个 query 头共享同一条 latent——训练时是满配多头，推理时折叠成 MQA 形态。但 RoPE 和吸收是冲突的：位置矩阵会夹在 $W^Q$ 与 $W^{UK}$ 之间让吸收不可行，所以 V2 把位置从内容里**解耦**出来——单独造一条 64 维、所有头共享、带 RoPE 的 key $k_t^R$ 拼在每个头的 key 后面。最终每 token 每层只缓存 $512 + 64 = 576$ 个数。
+
+<MlaFlow caption="一层 MLA（DeepSeek-V3 维度，128 头）。实线是 HF repo 自带 modeling 代码的 naive 路径：latent 先展开成 128 个头的完整 K/V 再缓存；虚线框是官方推理代码（GitHub inference/，默认 attn_impl=absorb）的缓存内容：只有 576 维 latent。两者差 71 倍。" />
+
+**账**：latent 口径下 V3 全 61 层每 token 约 68.6 KiB（BF16），是同头数 MHA 的 1/57、GQA-8 的 28%，论文的口径是「相当于 GQA 只剩 2.25 组」。注意两个容易搞错的点：MLA **不省 FLOPs**（naive 路径还多一次 $W^{UK}/W^{UV}$ 展开，absorb 路径下内积维数反而从 192 涨到 576），它省的是显存和 decode 访存；query 侧的低秩压缩（$c_t^Q$，1536 维）也**不省 KV cache**，省的是训练激活。另外 softmax 的 scale 按拼接后的头维算是 $192^{-1/2}$，开了 YaRN 长上下文还要乘 $m_{\text{scale}}^2$（V3 ≈ 0.1352），这是只读代码才能看到的细节。
+
+## DSA（DeepSeek-V3.2）：砍每个 query 看的条目数
+
+**动机**：MLA 解决了「存」，但没解决「算」——1M 上下文下每个 query 仍要对全部 1M 条 latent 打分，每层约 82 GFLOP/token。DSA（DeepSeek Sparse Attention）的思路是：大部分 token 对当前 query 根本不重要，能不能只看 top-k 个？
+
+<DsaCell caption="一层 DSA（DeepSeek-V3.2 维度）。上泳道是 lightning indexer：给全部前文打一个便宜的分，选出 top-2048；下泳道主注意力和 V3 一样是 MLA，但只对选中的 2048 条算。KV cache 一个字节没省，还多了 indexer 的 FP8 键（每 token 128 B + 4 B scale）。" />
+
+indexer 是个刻意做小做快的小网络：query 复用 MLA 的 $c_t^Q$（共享 `wq_a` + RMSNorm，只加自己的 `wq_b` 投出 64 头 × 128 维），key 只有一条 128 维（64 个 query 头共享，MQA 式），打分是
+
+$$
+I_{t,s} = \sum_{j=1}^{64} w_{t,j} \cdot \operatorname{ReLU}\big(q^I_{t,j} \cdot k^I_s\big),
+$$
+
+选 ReLU 而不归一化是**为了吞吐**（论文原话 for throughput consideration），全程 FP8、打分前先 Hadamard 旋转。因果 mask 加在打分之后、top-k 之前，保证选不出未来 token；`min(2048, t)` 意味着序列短于 2048 时 DSA 等价于稠密。
+
+**账**：核心注意力从 82 GFLOP/token/层 降到 168 MFLOP（约 1/488），代价是 indexer 自己的 16.4 GFLOP（仍是 $O(n^2)$，但常数小得多且 FP8）。**省的是计算，不是显存**——这是关于 DSA 最常见的误解。
+
+## CSA（DeepSeek-V4）：先压缩，再在压缩块上检索
+
+**动机**：DSA 的 cache 还是每个 token 一条 576 维，1M × 61 层约 46 GiB；而且 indexer 的打分随 $n$ 线性涨。V4 把刀伸向**存的条目数**：每 $m=4$ 个 token 压缩成一条 512 维条目，条目数除以 4，检索也在块级做。
+
+<CsaCell />
+
+机制骨架（详细推导见连载[第 1 篇](/2026/09/05/deepseek-v4-01-kv-compression/)）：压缩不是平均池化，而是逐通道各学一套 softmax 权重的加权求和，相邻条目重叠 2m=8 个 token 防止块边界信息断裂；压完的条目 **K = V**——同一条 512 维向量既做内积又做加权和，所有 128 个 query 头共享（MLA 的 MQA 模式干脆连 $W^{UK}/W^{UV}$ 都不要了）。lightning indexer 升级成块级（选 top-1024 块，覆盖 4096 个 token）；最近 128 个 token 的未压缩 KV 走滑窗分支，和压缩条目**拼进同一个 softmax**。K = V 会让输出带上绝对位置，所以输出最后 64 维要乘 $R_{-t}$ 反旋转回相对位置；每个头还有一个可学习的 attention sink logit 只加在 softmax 分母上（这两件事的推导见[第 3 篇](/2026/09/05/deepseek-v4-03-hybrid-attention/)）。
+
+**账**：一条压缩条目存 576 B（64 维 rope 用 BF16 + 448 维 FP8），每 4 个 token 摊一条，CSA 层每 token 每层约 144 B；Pro 全 61 层在 1M 上下文下约 5.3 GiB，是同规模 GQA-8 BF16 基线的约 2%。
+
+## HCA（DeepSeek-V4）：压到不用检索为止
+
+**动机**：同一个 V4 里还藏着另一种更极端的选择——如果把压缩率拉到 $m' = 128$，1M 上下文也只产生 8192 条，密集全看都算得起，那 indexer 整台机器都可以扔掉。
+
+<HcaCell />
+
+和 CSA 的差异就三处：压缩率 4 → 128、不重叠、没有 indexer（可见集合由规则生成：全部已闭合条目 + 因果边界）。query 看 128 条滑窗 + 全部 $n/128$ 条压缩条目（1M 时 8320 条）。每 token 每层摊到 $576/128 = 4.5$ B，几乎免费；代价是每条的「分辨率」低——所以 V4 让 CSA（精读、稀疏检索）和 HCA（粗读、全看）按层 1:1 交错，两种读法互补（层排布与动机见[第 3 篇](/2026/09/05/deepseek-v4-03-hybrid-attention/)）。
+
+## CSA2（DeepSeek-V4.1-Flash）：砍层数维度和每个字节的精度
+
+**动机**：V4 的 40+ 层每层都自己压缩一份 KV、自己跑一遍 indexer，但这些层看到的上下文是同一段——跨层的重复劳动。V4.1-Flash（2026.09，论文 2609.19969）问：能不能把 KV cache 沿**层**这个维度也共享掉？同时把每条的字节数从 FP8 压到 FP4。
+
+<Csa2Cell />
+
+每个 CSA2 层被静态指派三种模式之一（都保留自己的 query 和自己的滑窗 KV）：
+
+- **Full**（4 层：2、8、14、20）：完整跑一遍——自己压缩主 KV、从主 KV 投影出 indexer K、打分选 top-512，结果写进跨层共享池；
+- **Reindex**（4 层：24、28、32、36）：复用共享的主 KV 和 indexer K，只用自己的 indexer query 重新打分、选新的 top-k——选择可以逐层变，缓存不变；
+- **Reuse**（30 层）：连 top-k 索引都复用最近一次算出来的，直接做稀疏注意力，全层没有任何压缩/索引参数。
+
+decoder 里还有一级 **hierarchical indexer**：第一个 Full 层（第 20 层）全量打分后额外选出 ≤2048 个高分块（×8 = 16384 个候选位置）组成候选池，后面的 Reindex 层只在池内打分，把深层索引的成本从 $O(n)$ 砍成常数。相对 V4 的 CSA，压缩算子也简化了：不重叠、去掉了块内位置偏置；indexer K 从主 KV 投影而来，不再单独从 hidden states 压一路。
+
+<CedStrip />
+
+配合 **CED**（Causal Encoder-Decoder）：下 20 层是 encoder、上 20 层是 decoder，decoder 的全局 KV 一律从 encoder 末态投影（SWA 仍每层自产），prefill 只需完整跑前半段——所以 552B 参数的模型 prefill 每 token 只激活 8B、decode 激活 16B。
+
+**账**：主 KV 整条 512 维 FP4（E2M1 + 每 16 通道一个 E4M3 scale）= 288 B/条，indexer K 68 B/条，合计 356 B；每个 token 摊到 2.5 条（encoder 3 个 Full 层 m=2 → 1.5 条 + decoder 1 个 Full 层 m=1 → 1 条），乘起来正好是官方宣称的 **890 B/token**——V4-Flash 的约 1/4、V1 的 1/437。
+
+## 总结：七代结构一张表
+
+| 结构 | 首次出现 | 砍的量 | 每 token KV cache | 每个 query 看多少 | 注意力形态 | 主要代价 |
+|---|---|---|---|---|---|---|
+| MHA | V1-7B（2024.01） | —（基线） | 480 KiB（30 层） | 全部 $n$ | 32 头各自 KV | cache ∝ 头数 |
+| GQA | V1-67B（2024.01） | KV 头数 64→8 | 380 KiB（95 层） | 全部 $n$ | 64 Q 头共享 8 组 KV | KV 容量降 8× |
+| MLA | V2 / V3（2024.05/12） | 条目维度 →576 维 | 68.6 KiB（61 层 BF16） | 全部 $n$ | 推理时折叠成 MQA | 不省 FLOPs |
+| DSA | V3.2（2025） | 看的条目数 →2048 | 不变（+132 B 索引键） | top-2048 token | MLA + indexer | indexer 仍 $O(n^2)$ |
+| CSA | V4（2026.06） | 存的条目数 ÷4 | ~176 B/层（含 indexer 键） | top-1024 块 + 128 滑窗 | K=V 单头 MQA | 压缩丢细节 |
+| HCA | V4（2026.06） | 存的条目数 ÷128 | 4.5 B/层 | 全部 $n/128$ 条 + 128 滑窗 | 同上，无 indexer | 分辨率低，只能粗读 |
+| CSA2 | V4.1-Flash（2026.09） | 层数 × 精度（FP4） | 890 B（全部层） | top-512 块 + 128 滑窗 | 跨层共享 KV/索引 | 30/40 层没有自己的全局 KV |
+
+<KvBytesTimeline />
+
+最后收几个最常见的误解：「DeepSeek 从 V1 就用 MLA」——V1 是 MHA/GQA，MLA 首现于 V2；「MLA 缓存展开后的 K/V」——只有 HF 参考实现这么干，官方推理代码缓存的是 576 维 latent；「MLA/DSA 省 FLOPs/省 cache」——MLA 省显存不省算力，DSA 省算力不省显存，两者正好互补；「CSA 的 K、V 是分开的两条」——K = V 同一条 512 维；「CSA2 是 CSA 的小改版」——它动了层间共享、CED 和存储精度三个维度，是架构级改动。
+
+从趋势看，这条线的演化方向很清晰：先在注意力内部省（头数、维度），再在序列上省（看的、存的条目数），最后跳出单层——跨层共享、编码器/解码器分工、按 bit 抠存储。注意力层越来越不像一个矩阵乘法，越来越像一个带索引、带缓存层级、带精度分级的检索系统。
+
+:::note{type="info"}
+文中各代的详细推导：MLA 与 K3 的 gated MLA 对照见 [Kimi K3 第 3 篇](/2026/09/05/kimi-k3-03-gated-mla/)；压缩算子、lightning indexer、HCA 与反旋转的完整推导见 DeepSeek-V4 连载的[第 1](/2026/09/05/deepseek-v4-01-kv-compression/)、[2](/2026/09/05/deepseek-v4-02-lightning-indexer/)、[3](/2026/09/05/deepseek-v4-03-hybrid-attention/) 篇；KV cache 的系统侧（paging、磁盘缓存）见连载[第 7 篇](/2026/09/05/deepseek-v4-07-systems/)。
+:::
