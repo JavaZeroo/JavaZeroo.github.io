@@ -1,6 +1,6 @@
 ---
 /**
- * 一层 Gated MLA 的内部（Kimi K3 维度）：query 低秩、KV latent 压缩、64 维头间共享键、NoPE、满秩 sigmoid 输出门。
+ * 一层 Gated MLA 的内部（Kimi K3 维度）：query 低秩、KV latent 压缩、64 维头间共享 key、NoPE、满秩 sigmoid 输出门。
  */
 import SvgTex from '../figures/SvgTex.astro';
 const BH = 36;
@@ -65,7 +65,7 @@ const mid = (b: Box) => b.y + BH / 2;
     <!-- 缓存框：latent c_t（RMSNorm 之后）+ 64 维共享分量 -->
     <rect class="cache" x="272" y="136" width="102" height="130" rx="6" />
     <text class="c" x="323" y="282" text-anchor="middle">KV cache：每 token 576 个数</text>
-    <SvgTex x={323} y={290} w={220} size={9.5} weight={600} color="var(--cat-amber)" src="= 512 维 latent $c_t$ + 64 维共享键" />
+    <SvgTex x={323} y={290} w={220} size={9.5} weight={600} color="var(--cat-amber)" src="= 512 维 latent $c_t$ + 64 维共享 key" />
 
     <!-- 注意力 → 门 → 输出 -->
     <line class="edge" x1="750" y1="114" x2="820" y2="114" />
@@ -85,7 +85,7 @@ const mid = (b: Box) => b.y + BH / 2;
       </g>
     ))}
   </svg>
-  <figcaption>一层 Gated MLA。中间那条竖的橙色细框是推理时真正要缓存的东西：512 维 latent 加 64 维头间共享的键，共 576 个数。q 和 k 都是 192 维，其中 64 维在 DeepSeek 原版里用来放 RoPE，K3 保留了这个槽位但不做旋转。</figcaption>
+  <figcaption>一层 Gated MLA。中间那条竖的橙色细框是推理时真正要缓存的东西：512 维 latent 加 64 维头间共享的 key，共 576 个数。q 和 k 都是 192 维，其中 64 维在 DeepSeek 原版里用来放 RoPE，K3 保留了这个槽位但不做旋转。</figcaption>
 </figure>
 
 <style>

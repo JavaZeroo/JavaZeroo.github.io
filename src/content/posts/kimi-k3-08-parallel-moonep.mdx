@@ -1,7 +1,7 @@
 ---
-title: "Kimi K3 模型结构（8）：训练并行，一步训练里谁在等谁"
+title: "Kimi K3 模型结构（8）：训练并行，MoonEP 与四类等待"
 pubDate: 2026-09-05 20:00:00
-description: "系统篇第一篇。一句话交代 K3 预训练的并行布局，然后用「谁在等谁」一个问题串起 §5.2 的所有技巧：EP 负载不均、host 等 shape、SM 之间的偏斜、流水线气泡里的 ViT。重点推 MoonEP 的定理：每个 rank 预留 E/R 个冗余 expert 槽位，任何 router 输出都能补到完全平衡。"
+description: "系统篇第一篇。一句话交代 K3 预训练的并行布局，然后用「谁在等谁」一个问题串起 §5.2 的所有技巧：EP 负载不均、host 等 shape、SM 之间的偏斜、流水线气泡里的 ViT。重点推导 MoonEP 的定理：每个 rank 预留 E/R 个冗余 expert 槽位，任何 router 输出都能补到完全平衡。"
 categories:
   - "📝学习"
 tags:
@@ -21,7 +21,7 @@ import MoeStepFlow from '../../components/k3/MoeStepFlow.astro';
 import EpEvolution from '../../components/k3/EpEvolution.astro';
 import MoonEpFill from '../../components/k3/MoonEpFill.astro';
 
-对应论文 §5.2 的开头、§5.2.1（MoonEP）、§5.2.3（视觉编码器）和附录 E。[第 7 篇](/2026/09/05/kimi-k3-07-systems/)讲的是结构逼出来的系统工作，这一篇和后面两篇讲把 2.8T 参数训练起来、跑起来本身需要什么。三篇各用一个视角：这一篇看**时间**，第 9 篇看**显存**，第 10 篇看**状态住在哪里**。
+对应论文 §5.2 的开头、§5.2.1（MoonEP）、§5.2.3（视觉编码器）和附录 E。[第 7 篇](/2026/09/05/kimi-k3-07-systems/)讲的是结构改动带来的系统工作，这一篇和后面两篇讲把 2.8T 参数训练起来、跑起来本身需要什么。三篇各用一个视角：这一篇看**时间**，第 9 篇看**显存**，第 10 篇看**状态放在哪里**。
 
 先说清楚论文没给什么：§5 没有任何并行度、GPU 数、MFU 或吞吐。所以下文所有数字要么来自 config.json 的形状，要么并行度用字母代替。看到 $P$、$R$、$N$ 这些字母时，它们是变量，不是 K3 的真实配置。
 
@@ -35,7 +35,7 @@ import MoonEpFill from '../../components/k3/MoonEpFill.astro';
 
 并行的所有问题都可以问成一句话：**谁在等谁**。K3 训练里的等待一共四类，下面先把它们列出来，再逐个看 §5.2.1 和 §5.2.3 怎么处理。
 
-## 谁在等谁：四类等待
+## 训练中的四类等待
 
 把一个 PP stage 上一层 MoE 的执行顺序摊开：
 
@@ -59,7 +59,7 @@ import MoonEpFill from '../../components/k3/MoonEpFill.astro';
 
 MoonEP 把目标定得很死：每个 rank 恰好收到 $S\times K$ 份 token。这里 $S$ 是 micro-batch 里的 token 数，$K = 16$ 是每个 token 选的 expert 数，$S\times K$ 是一个 rank 自己的 token 产生的「token 份数」。全部 $R$ 个 rank 一共 $R\cdot S\cdot K$ 份，平均下来每个 rank 正好 $S\times K$。目标是让每个 rank 算的份数**等于**这个平均值，而不是「差不多」。
 
-达到这个目标的手段只有一个：**冗余 expert**。某个 expert 太热，就在别的 rank 上临时放一份它的权重副本，把一部分发给它的 token 分流过去。K3 的做法是每一层、每个 micro-batch 都根据当前 router 输出在线规划冗余 expert 的放置，在 routed expert 计算之前把权重预取过去；反向时冗余副本的梯度先在本地 reduce 缓冲里暂存，算完再 reduce 回它的 home rank。
+达到这个目标的手段只有一个：**冗余 expert**。某个 expert 太热（分到的 token 太多），就在别的 rank 上临时放一份它的权重副本，把一部分发给它的 token 分流过去。K3 的做法是每一层、每个 micro-batch 都根据当前 router 输出在线规划冗余 expert 的放置，在 routed expert 计算之前把权重预取过去；反向时冗余副本的梯度先在本地 reduce 缓冲里暂存，算完再 reduce 回它的 home rank。
 
 于是关键问题变成：**要预留多少冗余 expert 的槽位，才能保证不管 router 怎么输出都能补到完全平衡？** 论文的回答是附录 E 的定理。
 
@@ -67,12 +67,12 @@ MoonEP 把目标定得很死：每个 rank 恰好收到 $S\times K$ 份 token。
 
 记 $E = 896$ 是 expert 总数，$R$ 是 EP 的大小，每个 rank 本地有 $E/R$ 个 expert。定理 1 说：对任意 router 输出，都存在一个方案，让每个 rank 恰好收到 $S\times K$ 份 token，并且**每个 rank 上的冗余 expert 不超过 $E/R$ 个**。
 
-证明是一个构造，比想象中短。先把每个 rank 按本地 token 份数分成欠载（少于 $S\times K$）和过载（多于 $S\times K$）两类。然后重复下面这一步：
+证明是构造性的，比想象中短。先把每个 rank 按本地 token 份数分成欠载（少于 $S\times K$）和过载（多于 $S\times K$）两类。然后重复下面这一步：
 
 1. 挑一个欠载的 rank $u$ 和一个过载的 rank $o$。
 2. 从 $o$ 搬 token 到 $u$，**一次把 $u$ 补满到恰好 $S\times K$**。$o$ 搬走这些之后可能仍然过载、正好平衡，或者反过来变成欠载，把它放回对应的集合。
 
-每一步让一个欠载 rank 变成平衡，而**被补满的 rank 之后不再变动**，所以最多 $R-1$ 步就结束。这一点是整个证明的支点：每个 rank 最多被补一次，所以它收到的远端 token 全部来自**同一个** rank $o$。而 $o$ 搬出去的 token 都属于它自己的本地 expert（它只在过载时往外搬，过载的 rank 从来没收过别人的 token），最多 $E/R$ 个。远端 token 涉及几个 expert，$u$ 就需要几个冗余 expert，所以不超过 $E/R$。证毕。
+每一步让一个欠载 rank 变成平衡，而**被补满的 rank 之后不再变动**，所以最多 $R-1$ 步就结束。整个证明就靠这一点：每个 rank 最多被补一次，所以它收到的远端 token 全部来自**同一个** rank $o$。而 $o$ 搬出去的 token 都属于它自己的本地 expert（它只在过载时往外搬，过载的 rank 从来没收过别人的 token），最多 $E/R$ 个。远端 token 涉及几个 expert，$u$ 就需要几个冗余 expert，所以不超过 $E/R$。证毕。
 
 把这个过程动手走一遍：
 
@@ -106,40 +106,40 @@ $E = 896$。EP 大小论文没给，按几个可能的值算本地 expert 数，
 | 56 | 16 | 16 |
 | 112 | 8 | 8 |
 
-也就是说，每个 rank 要为「最多再放一倍的 expert 权重」留出显存。这笔账 MoonEP 是主动付的，换来的是**规划永远有解，训练永远不会因为找不到可行方案而停下**。这正是它和前人的区别：
+也就是说，每个 rank 要为「最多再放一倍的 expert 权重」留出显存。这部分显存是 MoonEP 主动多花的，换来的是**规划永远有解，训练永远不会因为找不到可行方案而停下**。这正是它和前人的区别：
 
 <EpEvolution />
 
-论文点名的 ECHO 和 UltraEP 走的是另一条路，预设冗余 expert 的数量，或者给每个 rank 设一个 token 上限。上限之内没有可行方案时训练只能停下，上限本身要手调，而且调好了也还有残余的不均衡。MoonEP 用一个定理换掉了这个手调的旋钮。
+论文点名的 ECHO 和 UltraEP 走的是另一条路，预设冗余 expert 的数量，或者给每个 rank 设一个 token 上限。上限之内没有可行方案时训练只能停下，上限本身要手调，而且调好了也还有残余的不均衡。MoonEP 用一个定理去掉了这个需要手调的参数。
 
 ### 在线规划、零拷贝、静态 shape
 
-定理只保证方案存在，每一步真的去求最优解太贵。论文的做法是离线用整数线性规划算出一些代表性 case 的精确最优解当参照，然后设计一个 GPU 上的规划内核：接近最优、开销可以忽略、并且**永远不超过 $E/R$ 的上界**。所以实际跑的是启发式，定理的作用是保证启发式总能找到落在预算里的解。
+定理只保证方案存在，每一步真的去求最优解太贵。论文的做法是离线用整数线性规划算出一些代表性 case 的精确最优解当参照，然后设计一个 GPU 上的规划内核：接近最优、开销可以忽略、并且**永远不超过 $E/R$ 的上界**。所以实际用的是一个近似算法，定理保证的是：它找到的方案一定在 $E/R$ 这个预算之内。
 
-完全平衡之后，通信路径也跟着简化。规划内核已经算出了每个 token 的目的地，于是 permute 和 unpermute 融合成一个算子，token 直接被送到远端 rank 上按 expert 分组好的位置，通信缓冲的视图直接交给计算，中间没有任何拷贝。这一点 DeepEP 也能做，但要付一笔缓冲的账：不知道每个 rank 会收到多少 token，就得按最坏情况准备缓冲。最坏情况是所有 token 都涌向同一个 rank，缓冲要 $S\times K\times R$ 份；MoonEP 每个 rank 恰好收 $S\times K$ 份，缓冲就是固定的 $S\times K$，差了 $R$ 倍。
+完全平衡之后，通信路径也跟着简化。规划内核已经算出了每个 token 的目的地，于是 permute 和 unpermute 融合成一个算子，token 直接被送到远端 rank 上按 expert 分组好的位置，通信缓冲区直接交给计算使用，中间没有任何拷贝。这一点 DeepEP 也能做，但缓冲区要大得多：不知道每个 rank 会收到多少 token，就得按最坏情况准备。最坏情况是所有 token 都涌向同一个 rank，缓冲要 $S\times K\times R$ 份；MoonEP 每个 rank 恰好收 $S\times K$ 份，缓冲就是固定的 $S\times K$，差了 $R$ 倍。
 
-第三个好处是把 host 从循环里拿掉。常规 MoE 实现里每一层每个 expert 收到多少 token 都在变，CPU 必须等 GPU 算出实际数字才能 launch expert 计算，每层同步一次，流水线在层与层之间停顿。完全平衡后每个 rank 每层都是 $S\times K$ 份，**所有层的计算 shape 静态已知**，这个同步就没有了，host 侧的 launch 开销也跟着减轻。
+第三个好处：CPU 不用再每层等 GPU。常规 MoE 实现里每一层每个 expert 收到多少 token 都在变，CPU 必须等 GPU 算出实际数字才能 launch expert 计算，每层同步一次，流水线在层与层之间停顿。完全平衡后每个 rank 每层都是 $S\times K$ 份，**所有层的计算 shape 静态已知**，这个同步就没有了，host 侧的 launch 开销也跟着减轻。
 
 ### rank 内部：expert 之间仍然偏斜
 
-rank 之间平衡了，rank 内部 $E/R$ 个 expert 各自收到多少 token 仍然是偏的。group GEMM 如果按固定顺序、不看负载地把工作分给 SM，这个偏斜就会变成 SM 之间的 makespan 差：有的 SM 早早做完，等最后一个大 expert 算完。K3 的 routed expert GEMM 用一个感知负载的调度器：**launch 之前**根据当前 token 分布选好调度参数，执行中不再改。参数由一个轻量启发式挑，背后是基于硬件指标的解析代价模型，关键系数用离线自动调优标定。shared expert 的 GEMM 则直接扔到另一个 stream 上，和主流的 all-to-all 与 routed GEMM 重叠。
+rank 之间平衡了，rank 内部 $E/R$ 个 expert 各自收到多少 token 仍然是偏的。group GEMM 如果按固定顺序、不看负载地把工作分给 SM，这个偏斜就会变成 SM 之间完成时间的差距：有的 SM 早早做完，干等最后一个大 expert 算完。K3 的 routed expert GEMM 用一个按负载分配的调度器：**launch 之前**先看这一步每个 expert 分到多少 token，据此选好调度参数，执行中不再改。选参数用的是一个估算耗时的公式，输入是硬件指标，里面的关键系数事先离线调好。shared expert 的 GEMM 则直接放到另一个 stream 上，和主 stream 上的 all-to-all 与 routed GEMM 重叠。
 
 ### 和 QB 的关系
 
-[第 5 篇](/2026/09/05/kimi-k3-05-stable-latentmoe/)的 Quantile Balancing 也是在做负载均衡，两者不冲突，是分工。QB 通过 router 偏置改变**路由本身**，让 expert 的负载在统计上平衡，作用于训练动力学；MoonEP 不改路由，接受 router 给出的任何结果，通过冗余副本让**每一步的执行形状**完全一致，作用于系统。QB 做得越好，MoonEP 需要的冗余越少；但只要 QB 不是逐 micro-batch 精确的（它本来就不是），MoonEP 就有活干。
+[第 5 篇](/2026/09/05/kimi-k3-05-stable-latentmoe/)的 Quantile Balancing 也是在做负载均衡，两者不冲突，是分工。QB 通过 router 偏置改变**路由本身**，让 expert 的负载在统计上平衡，管的是模型训练得好不好；MoonEP 不改路由，接受 router 给出的任何结果，通过冗余副本让**每一步的执行形状**完全一致，管的是每一步跑得齐不齐。QB 做得越好，MoonEP 需要的冗余越少；但只要 QB 不是逐 micro-batch 精确的（它本来就不是），MoonEP 就有活干。
 
 ## 视觉编码器：塞进气泡里
 
-§5.2.3 讲的是另一类 rank 等 rank：流水线 warmup 和 cooldown 的气泡。这些空隙常规上是浪费掉的，K3 往里面塞了视觉编码器的计算。先把时间线放在这里，切到「ViT 填气泡」视图看红色方块：
+§5.2.3 讲的是另一类 rank 等 rank：流水线 warmup 和 cooldown 的气泡。这些空隙通常是浪费掉的，K3 往里面塞了视觉编码器的计算。先把时间线放在这里，切到「ViT 填气泡」视图看红色方块：
 
 <PpTimeline />
 
 多模态训练里 MoonViT-V2 的工作量随样本剧烈变化，一张大图或一段长视频会让编码器时间暴涨，并且让持有它的设备成为拖后腿的那个。K2.5 引入过 Decoupled Encoder Process，把 ViT 和文本训练拆成独立阶段，并把视觉的前向和反向在 PP stage 之间摊平。K3 更进一步观察到了 interleaved 1F1B 的一个形状特征：**头几个 micro-batch 的文本前向全挤在最开头，末几个 micro-batch 的文本反向全挤在最末尾**。于是把 ViT 的计算拆开：头几个 micro-batch 的 ViT 前向同步地先做，其余的 ViT 前向塞进流水线气泡；反向对称处理。上面时间线里的红色方块就是这个安排的示意。结果是大部分 ViT 计算被藏在气泡里，视觉编码器的有效开销基本消失。
 
-塞进气泡的前提是单个样本的编码器计算不能太长，否则塞不下，还会让持有大图的设备拖慢整条流水线。所以配套的是**动态上下文并行**：一张大图沿 patch 维切到多个设备上，注意力通过跨 CP rank 收集 KV（gather-KV）来算；每个 CP 组再切成若干子组，多张大图按负载均衡分配过去，让通信占比不随规模增长。这两件事一个压峰值、一个填空隙，合在一起视觉编码器才从关键路径上消失。
+塞进气泡的前提是单个样本的编码器计算不能太长，否则塞不下，还会让持有大图的设备拖慢整条流水线。所以配套的是**动态上下文并行**：一张大图沿 patch 维切到多个设备上，注意力通过跨 CP rank 收集 KV（gather-KV）来算；每个 CP 组再切成若干子组，多张大图按负载均衡分配过去，让通信占比不随规模增长。动态上下文并行把单个样本的编码时间压下来，气泡调度把这些计算放进空闲时间，两者配合，视觉编码器才不再拖慢训练。
 
 ## 小结
 
-这一篇的所有内容可以收进一张表：rank 等 rank、host 等 device、SM 等 SM、计算等通信。MoonEP 用一个定理解决前两类：每个 rank 预留 $E/R$ 个冗余 expert 槽位，任何 router 输出都能补到每个 rank 恰好 $S\times K$ 份 token；平衡带来的静态 shape 又顺手消掉了 host 同步和 $R$ 倍的通信缓冲。第三类靠感知负载的 GEMM 调度，第四类靠 stream 重叠和把 ViT 塞进流水线气泡。
+这一篇的所有内容可以收进一张表：rank 等 rank、host 等 device、SM 等 SM、计算等通信。MoonEP 用一个定理解决前两类：每个 rank 预留 $E/R$ 个冗余 expert 槽位，任何 router 输出都能补到每个 rank 恰好 $S\times K$ 份 token；平衡带来的静态 shape 又顺手消掉了 host 同步和 $R$ 倍的通信缓冲。第三类靠按负载分配的 GEMM 调度，第四类靠 stream 重叠和把 ViT 塞进流水线气泡。
 
-时间账算平了，下一个问题是空间。流水线让 rank 0 攒着 $P$ 份甚至更多的激活，冗余 expert 让每个 rank 要为一倍的 expert 权重留位置，而 2.8T 参数本身的梯度和优化器状态还没算。[第 9 篇](/2026/09/05/kimi-k3-09-memory/)从一张每卡显存账本开始。
+时间上的等待解决了，下一个问题是空间。流水线让 rank 0 攒着 $P$ 份甚至更多的激活，冗余 expert 让每个 rank 要为一倍的 expert 权重留位置，而 2.8T 参数本身的梯度和优化器状态还没算。[第 9 篇](/2026/09/05/kimi-k3-09-memory/)从一张每卡显存账本开始。

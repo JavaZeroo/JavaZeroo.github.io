@@ -1,8 +1,8 @@
 ---
 /**
  * 第 1 篇：为什么去掉 softmax 就不用存 KV。
- * 左：softmax 的每个权重都含 q_t，只能等查询来了再对每个 key 算一次，所以 k_i、v_i 要一直存着。
- * 右：线性注意力把 (q·k_i) v_i 改写成 q^T (k_i v_i^T)，查询在求和外面，外积可以提前累加进 S。
+ * 左：softmax 的每个权重都含 q_t，只能等 query 来了再对每个 key 算一次，所以 k_i、v_i 要一直存着。
+ * 右：线性注意力把 (q·k_i) v_i 改写成 q^T (k_i v_i^T)，query 在求和外面，外积可以提前累加进 S。
  */
 import SvgTex from '../figures/SvgTex.astro';
 import { texMix } from '../figures/tex';
@@ -14,7 +14,7 @@ const OP = (i: number) => RX0 + i * 62;
 ---
 
 <figure class="fo">
-  <svg viewBox="0 0 1040 360" role="img" aria-label="softmax 注意力与线性注意力里查询所在的位置">
+  <svg viewBox="0 0 1040 360" role="img" aria-label="softmax 注意力与线性注意力里 query 所在的位置">
     <defs>
       <marker id="fo-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
         <path d="M0 0 L10 5 L0 10 z" />
@@ -22,7 +22,7 @@ const OP = (i: number) => RX0 + i * 62;
     </defs>
 
     <!-- 左：softmax -->
-    <SvgTex x={230} y={24} size={12.5} weight={600} color="var(--text-2)" src="softmax：查询在权重里面" />
+    <SvgTex x={230} y={24} size={12.5} weight={600} color="var(--text-2)" src="softmax：query 在权重里面" />
     <rect class="q" x="200" y="50" width="60" height="32" rx="7" />
     <SvgTex x={230} y={66} size={12} weight={600} src="$q_t$" />
     {KS.map((k, i) => (
@@ -46,7 +46,7 @@ const OP = (i: number) => RX0 + i * 62;
     <line class="sep" x1="500" y1="20" x2="500" y2="350" />
 
     <!-- 右：线性 -->
-    <SvgTex x={780} y={24} size={12.5} weight={600} color="var(--text-2)" src="线性：查询在求和外面" />
+    <SvgTex x={780} y={24} size={12.5} weight={600} color="var(--text-2)" src="线性：query 在求和外面" />
     {[0, 1, 2].map((i) => (
       <g>
         <rect class="op" x={OP(i) - 22} y="70" width="44" height="44" rx="5" />
@@ -72,7 +72,7 @@ const OP = (i: number) => RX0 + i * 62;
     <SvgTex x={896} y={228} size={9} color="var(--text-2)" src="只和 $S$ 连一根线" />
     <SvgTex x={780} y={328} size={11} color="var(--text)" src="$o_t = q_t^{\!\top} S_t = \sum_{i\le t}(q_t\cdot k_i)\,v_i$，读出精确，每步代价固定" />
   </svg>
-  <figcaption set:html={texMix('同样是对过去的 value 加权求和。softmax 的权重里有查询，求和只能等查询来了再做，所以每个 key、value 都要留着；线性注意力的一项 $(q_t\\cdot k_i)v_i$ 可以写成 $q_t^\\top(k_i v_i^\\top)$，括号里只依赖 token $i$，可以提前累加。')} />
+  <figcaption set:html={texMix('同样是对过去的 value 加权求和。softmax 的权重里有 query，求和只能等 query 来了再做，所以每个 key、value 都要留着；线性注意力的一项 $(q_t\\cdot k_i)v_i$ 可以写成 $q_t^\\top(k_i v_i^\\top)$，括号里只依赖 token $i$，可以提前累加。')} />
 </figure>
 
 <style>

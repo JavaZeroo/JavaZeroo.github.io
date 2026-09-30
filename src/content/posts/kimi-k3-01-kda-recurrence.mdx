@@ -1,7 +1,7 @@
 ---
 title: "Kimi K3 模型结构（1）：序列维度（上），从线性注意力到 KDA"
 pubDate: 2026-09-05 13:20:00
-description: "Kimi Delta Attention 的递推形式。把记忆看成一步在线学习，「加、擦、忘」三个动作各对应目标函数里的一项，拼起来就是 KDA 的状态更新公式；沿谱系图走一遍每一步买来了什么，用三个合成任务验证，再解释为什么转移矩阵的累乘就是位置编码，最后对上 K3 的真实维度和 K3 在输出门上的第一个改动。"
+description: "Kimi Delta Attention 的递推形式。把状态更新看成一步在线学习：写入、擦除、衰减三种操作各对应目标函数里的一项，合起来就是 KDA 的状态更新公式。然后沿谱系图看每一步加了什么，用三个合成任务验证，解释为什么转移矩阵的连乘能提供位置信息，最后对上 K3 的真实维度和 K3 对输出门的改动。"
 categories:
   - "📝学习"
 tags:
@@ -32,35 +32,35 @@ softmax 注意力的代价是 KV cache 随上下文线性增长：1M 上下文�
 
 线性注意力能把这个 cache 压成每头一个 128×128 的矩阵，原因只有一步改写：
 
-- 两种注意力都是 $o_t = \sum_{i\le t} w_{t,i}\, v_i$，区别只在权重。softmax 的权重是 $\exp(q_t\cdot k_i)$ 再归一化，线性注意力直接用裸点积 $w_{t,i} = q_t\cdot k_i$。
-- 线性的一项 $(q_t\cdot k_i)\,v_i$ 可以改写成 $q_t^\top (k_i v_i^\top)$。查询跑到了括号外面，括号里只依赖 token $i$，于是求和可以搬进去：$o_t = q_t^\top \sum_{i\le t} k_i v_i^\top = q_t^\top S_t$。**每个 token 到来时把自己的外积加进 $S$，不需要知道以后谁来查。**
-- softmax 做不到这一步：$\exp(q_t\cdot k_i)$ 拆不成 $f(q_t)^\top g(k_i)$，分母又是对所有 $j$ 求和，查询被钉在权重内部，只能等查询来了再对每个 key 算一次。这就是 KV cache 存在的原因。
+- 两种注意力都是 $o_t = \sum_{i\le t} w_{t,i}\, v_i$，区别只在权重。softmax 的权重是 $\exp(q_t\cdot k_i)$ 再归一化，线性注意力直接用点积 $w_{t,i} = q_t\cdot k_i$ 当权重，不取指数，也不归一化。
+- 线性的一项 $(q_t\cdot k_i)\,v_i$ 可以改写成 $q_t^\top (k_i v_i^\top)$。$q_t$ 被提到了括号外面，括号里只依赖 token $i$，于是求和可以挪进括号：$o_t = q_t^\top \sum_{i\le t} k_i v_i^\top = q_t^\top S_t$。**每个 token 到来时把自己的外积加进 $S$，不需要知道以后谁来查。**
+- softmax 做不到这一步：$\exp(q_t\cdot k_i)$ 拆不成 $f(q_t)^\top g(k_i)$，分母又是对所有 $j$ 求和，$q_t$ 没法从权重里提出来，只能等 $q_t$ 来了再和每个 key 算一次。这就是 KV cache 存在的原因。
 
 <FactorOut />
 
-代价是记忆有损：128 维空间里最多 128 个正交方向，序列一过 128 个 token 键必然重叠，取出来的总是一堆相似键下面的值的混合。
+代价是记忆有损：128 维空间里最多只有 128 个两两正交的方向，序列超过 128 个 token 后，key 不可能两两正交，读出来的是若干相近的 key 对应的 value 混在一起。
 
-$S_t \in \mathbb{R}^{d_k \times d_v}$ 就是这一族模型的记忆，读出是 $o_t = S_t^\top q_t$。对一张固定大小的表，能做的操作只有三种：往里**加**一条新记录，把某个键下的旧记录**擦**掉再写，让所有记录随时间**忘**掉。这三个动作各自做不做、做到什么粒度，就是从线性注意力到 KDA 的全部设计空间。下文一直用「加、擦、忘」指代它们。
+$S_t \in \mathbb{R}^{d_k \times d_v}$ 就是这一族模型的记忆，读出是 $o_t = S_t^\top q_t$。对一张固定大小的表，能做的操作只有三种：**写入**一条新记录；先**擦除**某个 key 下的旧记录再写入；让所有记录随时间**衰减**。从线性注意力到 KDA 的各种变体，区别就在于用了这三种操作里的哪几种、衰减做到多细。下文就用写入、擦除、衰减指代它们。
 
 ## 一步在线学习：公式 (1) 从哪来
 
-$S$ 是一张查找表：行是键通道，列是值通道，用 $q$ 去查得到 $S^\top q$。第 $t$ 个 token 带来一对 $(k_t, v_t)$，意思是「以后拿 $k_t$ 来查，应该查到 $v_t$」。Kimi Linear（Table 7）用一个统一的视角回答「$S$ 该怎么变」：**写一个只看当前 token 的损失 $\mathcal{L}_t(S)$，做一步梯度下降**，步长取 1：
+$S$ 是一张查找表：行是 key 通道，列是 value 通道，用 $q$ 去查得到 $S^\top q$。第 $t$ 个 token 带来一对 $(k_t, v_t)$，意思是「以后拿 $k_t$ 来查，应该查到 $v_t$」。Kimi Linear（Table 7）用一个统一的视角回答「$S$ 该怎么变」：**写一个只看当前 token 的损失 $\mathcal{L}_t(S)$，做一步梯度下降**，步长取 1：
 
 $$
 S_t = S_{t-1} - \nabla_S \mathcal{L}_t(S_{t-1}) .
 $$
 
-等号右边只有 $S_{t-1}$ 和当前的 $(k_t, v_t)$，所以这就是一个 RNN，标题里的「递推形式」指的就是它。三个动作各对应损失里的一项，梯度对 $S$ 都是线性的，所以每一步都能整理成 $S_t = A_t S_{t-1} + B_t$：
+等号右边只有 $S_{t-1}$ 和当前的 $(k_t, v_t)$，所以这就是一个 RNN，标题里的「递推形式」指的就是它。三种操作各对应损失里的一项，梯度对 $S$ 都是线性的，所以每一步都能整理成 $S_t = A_t S_{t-1} + B_t$：
 
-| 动作 | 目标项 | 梯度 $\nabla_S \mathcal{L}_t$ | 落在递推里的位置 |
+| 操作 | 目标项 | 梯度 $\nabla_S \mathcal{L}_t$ | 落在递推里的位置 |
 |---|---|---|---|
-| 加 | $-\langle S^\top k_t, v_t\rangle$ | $-k_t v_t^\top$ | $B_t = k_t v_t^\top$ |
-| 擦 | $\tfrac{\beta_t}{2}\lVert S^\top k_t - v_t\rVert^2$ | $\beta_t k_t k_t^\top S - \beta_t k_t v_t^\top$ | $A_t$ 里减 $\beta_t k_t k_t^\top$，$B_t = \beta_t k_t v_t^\top$ |
-| 忘 | $\tfrac12\lVert\operatorname{Diag}(\sqrt{1-\alpha_t})\, S\rVert_F^2$ | $\operatorname{Diag}(1-\alpha_t)\, S$ | $A_t$ 里乘 $\operatorname{Diag}(\alpha_t)$ |
+| 写入 | $-\langle S^\top k_t, v_t\rangle$ | $-k_t v_t^\top$ | $B_t = k_t v_t^\top$ |
+| 擦除 | $\tfrac{\beta_t}{2}\lVert S^\top k_t - v_t\rVert^2$ | $\beta_t k_t k_t^\top S - \beta_t k_t v_t^\top$ | $A_t$ 里减 $\beta_t k_t k_t^\top$，$B_t = \beta_t k_t v_t^\top$ |
+| 衰减 | $\tfrac12\lVert\operatorname{Diag}(\sqrt{1-\alpha_t})\, S\rVert_F^2$ | $\operatorname{Diag}(1-\alpha_t)\, S$ | $A_t$ 里乘 $\operatorname{Diag}(\alpha_t)$ |
 
-「加」的目标对 $S$ 是线性的，没有最小值，只会往上堆。「擦」把它换成回归目标，最小值处 $S^\top k_t = v_t$ 精确成立，梯度里自带写入项，所以「加」和「擦」不会同时出现。「忘」是把 $S$ 往零拉的正则，$\alpha_t$ 取标量就是所有通道同速衰减，取向量就是每个键通道各有自己的保留率。
+写入的目标对 $S$ 是线性的，没有最小值，只会不断累加。擦除把它换成回归目标，最小值处 $S^\top k_t = v_t$ 精确成立；它的梯度里已经带了写入项，所以不需要再单独加写入那一项。衰减是把 $S$ 往零拉的正则项，$\alpha_t$ 取标量就是所有通道同速衰减，取向量就是每个 key 通道各有自己的保留率。
 
-KDA 取「擦 + 逐通道忘」，并且**先衰减、再对衰减后的状态做回归那一步**：
+KDA 用的是擦除加逐通道衰减，并且**先衰减，再对衰减后的状态做擦除和写入**：
 
 $$
 S_t = \big(I - \beta_t k_t k_t^\top\big)\,\operatorname{Diag}(\alpha_t)\, S_{t-1} + \beta_t k_t v_t^\top ,
@@ -69,13 +69,13 @@ S_t = \big(I - \beta_t k_t k_t^\top\big)\,\operatorname{Diag}(\alpha_t)\, S_{t-1
 \tag{K3 Eq. 1}
 $$
 
-其中 $\alpha_t \in (0,1)^{d_k}$，$\beta_t \in (0,1)$。先衰减再擦，意思是擦的量按衰减后剩下的状态算，和一步到位地把两项梯度相加差一项 $\beta_t(1-\alpha_t)k_t k_t^\top S_{t-1}$。GDN 和 KDA 用的都是这个顺序，下一篇的 chunkwise 形式依赖它。
+其中 $\alpha_t \in (0,1)^{d_k}$，$\beta_t \in (0,1)$。先衰减再擦除，意思是擦除的量按衰减后剩下的状态算；和直接把两项梯度加起来相比，差了一项 $\beta_t(1-\alpha_t)k_t k_t^\top S_{t-1}$。GDN 和 KDA 用的都是这个顺序，下一篇的 chunkwise 形式依赖它。
 
 :::details[三项梯度的完整推导]
 
-对矩阵求梯度只用一招：把损失展开成对每个元素 $S_{ij}$ 的求和，对 $S_{ij}$ 求偏导，再按 $(i,j)$ 摆回矩阵。反复用到 $(S^\top k)_j = \sum_i S_{ij} k_i$。
+对矩阵求梯度只用一个办法：把损失展开成对每个元素 $S_{ij}$ 的求和，对 $S_{ij}$ 求偏导，再按 $(i,j)$ 摆回矩阵。反复用到 $(S^\top k)_j = \sum_i S_{ij} k_i$。
 
-**加。**
+**写入。**
 
 $$
 \mathcal{L}_t(S) = -\langle S^\top k_t, v_t \rangle = -\sum_{j}\Big(\sum_i S_{ij}\, k_{t,i}\Big) v_{t,j} ,
@@ -85,9 +85,9 @@ $$
 \nabla_S \mathcal{L}_t = -k_t v_t^\top .
 $$
 
-代回梯度步：$S_t = S_{t-1} + k_t v_t^\top$，即 $A_t = I$，$B_t = k_t v_t^\top$。这是 Hebb 规则，也是最早的线性注意力。
+代回梯度步：$S_t = S_{t-1} + k_t v_t^\top$，即 $A_t = I$，$B_t = k_t v_t^\top$。这是 Hebb 学习规则，也是最早的线性注意力。
 
-**擦。** 记残差 $e = S^\top k_t - v_t$，$e_j = \sum_i S_{ij} k_{t,i} - v_{t,j}$：
+**擦除。** 记残差 $e = S^\top k_t - v_t$，$e_j = \sum_i S_{ij} k_{t,i} - v_{t,j}$：
 
 $$
 \mathcal{L}_t(S) = \tfrac{\beta_t}{2} \sum_j e_j^2 ,
@@ -103,9 +103,9 @@ $$
 S_t = \underbrace{(I - \beta_t k_t k_t^\top)}_{A_t}\, S_{t-1} + \underbrace{\beta_t k_t v_t^\top}_{B_t} .
 $$
 
-同一个式子的三种读法：只写入残差 $\beta_t k_t (v_t - S_{t-1}^\top k_t)^\top$，记忆已经答对就什么都不写，这是 delta rule 名字的来源；先把 $k_t$ 方向上原来存的东西擦掉 $\beta_t$ 的比例再写新的，这是「先擦再写」；$\|k_t\| = 1$ 时 $I - \beta_t k_t k_t^\top$ 是沿 $k_t$ 的一个收缩，$\beta_t = 1$ 时完全替换。
+同一个式子的三种读法：只写入残差 $\beta_t k_t (v_t - S_{t-1}^\top k_t)^\top$，记忆已经答对就什么都不写，这是 delta rule 名字的来源；先把 $k_t$ 方向上原来存的东西擦掉 $\beta_t$ 的比例再写新的，这是「先擦除再写入」；$\|k_t\| = 1$ 时 $I - \beta_t k_t k_t^\top$ 把 $k_t$ 方向上的分量缩到原来的 $1-\beta_t$ 倍，其他方向不变，$\beta_t = 1$ 时完全替换。
 
-**忘。** 正则按元素独立，逐通道版本第 $i$ 行有自己的系数：
+**衰减。** 正则按元素独立，逐通道版本第 $i$ 行有自己的系数：
 
 $$
 \mathcal{L}_t(S) \mathrel{+}= \tfrac12 \sum_{ij} (1 - \alpha_{t,i}) S_{ij}^2 ,
@@ -115,9 +115,9 @@ $$
 \nabla_S \mathcal{L}_t = \operatorname{Diag}(1 - \alpha_t)\, S .
 $$
 
-代回梯度步：$S - \operatorname{Diag}(1-\alpha_t) S = \operatorname{Diag}(\alpha_t) S$。标量版本把 $\alpha_{t,i}$ 换成同一个 $\alpha_t$ 即可。让 $\alpha_t$ 依赖输入，模型就能逐 token 决定「前面的东西还要不要」，这是 Mamba 一系强调的选择性。
+代回梯度步：$S - \operatorname{Diag}(1-\alpha_t) S = \operatorname{Diag}(\alpha_t) S$。标量版本把 $\alpha_{t,i}$ 换成同一个 $\alpha_t$ 即可。让 $\alpha_t$ 依赖输入，模型就能逐 token 决定「前面的东西还要不要」，这就是 Mamba 系列强调的选择性（selectivity）。
 
-**拼起来。** 「擦 + 忘」放进同一个目标，梯度相加，一步走完：
+**合起来。** 把擦除和衰减放进同一个目标，梯度相加，一步走完：
 
 $$
 S_t = S_{t-1} - \big(\beta_t k_t k_t^\top S_{t-1} - \beta_t k_t v_t^\top\big) - \operatorname{Diag}(1 - \alpha_t) S_{t-1}
@@ -128,68 +128,68 @@ GDN 和 KDA 实际用的是串行版本：令 $\tilde S_{t-1} = \operatorname{Di
 
 :::
 
-## 谱系：每一步加了哪块积木
+## 谱系：每一步加了什么
 
 <KdaLineage />
 
-从线性注意力出发有两条路：左边只加「忘」，先标量后逐通道，始终不擦；右边先加「擦」，再补「忘」。两条路在 KDA 汇合。图里已经写了每个节点的递推式，下面每个节点只说它改了什么、还缺什么。
+从线性注意力出发有两条路：左边只加衰减，先标量后逐通道，始终没有擦除；右边先加擦除，再补上衰减。两条路在 KDA 汇合。图里已经写了每个节点的递推式，下面每个节点只说它改了什么、还缺什么。
 
 ### 线性注意力
 
-Katharopoulos 等，2020。只加不擦不忘。它证明了 softmax 注意力可以换成固定大小的状态加一次递推，但旧关联堆积、互相干扰，长上下文效果远逊于 softmax。后面每一个模型都是在补这个目标函数的缺陷。
+Katharopoulos 等，2020。只有写入，没有擦除和衰减。它说明 softmax 注意力可以换成固定大小的状态加递推，但旧的 key-value 关联只增不减、互相干扰，长上下文比 softmax 差很多。后面每个模型都是在补这个目标函数的缺陷。
 
 ### RetNet 和 Mamba2
 
-加「忘」，标量粒度：$S_t = \alpha_t S_{t-1} + \beta_t k_t v_t^\top$。RetNet（2023）的 $\alpha$ 是每头一个固定常数，一个头一个时间尺度。Mamba2（2024）的 $\alpha_t = \exp(-\Delta_t A_h)$ 由输入决定，写入项也乘同一个步长，不重要的 token 可以既不忘也不写。两者都没有擦除：$k$ 方向上原来存的东西只能等着淡出，不能被覆盖。下一节的合成任务里 Mamba2 全部失败，问题就出在这里。
+加上衰减，标量粒度：$S_t = \alpha_t S_{t-1} + \beta_t k_t v_t^\top$。RetNet（2023）的 $\alpha$ 是每头一个固定常数，一个头一个时间尺度。Mamba2（2024）的 $\alpha_t = \exp(-\Delta_t A_h)$ 由输入决定，写入项也乘同一个步长，不重要的 token 可以既不衰减旧状态、也不写入。两者都没有擦除：$k$ 方向上原来存的东西只能等着淡出，不能被覆盖。下一节的合成任务里 Mamba2 全部失败，问题就出在这里。
 
 ### GLA 和 HGRN2
 
-「忘」从标量变成逐通道：$S_t = \operatorname{Diag}(\alpha_t) S_{t-1} + k_t v_t^\top$，$\alpha_t \in (0,1)^{d_k}$。GLA（2023）的 $\alpha_t$ 来自低秩投影加 sigmoid，这个参数化被 KDA 直接沿用。HGRN2（2024）把写入门和遗忘门绑在一起，键换成 $1 - \alpha_t$，少一组参数。仍然没有擦除。
+衰减从标量变成逐通道：$S_t = \operatorname{Diag}(\alpha_t) S_{t-1} + k_t v_t^\top$，$\alpha_t \in (0,1)^{d_k}$。GLA（2023）的 $\alpha_t$ 来自低秩投影加 sigmoid，这个参数化被 KDA 直接沿用。HGRN2（2024）把写入门和遗忘门绑在一起，key 换成 $1 - \alpha_t$，少一组参数。仍然没有擦除。
 
 ### DeltaNet
 
-Schlag 等 2021 提出，Yang 等 2024 给出并行形式。换目标而不是加项：回归目标，即上一节的「擦」。$(I - \beta_t k_t k_t^\top)$ 是一个广义 Householder 变换，后面 chunkwise 并行全靠它。能做精确的键值覆盖，但**没有任何遗忘**：除非同一个键再来一次，写进去的东西永远留在 $S$ 里。
+Schlag 等 2021 提出，Yang 等 2024 给出并行形式。它不是在目标里加一项，而是把目标换成回归目标，也就是上一节的擦除。$(I - \beta_t k_t k_t^\top)$ 是一个广义 Householder 变换，后面 chunkwise 并行全靠它。能精确地覆盖一个 key 下的旧 value，但**没有任何衰减**：除非同一个 key 再来一次，写进去的东西永远留在 $S$ 里。
 
 ### Longhorn
 
-DeltaNet 的旁支（2024）。不做一步梯度下降，而是把带正则的单步问题精确解出来，结果是 $\beta_t$ 换成 $\beta_t / (1 + \beta_t k_t^\top k_t)$，好处是 $\beta_t$ 不用再限制在 $(0,1)$。没有衰减。
+DeltaNet 的一个变体（2024）。不做一步梯度下降，而是把带正则的单步问题精确解出来，结果是 $\beta_t$ 换成 $\beta_t / (1 + \beta_t k_t^\top k_t)$，好处是 $\beta_t$ 不用再限制在 $(0,1)$。没有衰减。
 
 ### Gated DeltaNet
 
-Yang 等 2024。DeltaNet 加标量「忘」，顺序是先衰减再擦写。$\alpha_t$ 每头一个，沿 Mamba2 的参数化；$\beta_t$ 是 sigmoid。这是第一个同时有「擦」和「忘」的模型，Kimi Linear 的所有消融都拿它当基线。剩下的问题是一个头的 128 个键通道以同一个速率衰减。
+Yang 等 2024。DeltaNet 加上标量衰减，顺序是先衰减、再擦除和写入。$\alpha_t$ 每头一个，沿用 Mamba2 的参数化；$\beta_t$ 用 sigmoid。这是第一个同时有擦除和衰减的模型，Kimi Linear 的所有消融都拿它当基线。剩下的问题是一个头的 128 个 key 通道以同一个速率衰减。
 
 ### Comba
 
-GDN 的旁支（2025）。擦除强度乘一个学习到的标量 $b \in (0,1)$，让擦得比写得少；读出前把 query 减去 $d$ 倍的当前键。衰减仍是每头一个标量。Kimi Linear 的 chunkwise 推导借用了它对转移矩阵累乘的写法，下一篇会碰到。
+GDN 的一个变体（2025）。擦除强度乘一个学习到的标量 $b \in (0,1)$，让擦除比写入弱一些；读出前把 query 减去 $d$ 倍的当前 key。衰减仍是每头一个标量。Kimi Linear 的 chunkwise 推导借用了它对转移矩阵连乘的写法，下一篇会碰到。
 
 ### KDA
 
-Kimi Linear，2025。把 GDN 的标量换成对角矩阵，或者说给 GLA 加上 delta rule，即公式 (1)。逐通道衰减的理由来自位置编码：RoPE 的力量在于每个维度有自己的旋转频率，标量衰减没有这种逐维的多样性。「转移矩阵的累乘就是位置编码」一节展开。
+Kimi Linear，2025。把 GDN 的标量换成对角矩阵，或者说给 GLA 加上 delta rule，即公式 (1)。逐通道衰减的理由来自位置编码：RoPE 好用，是因为每个维度有自己的旋转频率，标量衰减让所有维度共用一个速率。下面「转移矩阵的连乘提供位置信息」一节展开。
 
 ### RWKV-7
 
-和 KDA 并排的兄弟（2025）：同样是逐通道衰减加擦除，但擦除键 $\hat\kappa_t$、写入键 $\tilde k_t$ 和逐通道学习率 $a_t$ 各自独立，转移矩阵是一般的「对角加低秩」$D - a b^\top$。KDA 是 $a$、$b$、写入键全绑在 $k_t$ 上的特例，表达能力让了一步，换来内核少算一半东西，下一篇讲。
+和 KDA 同期、思路最接近的工作（2025）：同样是逐通道衰减加擦除，但擦除用的 key $\hat\kappa_t$、写入用的 key $\tilde k_t$ 和逐通道学习率 $a_t$ 各自独立，转移矩阵是一般的「对角加低秩」$D - a b^\top$。KDA 是 $a$、$b$、写入用的 key 全绑在 $k_t$ 上的特例，表达能力弱一些，换来内核少算一半，下一篇讲。
 
 ### 一句话总结
 
-按「有没有擦」和「忘的粒度」两个坐标摆开：
+按「有没有擦除」和「衰减的粒度」两个维度排开：
 
 | | 无衰减 | 标量衰减 | 逐通道（对角）衰减 |
 |---|---|---|---|
 | **无 delta rule** | 线性注意力 | RetNet、Mamba2 | GLA、HGRN2 |
 | **有 delta rule** | DeltaNet、Longhorn | Gated DeltaNet、Comba | **KDA**、RWKV-7 |
 
-## 三个合成任务：擦和逐通道忘各买来了什么
+## 三个合成任务：擦除和逐通道衰减各带来了什么
 
-语言模型的 PPL 差异只有零点几，看不出机制。Kimi Linear §5.1 用三个合成任务分别考察状态的三种能力（2 层 2 头、头维 128，序列长度 256 到 2048，比较 KDA、GDN 和 Mamba2）：
+语言模型的 PPL 只差零点几，看不出每个设计各起了什么作用。Kimi Linear §5.1 用三个合成任务分别考察状态的三种能力（2 层 2 头、头维 128，序列长度 256 到 2048，比较 KDA、GDN 和 Mamba2）：
 
-| 任务 | 例子 | 考的能力 | 依赖的动作 |
+| 任务 | 例子 | 考的能力 | 依赖的操作 |
 |---|---|---|---|
-| Palindrome | `a b c d e \| → e d c b a` | 把每个 token 分别存下、按位置精确取回 | 键之间互不干扰，只叠加和衰减的记忆读出来是加权和，长了就分不开 |
-| MQAR | `A 4 · B 7 · C 2 · … · A ? → 4` | 同时保持很多组 $k \to v$ 绑定，同一个键再来要覆盖旧值 | 擦：查出来不等于 $v$ 就把差值写进去 |
-| Stack | `push 3 a · push 3 b · pop 3 → b · pop 3 → a` | 同一个键下反复改写，pop 后露出上一层 | 擦：没有擦除，`pop 3` 的两次回答无法不同 |
+| Palindrome | `a b c d e \| → e d c b a` | 把每个 token 分别存下、按位置精确取回 | key 之间互不干扰，只叠加和衰减的记忆读出来是加权和，长了就分不开 |
+| MQAR | `A 4 · B 7 · C 2 · … · A ? → 4` | 同时保持很多组 $k \to v$ 绑定，同一个 key 再来要覆盖旧 value | 擦除：查出来不等于 $v$ 就把差值写进去 |
+| Stack | `push 3 a · push 3 b · pop 3 → b · pop 3 → a` | 同一个 key 下反复改写，pop 后露出上一层 | 擦除：没有擦除，`pop 3` 的两次回答不可能不同 |
 
-结果：KDA 在三个任务、所有长度上准确率最高，在 Palindrome 和 MQAR 上收敛明显快于 GDN；Mamba2 三个任务全部失败。对着更新规则看：Mamba2 和 KDA 的差别是有没有「擦」，它全挂，说明**擦除是精确回忆和状态跟踪的前提**；GDN 和 KDA 的差别只在衰减粒度，它慢，说明**逐通道衰减买来的是收敛速度**。这就是谱系图上两条汇入 KDA 的边的实验注脚。
+结果：KDA 在三个任务、所有长度上准确率最高，在 Palindrome 和 MQAR 上收敛明显快于 GDN；Mamba2 三个任务全部失败。对着更新规则看：Mamba2 和 KDA 的差别是有没有擦除，Mamba2 全部失败，说明**擦除是精确回忆和状态跟踪的前提**；GDN 和 KDA 的差别只在衰减粒度，GDN 收敛慢，说明**逐通道衰减带来的是收敛速度**。这两条结论正好对应谱系图上汇入 KDA 的两条边。
 
 ## 公式 (1) 的图解：忘对付年龄，擦对付碰撞
 
@@ -213,7 +213,7 @@ $$
 
 <KeyAxisDecay />
 
-## 转移矩阵的累乘就是位置编码
+## 转移矩阵的连乘提供位置信息
 
 K3 的 24 层 MLA 全是 NoPE，整个模型里没有 RoPE。不带位置信息的注意力层分不清「A 在 B 前面」和「B 在 A 前面」，那顺序从哪来？**从 KDA 的递推里来。**
 
@@ -238,11 +238,11 @@ $$
 
 两条链并排看，差别有三处：
 
-- RoPE 的格子是固定的；KDA 的格子由第 $j$ 个 token 的 $\alpha_j$、$\beta_j$、$k_j$ 决定，可学习、数据相关。
-- RoPE 的 $R$ 是正交矩阵，分数随距离震荡但不衰减；KDA 的 $\operatorname{Diag}(\alpha_j)$ 是收缩的，分数随距离衰减，天然偏向近期。
-- RoPE 每个维度有自己的频率，低频看长程、高频看短程；GDN 的标量 $\alpha_j$ 相当于所有维度共用一个频率，KDA 的逐通道 $\alpha_j$ 才是逐维频率的对应物。Kimi Linear 就是从这里出发把 GDN 的门换成了逐通道。
+- RoPE 链上的每个矩阵都一样，固定不变；KDA 链上的第 $j$ 个矩阵由第 $j$ 个 token 的 $\alpha_j$、$\beta_j$、$k_j$ 决定，随输入变化，可学习。
+- RoPE 的 $R$ 是正交矩阵，分数随距离震荡但不衰减；KDA 的 $\operatorname{Diag}(\alpha_j)$ 每个元素都小于 1，分数随距离衰减，天然偏向近处的 token。
+- RoPE 每个维度有自己的频率，低频管远距离、高频管近距离；GDN 的标量 $\alpha_j$ 相当于所有维度共用一个频率，KDA 的逐通道 $\alpha_j$ 才对应 RoPE 的逐维频率。Kimi Linear 就是从这里出发把 GDN 的门换成了逐通道。
 
-由此 K3 的两个决定就顺了：每层 MLA 前面都有三层 KDA 往残差流里写位置敏感的内容，所以 24 层 MLA 全部 NoPE；也不存在需要为长上下文重调的 RoPE 频率基或 YaRN 插值，K3 §3.4 从 8K 扩到 1M 不改任何位置编码参数。Kimi Linear Table 5 给了反面证据：MLA 层加回 RoPE 的变体短上下文打平，128K 的 RULER 从 84.3 掉到 78.8。第 3 篇讲 MLA 时再展开 NoPE 的工程收益。
+这就解释了 K3 的两个决定：每层 MLA 前面都有三层 KDA 往残差流里写入带位置信息的内容，所以 24 层 MLA 全部 NoPE；也不存在需要为长上下文重调的 RoPE 频率基或 YaRN 插值，K3 §3.4 从 8K 扩到 1M 不改任何位置编码参数。Kimi Linear Table 5 给了反面证据：MLA 层加回 RoPE 的变体在短上下文上持平，128K 的 RULER 从 84.3 掉到 78.8。第 3 篇讲 MLA 时再展开 NoPE 的工程收益。
 
 ## 参数化：从 $x_t$ 到 $q, k, v, \alpha, \beta$
 
@@ -261,10 +261,10 @@ $$
 
 维度按 K3 的 $d = 7168$、96 头、$d_k = d_v = 128$：
 
-- **ShortConv。** 深度可分的因果卷积，核大小 4（`short_conv_kernel_size`），给每个 token 的 q、k、v 掺进前三个 token 的信息。Kimi Linear 的消融：去掉它 PPL 从 5.65 变 5.70。decode 时每层要为 q、k、v 各缓存最近 3 个 token 的投影，这是 KDA 除了 $S$ 之外唯一的状态。
-- **q、k 的 L2 归一化。** 让 $\|k_t\| = 1$，$I - \beta_t k_t k_t^\top$ 的特征值落在 $[1-\beta_t, 1]$，递推不会爆。
+- **ShortConv。** depthwise 因果卷积（每个通道单独做卷积），核大小 4（`short_conv_kernel_size`），给每个 token 的 q、k、v 混入前 3 个 token 的信息。Kimi Linear 的消融：去掉它 PPL 从 5.65 变 5.70。decode 时每层要为 q、k、v 各缓存最近 3 个 token 的投影，这是 KDA 除了 $S$ 之外唯一的状态。
+- **q、k 的 L2 归一化。** 让 $\|k_t\| = 1$，$I - \beta_t k_t k_t^\top$ 的特征值落在 $[1-\beta_t, 1]$，递推在数值上不会发散。
 - **$\beta$。** 7168 → 96 的线性层加 sigmoid，每头一个标量，代码里叫 `b_proj`。
-- **$\alpha$ 的 logit $z$。** 低秩投影 7168 → 128 → 12288（`f_a_proj`、`f_b_proj`），加一个 12288 维偏置（`dt_bias`），每个头每个键通道一个 logit。从 logit 到 $(0,1)$ 的映射，Kimi Linear 用 GDN 的负 softplus，K3 换成有下界的 scaled sigmoid，另有每头一个的可学习 log 尺度（`A_log`）。这是 K3 的改动之一，动机在 chunkwise 形式里，放到下一篇。
+- **$\alpha$ 的 logit $z$。** 低秩投影 7168 → 128 → 12288（`f_a_proj`、`f_b_proj`），加一个 12288 维偏置（`dt_bias`），每个头每个 key 通道一个 logit。从 logit 到 $(0,1)$ 的映射，Kimi Linear 用 GDN 的负 softplus，K3 换成有下界的 scaled sigmoid，另有每头一个的可学习 log 尺度（`A_log`）。这是 K3 的改动之一，动机在 chunkwise 形式里，放到下一篇。
 
 ## 输出：逐头 RMSNorm、门、投影
 
@@ -289,7 +289,7 @@ o = self.o_norm(o, g)                               # 逐头 RMSNorm，再乘 si
 o = self.o_proj(rearrange(o, 'b t h d -> b t (h d)'))
 ```
 
-为什么是 sigmoid 门：Kimi Linear 的消融里 sigmoid 门 PPL 5.65，无门 5.67，GDN 默认的 Swish 门 5.81。sigmoid 输出在 $(0,1)$，能把某些通道彻底关掉；引用的是 Qwen 团队关于 gated attention 的工作，门带来非线性和稀疏性，并缓解 attention sink。
+为什么是 sigmoid 门：Kimi Linear 的消融里 sigmoid 门 PPL 5.65，无门 5.67，GDN 默认的 Swish 门 5.81。sigmoid 的输出在 $(0,1)$ 之间，接近 0 时相当于把这个通道关掉。这个设计引用的是 Qwen 团队的 gated attention 工作：门带来非线性和稀疏性，还能缓解 attention sink。
 
 ## 每层的状态有多大
 
@@ -300,15 +300,15 @@ o = self.o_proj(rearrange(o, 'b t h d -> b t (h d)'))
 | $S$ | 96 头 × 128 × 128 | 1,572,864 |
 | 三路 ShortConv 的窗口 | 3 × 12288 × 3 个 token | 110,592 |
 
-约 1.68M 个数，BF16 下约 3.4 MB，69 层约 232 MB，**和上下文长度无关**。对照 MLA：每 token 每层 576 个数，24 层 1M 上下文约 27.6 GB。KDA 全部 69 层的状态相当于大约 8K 个 token 的 MLA cache。完整的账在第 3 篇。
+约 1.68M 个数，BF16 下约 3.4 MB，69 层约 232 MB，**和上下文长度无关**。对照 MLA：每 token 每层 576 个数，24 层 1M 上下文约 27.6 GB。KDA 全部 69 层的状态相当于大约 8K 个 token 的 MLA cache。完整的对比在第 3 篇。
 
 ## 术语坑
 
 - **$\alpha$ 在两篇论文里是同一个东西**，Kimi Linear 写 $\alpha_t = f(\cdot)$ 没给 $f$，K3 把映射写全了（公式 (5)）并且改了它。
 - **$\beta$ 是学习率还是样本权重。** DeltaNet 原文把 $\beta_t$ 写成 SGD 的学习率，Kimi Linear Table 7 把它放进目标函数、步长取 1。两种写法得到同一个递推，本文跟 Table 7。
 - **头数和头维。** KDA 和 MLA 共用 `num_attention_heads = 96`、`head_dim = 128`，但 MLA 的 query 和 key 实际是 192 维（128 加 64），第 3 篇解释。
-- **行向量还是列向量。** 论文按 $S \in \mathbb{R}^{d_k \times d_v}$ 写，读出是 $S^\top q$；RWKV-7 和 Comba 原文用行向量约定，转移矩阵写在 $S_{t-1}$ 右边，本文全部转成了列向量约定。FLA 内核里 `transpose_state_layout=True` 存的是转置，只是内存布局的事。
-- **打分式里因子的顺序。** Kimi Linear 公式 (12) 把每一步的转移写成 $A_j (I - \beta_j k_j k_j^\top)$，先擦再衰减；本文按公式 (1) 写成 $(I - \beta_j k_j k_j^\top)\operatorname{Diag}(\alpha_j)$，先衰减再擦。两个矩阵不相等，真正实现的是公式 (1) 的顺序。
+- **行向量还是列向量。** 论文按 $S \in \mathbb{R}^{d_k \times d_v}$ 写，读出是 $S^\top q$；RWKV-7 和 Comba 原文用行向量约定，转移矩阵写在 $S_{t-1}$ 右边，本文全部转成了列向量约定。FLA 内核里 `transpose_state_layout=True` 存的是转置，只影响内存布局。
+- **打分式里因子的顺序。** Kimi Linear 公式 (12) 把每一步的转移写成 $A_j (I - \beta_j k_j k_j^\top)$，先擦除再衰减；本文按公式 (1) 写成 $(I - \beta_j k_j k_j^\top)\operatorname{Diag}(\alpha_j)$，先衰减再擦除。两个矩阵不相等，真正实现的是公式 (1) 的顺序。
 
 ## 下一篇
 

@@ -56,14 +56,14 @@ const T = 4, TS = 34, GX = 640, GY = 88; // 4×4 tile 网格
       <rect class:list={['tile', { diag: r === c }]} x={GX + c * TS} y={GY + r * TS} width={TS - 3} height={TS - 3} rx="3" />
     )))}
     <path class="brace" d={`M${GX - 6} ${GY} h-5 V ${GY + T * TS - 3} h5`} />
-    <SvgTex x={GX - 16} y={GY + T * TS / 2 - 3} w={60} size={9.5} align="end" color="var(--text-2)" src="查询 $i$" />
-    <SvgTex x={GX + T * TS / 2} y={GY + T * TS + 9} w={80} size={9.5} color="var(--text-2)" src="键 $j \le i$" />
+    <SvgTex x={GX - 16} y={GY + T * TS / 2 - 3} w={60} size={9.5} align="end" color="var(--text-2)" src="query $i$" />
+    <SvgTex x={GX + T * TS / 2} y={GY + T * TS + 9} w={80} size={9.5} color="var(--text-2)" src="key $j \le i$" />
     <rect class="tile" x={GX + T * TS + 30} y={GY + 10} width="14" height="14" rx="2" />
     <SvgTex x={GX + T * TS + 50} y={GY + 17} w={300} size={9.5} align="start" color="var(--text-2)" src="非对角 tile：$\exp(g_i - g_s)\cdot\exp(g_s - g_j)$，" />
     <SvgTex x={GX + T * TS + 50} y={GY + 30} w={300} size={9.5} align="start" color="var(--text-2)" src="两个因子都 $\le 1$，直接 BF16 矩阵乘" />
     <rect class="tile diag" x={GX + T * TS + 30} y={GY + 56} width="14" height="14" rx="2" />
     <SvgTex x={GX + T * TS + 50} y={GY + 63} w={300} size={9.5} align="start" color="var(--text-2)" src="对角 tile：$\exp(g_s - g_j)$ 可能 $\gg 1$" />
-    <text class="s" x={GX + T * TS + 50} y={GY + 80}>Kimi Linear：逐位置对、FP32，是瓶颈</text>
+    <text class="s" x={GX + T * TS + 50} y={GY + 80}>Kimi Linear：每对位置单独用 FP32 算，是瓶颈</text>
     <SvgTex x={GX + T * TS + 50} y={GY + 89} w={300} size={9.5} weight={600} align="start" color="var(--cat-emerald)" src="K3：16 步累计 log-decay 大于 $-80$，" />
     <SvgTex x={GX + T * TS + 50} y={GY + 102} w={300} size={9.5} weight={600} align="start" color="var(--cat-emerald)" src="$e^{80}$ 在 BF16 范围内，也走矩阵乘" />
   </svg>

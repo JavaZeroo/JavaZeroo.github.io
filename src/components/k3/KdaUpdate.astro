@@ -55,7 +55,7 @@ const ops = [
     {ops.map((o) => <text class="op" x={o.x} y={y0 + M / 2 + 8} text-anchor="middle">{o.t}</text>)}
 
     <SvgTex x={40} y={26} w={740} size={11} align="start" color="var(--muted)" src="从右往左读：先把旧状态每一行按 $\alpha_t$ 各自衰减，再把落在 $k_t$ 方向上的内容擦掉 $\beta_t$ 的比例，最后写入 $\beta_t$ 倍的新关联 $k_t \to v_t$。" />
-    <SvgTex x={40} y={228} w={740} size={11} align="start" color="var(--muted)" src="读出：$\tilde o_t = S_t^\top q_t$。行 = 键通道（$d_k = 128$，各自的衰减率），列 = 值通道（$d_v = 128$）。" />
+    <SvgTex x={40} y={228} w={740} size={11} align="start" color="var(--muted)" src="读出：$\tilde o_t = S_t^\top q_t$。行 = key 通道（$d_k = 128$，各自的衰减率），列 = value 通道（$d_v = 128$）。" />
   </svg>
 </figure>
 

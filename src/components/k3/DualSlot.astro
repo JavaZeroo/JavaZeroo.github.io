@@ -1,6 +1,6 @@
 ---
 /**
- * 双槽位轮转示意（第 9、10 篇复用三次）：GPU 上只留两个槽，一个在用、一个在预取下一块。
+ * 双缓冲轮转示意（第 9、10 篇复用）：GPU 上只留两个槽，一个在用、一个在预取下一块。
  * 用 props 换文字：store 是槽位外的存储，items 是流过槽位的东西。
  */
 import SvgTex from '../figures/SvgTex.astro';
@@ -9,7 +9,7 @@ interface Props { store: string; item: string; slotA: string; slotB: string; use
 const { store, item, slotA, slotB, use, fill, caption, id } = Astro.props;
 ---
 <figure class="dual">
-  <svg viewBox="0 0 640 190" role="img" aria-label="双槽位轮转示意">
+  <svg viewBox="0 0 640 190" role="img" aria-label="双缓冲轮转示意">
     <defs>
       <marker id={`dual-arr-${id}`} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" /></marker>
     </defs>

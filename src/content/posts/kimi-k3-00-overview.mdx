@@ -18,7 +18,7 @@ import K3ArchDiagram from '../../components/k3/K3ArchDiagram.astro';
 import K3LayerStrip from '../../components/k3/K3LayerStrip.astro';
 import SublayerChain from '../../components/k3/SublayerChain.astro';
 
-这个连载配合 [Kimi K3 技术报告](https://arxiv.org/abs/2607.24653)的 §2 "Model Architecture" 一起读。论文这一节只有八页，但每个模块背后都压着一篇独立论文，K3 又在每个模块上做了自己的改动。开篇先不进任何细节，只做三件事：把整个模型画成一张图，把层数和维度对上，告诉你后面每一篇在图上的哪个位置。
+这个连载配合 [Kimi K3 技术报告](https://arxiv.org/abs/2607.24653)的 §2 "Model Architecture" 一起读。论文这一节只有八页，但每个模块背后都有一篇单独的论文，K3 又在每个模块上做了自己的改动。开篇先不进任何细节，只做三件事：把整个模型画成一张图，把层数和维度对上，告诉你后面每一篇在图上的哪个位置。
 
 ## 三句话版本
 
@@ -30,7 +30,7 @@ Kimi K3 是一个 **2.78T 总参数、104.2B 激活参数**的 MoE 模型，**93
 |---|---|---|---|
 | **序列** | token 之间 | Kimi Delta Attention（KDA）与 Gated MLA 按 3:1 混合 | Kimi Linear（2510.26692） |
 | **深度** | 层之间 | Attention Residuals（AttnRes） | Attention Residuals（2603.15031） |
-| **宽度** | 通道之间 | Stable LatentMoE | LatentMoE（2601.18089）+ K3 自己的三个稳定化改动 |
+| **宽度** | 通道之间 | Stable LatentMoE | LatentMoE（2601.18089）+ K3 为训练稳定加的三个改动 |
 
 再加上输入端的视觉编码器 MoonViT-V2 和一个投影层，以及优化器 Per-Head Muon。论文的说法是，这些结构改动加上数据和训练配方的改进，让整体 scaling efficiency 相对 Kimi K2 提升了约 2.5 倍。
 
@@ -51,9 +51,9 @@ Kimi K3 是一个 **2.78T 总参数、104.2B 激活参数**的 MoE 模型，**93
 
 ## 93 层怎么排
 
-<K3LayerStrip caption="93 层的类型和 AttnRes 的分块边界。层号按论文和 config.json 的口径从 1 开始数。" />
+<K3LayerStrip caption="93 层的类型和 AttnRes 的分块边界。层号和论文、config.json 一样从 1 开始数。" />
 
-排布规则很机械：
+排布规则很简单：
 
 $$
 \underbrace{[\text{KDA},\ \text{KDA},\ \text{KDA},\ \text{MLA}]\times 23}_{92\ \text{层}}\ +\ \underbrace{\text{MLA}}_{\text{第 93 层}}
@@ -63,7 +63,7 @@ $$
 
 每一层注意力后面都跟一个 FFN，93 层就是 186 个子层。第 1 层的 FFN 是稠密的（`first_k_dense_replace = 1`），中间维 33792，这和 DeepSeek-V3、Kimi K2 的习惯一样。其余 92 层都是 Stable LatentMoE。
 
-AttnRes 的分块是另一套刻度，每 12 个 decoder layer 一块，边界在第 1、13、25、…、85 层。这样切出来 7 个满块和一个 9 层的尾块，加上词嵌入本身，任何一个子层最多能看到 9 个来源。两套刻度是对齐的：12 是 4 的 3 倍，每个满块正好是三组 [KDA, KDA, KDA, MLA]，块的第一层总是 KDA，最后一层总是 MLA。
+AttnRes 的分块是另一套划分，每 12 个 decoder layer 一块，边界在第 1、13、25、…、85 层。这样切出来 7 个满块和一个 9 层的尾块，加上词嵌入本身，任何一个子层最多能看到 9 个来源。两套划分是对齐的：12 是 4 的 3 倍，每个满块正好是三组 [KDA, KDA, KDA, MLA]，块的第一层总是 KDA，最后一层总是 MLA。
 
 ## K2 → K3 对照表
 
@@ -116,7 +116,7 @@ config.json 里值得先记住的几个数，后面每一篇都会用到：
 
 <SublayerChain />
 
-四种子层各自的维度账：
+四种子层各自的维度：
 
 **KDA。** 输入 7168 维。q、k、v 各自经过一个线性层到 96×128 = 12288 维，再过一个核大小为 4 的因果短卷积和 Swish，q 和 k 再做 L2 归一化。每个头一个标量 $\beta_t$（7168 → 96，sigmoid），每个头一个 128 维的衰减向量 $\alpha_t$，由低秩投影 7168 → 128 → 12288 加每头偏置产生。每个头维护一个 128×128 的状态矩阵。输出先做逐头 RMSNorm，乘一个满秩 sigmoid 门（7168 → 12288），再经 $W_o$ 回到 7168 维。
 
@@ -134,24 +134,24 @@ config.json 里值得先记住的几个数，后面每一篇都会用到：
 
 | 篇 | 讲什么 | 对应论文 |
 |---|---|---|
-| 0 | 本篇。总图、层排布、维度账 | §2 开头，Table 1 |
+| 0 | 本篇。总图、层排布、各子层维度 | §2 开头，Table 1 |
 | 1 | [序列（上）：从线性注意力到 KDA](/2026/09/05/kimi-k3-01-kda-recurrence/)。delta rule、逐通道衰减、K3 的满秩输出门 | §2.1.1 前半，Kimi Linear |
 | 2 | [序列（下）：KDA 的 chunkwise 并行形式](/2026/09/05/kimi-k3-02-kda-chunkwise/)，K3 的下界衰减为什么让所有 tile 都能上 Tensor Core | §2.1.1 后半，Fig. 3 |
-| 3 | [序列：Gated MLA](/2026/09/05/kimi-k3-03-gated-mla/)，NoPE，3:1 的混合比，以及 1M 上下文时的 KV 账 | §2.1.2 |
+| 3 | [序列：Gated MLA](/2026/09/05/kimi-k3-03-gated-mla/)，NoPE，3:1 的混合比，以及 1M 上下文时的 KV cache 占用 | §2.1.2 |
 | 4 | 深度：[Attention Residuals](/2026/09/05/kimi-k3-04-attnres/)。残差流为什么是深度上的 RNN，Full 与 Block 两种形式，K3 的 9 个来源 | §2.2 |
-| 5 | 宽度：[Stable LatentMoE](/2026/09/05/kimi-k3-05-stable-latentmoe/)。在 latent 空间里跑 expert，RMSNorm、SiTU-GLU、Quantile Balancing 三个稳定化改动 | §2.3，附录 B/C/D |
+| 5 | 宽度：[Stable LatentMoE](/2026/09/05/kimi-k3-05-stable-latentmoe/)。在 latent 空间里跑 expert，RMSNorm、SiTU-GLU、Quantile Balancing 三个为训练稳定做的改动 | §2.3，附录 B/C/D |
 | 6 | [输入端与零件](/2026/09/05/kimi-k3-06-vision-and-parts/)：MoonViT-V2、投影、MTP 层、Per-Head Muon | §2.4，§2.5，§4.1.4 |
-| 7 | [结构决定系统](/2026/09/05/kimi-k3-07-systems/)：FlashKDA、KDA 的上下文并行、KDA 感知的前缀缓存 | §5.1，§5.4 |
-| 8 | [训练并行：一步训练里谁在等谁](/2026/09/05/kimi-k3-08-parallel-moonep/)。MoonEP 的 E/R 冗余定理、四类等待、ViT 塞进气泡 | §5.2.1，§5.2.3，附录 E |
+| 7 | [三个新模块带来的系统改动](/2026/09/05/kimi-k3-07-systems/)：FlashKDA、KDA 的上下文并行、支持 KDA 的前缀缓存 | §5.1，§5.4 |
+| 8 | [训练并行：MoonEP 与四类等待](/2026/09/05/kimi-k3-08-parallel-moonep/)。MoonEP 的 E/R 冗余定理、四类等待、ViT 塞进流水线气泡 | §5.2.1，§5.2.3，附录 E |
 | 9 | [显存：把 2.8T 塞进 GPU](/2026/09/05/kimi-k3-09-memory/)。每卡显存账本，六个技巧各搬走哪一行 | §5.2.2 |
-| 10 | [RL 与服务：状态住在哪里](/2026/09/05/kimi-k3-10-rl-serving/)。外部 KV 池、参考模型借槽位、沙箱、集群级调度 | §5.3，§5.4.3 |
+| 10 | [RL 与服务中的状态管理](/2026/09/05/kimi-k3-10-rl-serving/)。外部 KV 池、参考模型借用梯度缓冲、沙箱、集群级调度 | §5.3，§5.4.3 |
 
 ## 这个连载不讲什么
 
-数据、预训练配方、post-training 的 SFT / RL / 蒸馏、评测数字，一律不讲。§5 的系统部分分四篇：第 7 篇讲结构直接逼出来的内核与缓存，第 8 到 10 篇讲并行、显存和状态管理。读完这个连载，你应该能在不看代码的情况下写出 K3 每一层每个矩阵的形状，也能说清楚每个改动是为了解决什么问题。
+数据、预训练配方、post-training 的 SFT / RL / 蒸馏、评测数字，一律不讲。§5 的系统部分分四篇：第 7 篇讲结构改动直接带来的内核与缓存工作，第 8 到 10 篇讲并行、显存和状态管理。读完这个连载，你应该能在不看代码的情况下写出 K3 每一层每个矩阵的形状，也能说清楚每个改动是为了解决什么问题。
 
 :::note{type="info"}
-**关于层号。** 论文和 `config.json` 的 `full_attn_layers` 从 1 开始数，Hugging Face 建模代码里的 `layer_idx` 从 0 开始。本连载正文一律用从 1 开始的口径，引用代码时会单独说明。另一个容易混的词是 "layer"：在 Attention Residuals 那篇论文里它指子层（注意力和 FFN 各算一层），在 K3 论文和 config 里指 decoder layer。K3 的「12 层块」是 12 个 decoder layer，等于 AttnRes 论文口径的 24 个子层。
+**关于层号。** 论文和 `config.json` 的 `full_attn_layers` 从 1 开始数，Hugging Face 建模代码里的 `layer_idx` 从 0 开始。本连载正文一律从 1 开始数，引用代码时会单独说明。另一个容易混的词是 "layer"：在 Attention Residuals 那篇论文里它指子层（注意力和 FFN 各算一层），在 K3 论文和 config 里指 decoder layer。K3 的「12 层块」是 12 个 decoder layer，按 AttnRes 论文的算法是 24 个子层。
 :::
 
 ## 资料

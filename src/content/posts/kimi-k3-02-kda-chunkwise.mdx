@@ -20,7 +20,7 @@ import ChunkLanes from '../../components/k3/ChunkLanes.astro';
 import DecayDemo from '../../components/k3/DecayDemo.astro';
 import TileFill from '../../components/k3/TileFill.astro';
 
-对应论文 §2.1.1 的后半：公式 (3) 到 (5) 和 Figure 3。上一篇的递推形式一个 token 走一步，全是向量和矩阵的逐元素运算，训练时用不上 Tensor Core。这一篇先给出结论：一个块（$C = 64$ 个 token）的计算可以改写成几次矩阵乘，状态只在块边界更新一次。推导折叠起来放在结论后面，可以跳过也可以逐步跟着算。最后你会看到 K3 为什么要动衰减函数。
+对应论文 §2.1.1 的后半：公式 (3) 到 (5) 和 Figure 3。上一篇的递推形式一个 token 走一步，全是向量和矩阵的逐元素运算，训练时用不上 Tensor Core。这一篇先给出结论：一个块（$C = 64$ 个 token）的计算可以改写成几次矩阵乘，状态只在块边界更新一次。推导折叠起来放在结论后面，可以跳过也可以逐步跟着算。最后你会看到 K3 为什么要改衰减函数。
 
 <K3ArchDiagram highlight="kda" caption="还在 KDA 里。这一篇讲的是同一个模块在训练和 prefill 时的算法形式。" />
 
@@ -41,11 +41,11 @@ $$
 
 Tensor Core 只接受矩阵乘矩阵。H100 上 BF16 矩阵乘的峰值约 990 TFLOPS，通用 CUDA core 上的 FP32 约 67 TFLOPS，差十几倍。公式 (1) 里的两个操作，外积 $k_t v_t^\top$ 和矩阵乘向量 $S^\top q_t$，都只有一个向量维，填不满一个 tile，只能走慢的那一边。更糟的是每个 token 都要把整个 128×128 的状态读一遍再写一遍，而且第 $t$ 步必须等第 $t-1$ 步做完，1M 的序列就是一百万步串行。
 
-把 $C$ 个 token 摞在一起，向量就变成 $C \times 128$ 的矩阵，乘法有了第二个矩阵维度，可以上 Tensor Core。状态每 $C$ 个 token 读写一次，串行链从一百万步变成 $10^6 / C$ 步。代价是块内 $C$ 个 token 之间的依赖要另外算，这就是下面全部推导要解决的事。**结果和逐 token 递推完全一致，变的只是硬件调度。**
+把 $C$ 个 token 摞在一起，向量就变成 $C \times 128$ 的矩阵，乘法有了第二个矩阵维度，可以上 Tensor Core。状态每 $C$ 个 token 读写一次，串行链从一百万步变成 $10^6 / C$ 步。代价是块内 $C$ 个 token 之间的依赖要另外算，这就是下面全部推导要解决的事。**结果和逐 token 递推完全一致，变的只是计算顺序。**
 
 <TileFill />
 
-## 终点：块间一步递推，块内一次矩阵乘
+## 终点：chunkwise 形式的两条公式
 
 把序列切成长度 $C$ 的块（Kimi Linear 按 $C = 64$ 分析）。记 $\mathbf{Q}_{[t]}, \mathbf{K}_{[t]}, \mathbf{V}_{[t]} \in \mathbb{R}^{C \times d}$ 为第 $t$ 块里的 token 堆成的矩阵，一行一个 token；$\mathbf{S}_{[t]}$ 为进入第 $t$ 块时的状态。还要一个记号来表示「从块内位置 $i$ 走到位置 $j$ 一共衰减了多少」，逐通道：
 
@@ -92,9 +92,9 @@ $$
 
 读法：
 
-- **块间那一行**，先把整个状态按这一块的总衰减 $\gamma^C$ 逐通道缩一下，再加上这一块的写入。写入是「每个键按它到块尾的剩余距离衰减」乘「修正后的伪值」$\widetilde{\mathbf{V}}$。伪值的意思是：$\mathbf{U}$ 是 $\mathbf{V}$ 减掉块内更早的键已经解释掉的部分，也就是 delta rule 的「先擦再写」被限制在块内的版本；$\mathbf{W}\mathbf{S}_{[t]}$ 是这些擦除作用到进入块时的状态上的那一部分。
+- **块间那一行**，先把整个状态按这一块的总衰减 $\gamma^C$ 逐通道缩一下，再加上这一块的写入。写入是「每个 key 按它到块尾的剩余距离衰减」乘「修正后的伪值（pseudo-value）」$\widetilde{\mathbf{V}}$。伪值的意思是：$\mathbf{U}$ 是 $\mathbf{V}$ 减掉块内更早的 key 已经存进状态、能被查出来的那部分，也就是 delta rule 的「先擦除再写入」只在块内做的版本；$\mathbf{W}\mathbf{S}_{[t]}$ 是这些擦除作用到进入块时的状态上的那一部分。
 - **块内那一行**，$\mathbf{A}$ 是一个 $C \times C$ 的下三角矩阵，第 $(i, j)$ 项是 $q_i$ 和 $k_j$ 的内积，每个通道再乘上 $\gamma^i / \gamma^j$，也就是从 $j$ 到 $i$ 之间的衰减。保留对角线，因为每个输出读的是「当前 token 更新之后」的状态。
-- **哪些是矩阵乘**：$\mathbf{A}$ 是 $(C \times d_k)(d_k \times C)$，$\mathbf{A}\widetilde{\mathbf{V}}$ 是 $(C \times C)(C \times d_v)$，块间写入是 $(d_k \times C)(C \times d_v)$，$\mathbf{W}\mathbf{S}$ 是 $(C \times d_k)(d_k \times d_v)$。除了求逆，全是 Tensor Core 能吃的形状。
+- **哪些是矩阵乘**：$\mathbf{A}$ 是 $(C \times d_k)(d_k \times C)$，$\mathbf{A}\widetilde{\mathbf{V}}$ 是 $(C \times C)(C \times d_v)$，块间写入是 $(d_k \times C)(C \times d_v)$，$\mathbf{W}\mathbf{S}$ 是 $(C \times d_k)(d_k \times d_v)$。除了求逆，全是 Tensor Core 能直接算的矩阵乘。
 - Kimi Linear 的 FLOPs 公式（每头，$C = 64$）：$6Td_h^2 + 3TCd_h + TC^2$，对 $T$ 线性；softmax 注意力是 $2T^2 d_h$。
 
 公式 (1) 是怎么变成公式 (8) 和 (9) 的，完整推导折叠在下面。只想知道结论的话可以跳过，读后面 K3 的改动不需要它；想跟着算一遍的话，只用到矩阵乘法的结合律、对角矩阵的性质和数学归纳法。
@@ -154,7 +154,7 @@ $$
 
 后面还会反复用到两条对角矩阵的性质：
 
-- $\operatorname{Diag}(\alpha^r)\operatorname{Diag}(\gamma^{i\to r-1}) = \operatorname{Diag}(\gamma^{i\to r})$，衰减累乘一步。
+- $\operatorname{Diag}(\alpha^r)\operatorname{Diag}(\gamma^{i\to r-1}) = \operatorname{Diag}(\gamma^{i\to r})$，衰减多乘一步。
 - $x^\top \operatorname{Diag}(\gamma) y = \sum_c \gamma_c x_c y_c$，是一个标量，且等于 $y^\top\operatorname{Diag}(\gamma)x$。
 
 **第 3 步：加回擦除，$P^r$ 的 WY 表示。**
@@ -188,7 +188,7 @@ Y := \operatorname{Diag}(\alpha^r) P^{r-1}
 = \operatorname{Diag}(\gamma^r) - \sum_{i=1}^{r-1} \operatorname{Diag}(\gamma^{i\to r})\, k^i w^{i\top}.
 $$
 
-用的是第 2 步的第一条性质：衰减多累乘了一步。注意 $Y$ 已经具有命题要的形状，只是求和还差 $i = r$ 这一项。再乘左边的 $(I - \beta^r k^r k^{r\top})$：
+用的是第 2 步的第一条性质：衰减多乘了一步。注意 $Y$ 已经具有命题要的形状，只是求和还差 $i = r$ 这一项。再乘左边的 $(I - \beta^r k^r k^{r\top})$：
 
 $$
 P^r = Y - \beta^r k^r \big(k^{r\top} Y\big).
@@ -218,7 +218,7 @@ $$
 
 最后一项补上了 $\operatorname{Diag}(\gamma^{r\to r}) = I$，求和就凑齐到 $i = r$。命题得证。
 
-回头看 $w^r$ 的含义：$\operatorname{Diag}(\gamma^r)k^r$ 是「从块开头看过去的键 $k^r$」，减去的每一项是块内更早的键 $k^i$ 与 $k^r$ 的（带衰减的）内积乘上 $w^i$，也就是更早的擦除已经覆盖掉的方向。$w^r$ 告诉你第 $r$ 步的擦除要怎么作用到进入块时的状态 $S^0$ 上。
+回头看 $w^r$ 的含义：$\operatorname{Diag}(\gamma^r)k^r$ 是「从块开头看过去的 key $k^r$」，减去的每一项是块内更早的 key $k^i$ 与 $k^r$ 的（带衰减的）内积乘上 $w^i$，也就是更早的擦除已经覆盖掉的方向。$w^r$ 告诉你第 $r$ 步的擦除要怎么作用到进入块时的状态 $S^0$ 上。
 
 **第 4 步：$H^r$ 的 WY 表示，同样的归纳。**
 
@@ -232,7 +232,7 @@ $$
 
 *起点 $r = 1$。* $H^1 = \beta^1 k^1 v^{1\top} = k^1 u^{1\top}$，$u^1 = \beta^1 v^1$，$\operatorname{Diag}(\gamma^{1\to 1}) = I$。成立。
 
-*归纳步。* $H^r = T^r H^{r-1} + \beta^r k^r v^{r\top}$。和第 3 步一样先乘 $\operatorname{Diag}(\alpha^r)$，衰减累乘一步：
+*归纳步。* $H^r = T^r H^{r-1} + \beta^r k^r v^{r\top}$。和第 3 步一样先乘 $\operatorname{Diag}(\alpha^r)$，衰减多乘一步：
 
 $$
 \operatorname{Diag}(\alpha^r) H^{r-1} = \sum_{i=1}^{r-1} \operatorname{Diag}(\gamma^{i\to r})\, k^i u^{i\top} =: Z .
@@ -254,7 +254,7 @@ $$
 
 所以 $H^r = Z + k^r u^{r\top}$，补上 $\operatorname{Diag}(\gamma^{r\to r}) = I$ 后求和凑齐到 $i = r$。得证。
 
-$u^r$ 是**伪值**：$v^r$ 减掉块内更早的键已经解释掉的部分。对比公式 (1) 里逐 token 的擦除 $(I - \beta k k^\top)$ 作用在整个状态上，这里的减法只针对块内前 $r-1$ 个写入，剩下针对 $S^0$ 的那部分由 $w^r$ 负责。
+$u^r$ 是**伪值**：$v^r$ 减掉块内更早的 key 已经存进状态、能被查出来的那部分。对比公式 (1) 里逐 token 的擦除 $(I - \beta k k^\top)$ 作用在整个状态上，这里的减法只针对块内前 $r-1$ 个写入，剩下针对 $S^0$ 的那部分由 $w^r$ 负责。
 
 到这一步，$P^r$ 和 $H^r$ 都不再是连乘了，但 $w^r$ 和 $u^r$ 的定义还是一个个算的三角递推。第 5 步把它们变成矩阵运算。
 
@@ -340,18 +340,18 @@ $$
 
 ## 内核里怎么求逆
 
-公式 (6) 的求逆，教科书做法是前向替换，代价 $O(C^2)$，但一行要等上一行，在 GPU 上不好并行。FlashKDA 的做法更适合硬件。要逆的是 $I + L$，$L$ 严格下三角。FlashKDA 的块是 16 个 token，$L$ 是 16×16，于是 $L^{16} = 0$，Neumann 级数是有限的：$(I + L)^{-1} = \sum_{i=0}^{15} (-L)^i$，精确，没有截断。再把这个和写成乘积 $(I - L)(I + L^2)(I + L^4)(I + L^8)$，三轮平方就得到全部 16 项。每一轮都是 16×16 的矩阵乘，前向替换那种一行等一行的顺序依赖没有了。
+公式 (6) 的求逆，教科书做法是前向替换（forward substitution），代价 $O(C^2)$，但一行要等上一行，在 GPU 上不好并行。FlashKDA 的做法更适合硬件。要逆的是 $I + L$，$L$ 严格下三角。FlashKDA 的块是 16 个 token，$L$ 是 16×16，于是 $L^{16} = 0$，Neumann 级数是有限的：$(I + L)^{-1} = \sum_{i=0}^{15} (-L)^i$，精确，没有截断。再把这个和写成乘积 $(I - L)(I + L^2)(I + L^4)(I + L^8)$，三轮平方就得到全部 16 项。每一轮都是 16×16 的矩阵乘，前向替换那种一行等一行的顺序依赖没有了。
 
 ## 数值问题：$1/\Gamma$ 会溢出
 
-公式 (4) 里 $\mathbf{K}/\Gamma$ 把键除以累积衰减。$\Gamma$ 是一串 $(0,1)$ 里的数的乘积，倒数可以任意大，半精度下溢出。
+公式 (4) 里 $\mathbf{K}/\Gamma$ 把 key 除以累积衰减。$\Gamma$ 是一串 $(0,1)$ 里的数的乘积，倒数可以任意大，半精度下溢出。
 
-标准解法（GLA 的做法，Kimi Linear 沿用）是进 log 空间：令 $g_r = \log \gamma^r$（对每步的 log-decay 做前缀和），那么 $\gamma^i/\gamma^j = \exp(g_i - g_j)$，对 $j \le i$ 永远不超过 1。问题是矩阵乘要求把 $\exp(g_i - g_j)$ 拆成「只依赖行」乘「只依赖列」的两个因子，拆开就又回到了 $\exp(g_i)\cdot\exp(-g_j)$，后者会炸。
+标准解法（GLA 的做法，Kimi Linear 沿用）是转到对数空间：令 $g_r = \log \gamma^r$（对每步的 log-decay 做前缀和），那么 $\gamma^i/\gamma^j = \exp(g_i - g_j)$，对 $j \le i$ 永远不超过 1。问题是矩阵乘要求把 $\exp(g_i - g_j)$ 拆成「只依赖行」乘「只依赖列」的两个因子，拆开就又回到了 $\exp(g_i)\cdot\exp(-g_j)$，后者会溢出。
 
 于是再把 $C = 64$ 的块切成 16-token 的二级 tile，以 tile 起点 $s$ 为参考：
 
-- **非对角 tile**（查询 $i$ 在后面的 tile，键 $j$ 在前面的 tile）：$\exp(g_i - g_j) = \exp(g_i - g_s)\cdot\exp(g_s - g_j)$，$i \ge s > j$，两个因子都不超过 1，可以放心拆成两边、用 BF16 矩阵乘。
-- **对角 tile**（$i$、$j$ 同在一个 tile）：同样拆法里 $\exp(g_s - g_j)$ 是 $\ge 1$ 的，16 步累计能有多大取决于每步的 log-decay 有没有下界。Kimi Linear 的映射没有下界，所以对角 tile 只能逐位置对、用 FP32 算 $\exp(g_i - g_j)$，不走 Tensor Core。论文说这是块内计算的主要瓶颈。
+- **非对角 tile**（query $i$ 在后面的 tile，key $j$ 在前面的 tile）：$\exp(g_i - g_j) = \exp(g_i - g_s)\cdot\exp(g_s - g_j)$，$i \ge s > j$，两个因子都不超过 1，可以放心拆成两边、用 BF16 矩阵乘。
+- **对角 tile**（$i$、$j$ 同在一个 tile）：同样拆法里 $\exp(g_s - g_j)$ 是 $\ge 1$ 的，16 步累计能有多大取决于每步的 log-decay 有没有下界。Kimi Linear 的映射没有下界，所以对角 tile 只能对每一对位置 $(i, j)$ 单独用 FP32 算 $\exp(g_i - g_j)$，不走 Tensor Core。论文说这是块内计算的主要瓶颈。
 
 ## K3 的改动：下界衰减
 
@@ -373,23 +373,23 @@ $g_{\min} = -5$ 固定，$A_h$ 是每头一个的可学习 log 尺度，初始�
 
 <DecayDemo />
 
-两条曲线的差别：负 softplus 在 $z \to +\infty$ 时线性往下走，没有底；scaled sigmoid 在 $z \to +\infty$ 时贴到 $g_{\min}$。$A_h$ 只改横轴的伸缩。
+两条曲线的差别：负 softplus 在 $z \to +\infty$ 时线性往下走，没有底；scaled sigmoid 在 $z \to +\infty$ 时趋近 $g_{\min}$。$A_h$ 只改横轴的伸缩。
 
-**后果一：数值范围有界。** 每步 $\alpha > e^{-5} \approx 6.7\times10^{-3}$，16 步累计的 log-decay 在 $(-80, 0)$ 里，$\exp(g_s - g_j) < e^{80} \approx 5.5\times10^{34}$，在 BF16 的动态范围（最大约 $3.4\times10^{38}$）之内。于是对角 tile 也能拆成两个因子做 BF16 矩阵乘，Figure 3b 说的「消除逐位置对的对角路径」就是这个意思。$g_{\min} = -5$ 和 tile 宽度 16 是配套选的：$5 \times 16 = 80$ 正好卡在 BF16 指数范围以内。
+**后果一：数值范围有界。** 每步 $\alpha > e^{-5} \approx 6.7\times10^{-3}$，16 步累计的 log-decay 在 $(-80, 0)$ 里，$\exp(g_s - g_j) < e^{80} \approx 5.5\times10^{34}$，在 BF16 的动态范围（最大约 $3.4\times10^{38}$）之内。于是对角 tile 也能拆成两个因子做 BF16 矩阵乘，Figure 3b 说的「去掉对角 tile 上逐对计算的路径」就是这个意思。$g_{\min} = -5$ 和 tile 宽度 16 是配套选的：$5 \times 16 = 80$ 正好卡在 BF16 指数范围以内。
 
-**后果二：记忆不会靠衰减被瞬间清空。** 一个通道靠衰减能做到的最快遗忘是每步剩 0.67%。真正需要精确擦除的时候，delta rule 的 $(I - \beta k k^\top)$ 还在。论文没有讨论这一点对表达力的影响，只提了这种下界门在 RWKV-7、Griffin、HGRN2 里有先例。
+**后果二：记忆不会靠衰减被瞬间清空。** 一个通道靠衰减能做到的最快遗忘是每步剩 0.67%。真正需要精确擦除的时候，delta rule 的 $(I - \beta k k^\top)$ 还在。论文没有讨论这一点对表达能力的影响，只提了这种下界门在 RWKV-7、Griffin、HGRN2 里有先例。
 
-**后果三：$A_h$ 的作用变了。** 在负 softplus 里 $e^{A_h}$ 是纵向的尺度，直接决定衰减能多狠；在 scaled sigmoid 里它只能改横向的斜率，衰减的上限被 $g_{\min}$ 钉死。
+**后果三：$A_h$ 的作用变了。** 在负 softplus 里 $e^{A_h}$ 是纵向的尺度，直接决定衰减最快能有多快；在 scaled sigmoid 里它只能改横向的斜率，衰减的上限固定在 $g_{\min}$。
 
 ## 为什么是 16，为什么拆两个内核
 
-flash-linear-attention 的默认块大小是 64，Kimi Linear 的 FLOPs 分析和伪代码也按 $C = 64$ 写，16 只是它内核里的二级 tile。FlashKDA 直接把块定成 16，仓库的设计文档给了三个理由，每条接一个后果。
+flash-linear-attention 的默认块大小是 64，Kimi Linear 的 FLOPs 分析和伪代码也按 $C = 64$ 写，16 只是它内核里的二级 tile。FlashKDA 直接把块定成 16，仓库的设计文档给了三个理由。
 
-- **BF16 范围。** 下界衰减保证 16 步累乘的 $\exp(g_s - g_j) < e^{80}$ 在 BF16 之内，这是上面的后果一。64 步就是 $e^{320}$，溢出，块内要再做一次缩放。$g_{\min} = -5$ 和 $C = 16$ 是配套选的。
+- **BF16 范围。** 下界衰减保证 16 步连乘的 $\exp(g_s - g_j) < e^{80}$ 在 BF16 之内，这是上面的后果一。64 步就是 $e^{320}$，溢出，块内要再做一次缩放。$g_{\min} = -5$ 和 $C = 16$ 是配套选的。
 - **求逆。** 16×16 的逆用 Neumann 三轮就精确。64×64 要六轮，中间矩阵大 16 倍。
 - **指令形状。** 块内所有运算都落在 SM80 就有的 MMA 指令形状上，内核的数学部分不依赖 Hopper 专用指令。完整实现仍要 SM90 或更新，因为装载和存储路径用了 Hopper 的 TMA 和 STSM。
 
-块内计算按 token 并行，块间递推按序列串行、按头并行。融合在一个内核里，并行的部分要等串行的部分。FlashKDA 拆成两次 launch。Kernel 1 每个 16-token 块每个头一个 CTA，算块内的矩阵写到工作区，满占用。Kernel 2 每条序列每个头一个 CTA，四个 MMA warp 加一个装载 warp 和一个存储 warp，走块间递推，128×128 的状态以 BF16 常驻共享内存，更新用 FP32 FMA 再转回 BF16。仓库文档说拆分比融合原型端到端快至少 15%。两个阶段有各自的 launch 形状，可以分开调度和调优。
+块内计算按 token 并行，块间递推按序列串行、按头并行。融合在一个内核里，并行的部分要等串行的部分。FlashKDA 拆成两次 launch。Kernel 1 给每个 16-token 块的每个头分一个 CTA，算出块内的矩阵写到工作区，能把 GPU 占满。Kernel 2 每条序列每个头一个 CTA，四个 MMA warp 加一个装载 warp 和一个存储 warp，走块间递推，128×128 的状态以 BF16 常驻共享内存，更新用 FP32 FMA 再转回 BF16。仓库文档说拆分比融合原型端到端快至少 15%。两个阶段有各自的 launch 配置，可以分开调度和调优。
 
 下界作为一个 host 端常数进内核：
 
@@ -400,7 +400,7 @@ float gate_scale = float(lower_bound * 1.4426950408889634);
 
 乘的是 $\log_2 e$，因为内核用以 2 为底的指数。
 
-**开源边界。** 公开的是 forward-only 的 prefill，头维固定 128，在 `torch.inference_mode()` 下且输入为 BF16、`safe_gate` 打开时自动分发为 FLA 的一个后端，所以有下界的门是快路径的前提。backward、decode 内核和 SM 级的上下文并行规划器没有公开。[第 7 篇](/2026/09/05/kimi-k3-07-systems/)讲三种执行形态时会再回到这里。
+**开源了什么。** 公开的只有 prefill 的前向，头维固定 128。在 `torch.inference_mode()` 下、输入为 BF16 且 `safe_gate` 打开时，FLA 会自动调用它。也就是说，只有用带下界的门才能走这条快路径。backward、decode 内核和 SM 级的上下文并行规划器没有公开。[第 7 篇](/2026/09/05/kimi-k3-07-systems/)讲三种执行形态时会再回到这里。
 
 ## 为什么 KDA 内核比通用 DPLR 快一倍
 
