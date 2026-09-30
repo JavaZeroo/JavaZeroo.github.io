@@ -32,7 +32,7 @@ Kimi K3 是一个 **2.78T 总参数、104.2B 激活参数**的 MoE 模型，**93
 | **深度** | 层之间 | Attention Residuals（AttnRes） | Attention Residuals（2603.15031） |
 | **宽度** | 通道之间 | Stable LatentMoE | LatentMoE（2601.18089）+ K3 为训练稳定加的三个改动 |
 
-再加上输入端的视觉编码器 MoonViT-V2 和一个投影层，以及优化器 Per-Head Muon。论文的说法是，这些结构改动加上数据和训练配方的改进，让整体 scaling efficiency 相对 Kimi K2 提升了约 2.5 倍。
+再加上输入端的视觉编码器 MoonViT-V2 和一个投影层，以及优化器 Per-Head Muon。论文的说法是，这些结构改动加上数据和训练配方的改进，让整体 scaling efficiency 相对 Kimi K2 提升了约 2.5 倍。省下的算力花在了哪里，论文也给了答案：5100 万个 microVM 沙箱里的 agentic RL，[第 10 篇](/2026/09/05/kimi-k3-10-rl-serving/)会讲到。
 
 ## 总图
 

@@ -20,6 +20,7 @@ import PpTimeline from '../../components/k3/PpTimeline.astro';
 import MoeStepFlow from '../../components/k3/MoeStepFlow.astro';
 import EpEvolution from '../../components/k3/EpEvolution.astro';
 import MoonEpFill from '../../components/k3/MoonEpFill.astro';
+import DedupSend from '../../components/k3/DedupSend.astro';
 
 对应论文 §5.2 的开头、§5.2.1（MoonEP）、§5.2.3（视觉编码器）和附录 E。[第 7 篇](/2026/09/05/kimi-k3-07-systems/)讲的是结构改动带来的系统工作，这一篇和后面两篇讲把 2.8T 参数训练起来、跑起来本身需要什么。三篇各用一个视角：这一篇看**时间**，第 9 篇看**显存**，第 10 篇看**状态放在哪里**。
 
@@ -118,7 +119,17 @@ $E = 896$。EP 大小论文没给，按几个可能的值算本地 expert 数，
 
 完全平衡之后，通信路径也跟着简化。规划内核已经算出了每个 token 的目的地，于是 permute 和 unpermute 融合成一个算子，token 直接被送到远端 rank 上按 expert 分组好的位置，通信缓冲区直接交给计算使用，中间没有任何拷贝。这一点 DeepEP 也能做，但缓冲区要大得多：不知道每个 rank 会收到多少 token，就得按最坏情况准备。最坏情况是所有 token 都涌向同一个 rank，缓冲要 $S\times K\times R$ 份；MoonEP 每个 rank 恰好收 $S\times K$ 份，缓冲就是固定的 $S\times K$，差了 $R$ 倍。
 
-第三个好处：CPU 不用再每层等 GPU。常规 MoE 实现里每一层每个 expert 收到多少 token 都在变，CPU 必须等 GPU 算出实际数字才能 launch expert 计算，每层同步一次，流水线在层与层之间停顿。完全平衡后每个 rank 每层都是 $S\times K$ 份，**所有层的计算 shape 静态已知**，这个同步就没有了，host 侧的 launch 开销也跟着减轻。
+完全平衡解决了「每个 rank 收多少」。通信路径上还有一处可以少发。先分清两个词。**payload** 是 token 向量本身，就是 expert 要乘的那 3,584 个数，BF16 下约 7 KB。**weight** 是 router 给一对 (token, expert) 的分数，一个 FP32，4 字节。两者都不是 expert 的权重矩阵，权重矩阵从不离开它的 home rank。
+
+一个 token 的 16 条路由里，常有几条落在同一个目标 rank 上。目标 rank 只需要这个 token 向量一份。MoonEP 的编码是：每条路由条目存的是它在目标 rank 上的写入偏移；对同一 token 里目标 rank 已经出现过的条目，存 $-(\text{offset}) - 1$。发送路径遇到负值就跳过 payload，只发 4 字节分数。接收端把收到的那一行本地复制给其他 expert 的槽位。用符号位当标志，不多加一个字段。
+
+<DedupSend />
+
+分数为什么不能一起省：combine 阶段每个 expert 的输出要乘各自的分数，router 给同一 token 的两个 expert 的分数不同，所以第二条仍带它的 4 字节，只是不带那 7 KB。DeepEP 和 MoonEP 都在减 dispatch 流量，走的是两条路：DeepEP 把每一行量化到 FP8 让行变小，MoonEP 让行变少且保持全精度。
+
+顺带一提：MoonEP 的 C++ 只有 478 行，全是内存管理；所有 GPU 内核包括规划器都用 CUTLASS 的 CuTe DSL 以 Python 写成。
+
+还有一个好处：CPU 不用再每层等 GPU。常规 MoE 实现里每一层每个 expert 收到多少 token 都在变，CPU 必须等 GPU 算出实际数字才能 launch expert 计算，每层同步一次，流水线在层与层之间停顿。完全平衡后每个 rank 每层都是 $S\times K$ 份，**所有层的计算 shape 静态已知**，这个同步就没有了，host 侧的 launch 开销也跟着减轻。
 
 ### rank 内部：expert 之间仍然偏斜
 
