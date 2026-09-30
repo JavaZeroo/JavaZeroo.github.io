@@ -12,8 +12,8 @@ import SvgTex from '../figures/SvgTex.astro';
 const rows = [
   { name: 'DeepSeek-V1-67B（GQA-8，BF16）', bytes: 389120, note: '2 × 8 × 128 × 2 B × 95 层', c: 'var(--muted)' },
   { name: 'DeepSeek-V3（MLA latent，BF16）', bytes: 70272, note: '576 × 2 B × 61 层', c: 'var(--cat-amber)' },
-  { name: 'DeepSeek-V3.2（+ DSA）', bytes: 48068, note: 'V4.1 论文 Figure 1b（FP8 口径）', c: 'var(--cat-rose)' },
-  { name: 'DeepSeek-V4-Pro', bytes: 5424, note: '本站手算口径（attn-csa-hca.md §4）', c: 'var(--cat-indigo)' },
+  { name: 'DeepSeek-V3.2（+ DSA）', bytes: 48068, note: 'V4.1 论文 Figure 1b（按 FP8 算）', c: 'var(--cat-rose)' },
+  { name: 'DeepSeek-V4-Pro', bytes: 5424, note: '本站按 config 手算（attn-csa-hca.md §4）', c: 'var(--cat-indigo)' },
   { name: 'DeepSeek-V4-Flash', bytes: 3514, note: 'V4.1 论文 Figure 1b', c: 'var(--cat-cyan)' },
   { name: 'DeepSeek-V4.1-Flash（CSA2 + FP4）', bytes: 890, note: '356 B/条 × 2.5 条（Figure 1b）', c: 'var(--cat-emerald)' },
 ];
@@ -57,7 +57,7 @@ const AXIS_Y = Y0 + rows.length * RH + 4;
 
     <SvgTex x={268} y={AXIS_Y + 38} size={10.5} align="start" color="var(--muted)" src="对数轴（log10）：相邻刻度 10×；V4.1 的 890 B 只计 HBM 常驻的全局 KV，SWA ring buffer 与长度无关、不计入" />
   </svg>
-  <figcaption>每 token 全局 KV cache 字节数。口径差异：V3.2 / V4-Flash / V4.1 三行取自 V4.1 论文 Figure 1b；V4-Pro 一行是本站按 config 手算（≈5.4 KB，含 CSA + HCA + indexer + 滑窗），与论文口径的差别在量化 scale 与滑窗的记法。前两行（V1 GQA、V3 MLA）由结构参数直接算出。</figcaption>
+  <figcaption>每 token 全局 KV cache 字节数。数据来源不同：V3.2 / V4-Flash / V4.1 三行取自 V4.1 论文 Figure 1b；V4-Pro 一行是本站按 config 手算（≈5.4 KB，含 CSA + HCA + indexer + 滑窗），与论文数字的差别在量化 scale 与滑窗怎么计。前两行（V1 GQA、V3 MLA）由结构参数直接算出。</figcaption>
 </figure>
 
 <style>

@@ -54,7 +54,7 @@ Flash 的前两层干脆只有滑窗分支。
 
 query 在展开成 128 头之后逐头做一次无权重的 RMSNorm，KV 那条 512 维向量也做 RMSNorm（有权重），都在 RoPE 之前。论文说目的是防止注意力 logit 爆炸。
 
-这一步在 V4 里比通常更重要，因为它和优化器绑定：Muon 的更新是正交化过的，每一步对权重矩阵的所有奇异方向推同样的距离，$W^{UQ}$ 和 $W^{KV}$ 会比 Adam 下更快地长大，logit 随之爆炸。Kimi K2 用 QK-Clip 事后压 $W_Q, W_K$ 的范数；V4 因为 q 和 kv 都归一化了，logit 的尺度被结构锁死，**不用 QK-Clip**（论文 §2.4）。第 6 篇再展开。
+这一步在 V4 里比通常更重要，因为它和优化器绑定：Muon 的更新是正交化过的，每一步对权重矩阵的所有奇异方向推同样的距离，$W^{UQ}$ 和 $W^{KV}$ 会比 Adam 下更快地长大，logit 随之爆炸。Kimi K2 用 QK-Clip 事后压 $W_Q, W_K$ 的范数；V4 因为 q 和 kv 都归一化了，logit 的尺度被结构固定住，**不用 QK-Clip**（论文 §2.4）。第 6 篇再展开。
 
 ## 部分 RoPE 与输出反旋转
 
@@ -72,7 +72,7 @@ $$
 
 注意力权重 $\alpha_{t,j}$ 只依赖相对位置 $j - t$，这是 RoPE 的设计。但普通注意力里 V 不带 RoPE，输出是 $\sum \alpha \mathbf{v}_j$，干净的内容加权和。V4 里 V 就是 K，K 已经被旋转过了，所以输出里每一项都带着 $R_j$，也就是**绝对位置** $j$。同一段内容出现在序列的不同位置，注意力输出会不一样，模型学到的东西就和绝对位置绑定了，长度外推时尤其麻烦。
 
-**解法：把输出反向旋转回来。** RoPE 是乘法的：$R_a R_b = R_{a+b}$，$R_{-a} = R_a^{-1} = R_a^\top$。对输出乘 $R_{-t}$：
+**解法：把输出反向旋转回来。** RoPE 的旋转矩阵满足乘法关系：$R_a R_b = R_{a+b}$，$R_{-a} = R_a^{-1} = R_a^\top$。对输出乘 $R_{-t}$：
 
 $$
 R_{-t}\, \mathbf{o}_t = \sum_j \alpha_{t,j}\, R_{-t} R_j \mathbf{v}_j = \sum_j \alpha_{t,j}\, R_{j-t}\, \mathbf{v}_j .
@@ -100,9 +100,9 @@ $$
 
 官方 kernel 里它是 online softmax 结束后的一行：`sum_exp[i] += exp(attn_sink[i] - scores_max[i])`。128 个头共 128 个参数。
 
-## 1M 上下文的账
+## 1M 上下文下的开销
 
-**KV cache。** 一条压缩条目 512 维：64 维 rope 位存 BF16，448 维存 FP8，共 576 字节（忽略 scale）。indexer 的键 128 维，按 FP8 算 128 字节。
+**KV cache。** 一条压缩条目 512 维：64 维 rope 位存 BF16，448 维存 FP8，共 576 字节（忽略 scale）。indexer 的 key 128 维，按 FP8 算 128 字节。
 
 | 层类型 | 每 token 摊到的字节 | 层数（Pro） | 1M token 合计 |
 |---|---|---|---|
@@ -113,7 +113,7 @@ $$
 
 <KvCacheBars />
 
-对照：BF16 GQA-8、头维 128、61 层的基线是 250 KB/token，1M 时 244 GiB，V4-Pro 是它的 2%，和论文一致。DeepSeek-V3.2 每 token 每层 576 维 latent 加 128 维索引键，约 47 KB/token，V4 约是它的 11%，论文说 10%，差别在 scale 和 indexer 精度的记法。Flash 约 3.7 GiB。
+对照：BF16 GQA-8、头维 128、61 层的基线是 250 KB/token，1M 时 244 GiB，V4-Pro 是它的 2%，和论文一致。DeepSeek-V3.2 每 token 每层 576 维 latent 加 128 维索引 key，约 47 KB/token，V4 约是它的 11%，论文说 10%，差别在 scale 和 indexer 精度的记法。Flash 约 3.7 GiB。
 
 **FLOPs。** 核心注意力每 token 每层（Pro）：CSA 看 1152 条，$2 \times 128 \times 1152 \times 512 = 151$ MFLOP；HCA 在 1M 时看 8320 条，1.09 GFLOP。61 层合计约 38 GFLOP，加上 CSA 的 indexer 打分 30 层 × 4.3 GFLOP（FP4）。V3.2 在 1M 时每层要对 2048 个 token 做 128 头 × 192 维的 QK 和 128 × 128 的 PV，加上对全部 1M token 的 indexer 打分，后者是 61 层 × $2 \times 64 \times 10^6 \times 128 \approx 1$ TFLOP。V4 把 indexer 的 $n$ 除以 4、层数减半，是 27% 这个数的主要来源。
 

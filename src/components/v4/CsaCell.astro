@@ -52,7 +52,7 @@ const groups = [
 
 <FlowDiagram id="csa-cell" viewBox="0 0 1150 520" minWidth={860} nodes={nodes} edges={edges} groups={groups}
   label="一层 CSA 的内部结构"
-  caption="一层 CSA（Pro 维度）。只有一条 512 维的 KV 向量，既当 K 又当 V，所有 128 个 query 头共用；推理时真正缓存的是右侧两个 cache 框加 indexer 自己的压缩键。核心注意力的每个 query 看 128 条滑窗 + 1024 条被选中的压缩条目。" />
+  caption="一层 CSA（Pro 维度）。只有一条 512 维的 KV 向量，既当 K 又当 V，所有 128 个 query 头共用；推理时真正缓存的是右侧两个 cache 框加 indexer 自己的压缩 key。核心注意力的每个 query 看 128 条滑窗 + 1024 条被选中的压缩条目。" />
 
 <style is:global>
   .fd .node.cache { --c: var(--cat-amber); }

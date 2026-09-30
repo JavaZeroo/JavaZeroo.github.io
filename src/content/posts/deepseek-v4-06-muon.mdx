@@ -1,7 +1,7 @@
 ---
 title: "DeepSeek-V4 模型结构（6）：优化器与稳定性，Muon"
 pubDate: 2026-09-05 20:00:00
-description: "从「Adam 逐元素、Muon 逐矩阵」的动机出发，推出谱范数下最速下降的解是梯度的正交化，再看 Newton–Schulz 迭代怎么不做 SVD 地逼近它。V4 的混合迭代用两组系数：一组把小奇异值快速抬起来，一组把奇异值精确钉在 1 上，多项式的形状说明了为什么。再讲 RMS 匹配、哪些参数留给 AdamW、为什么 Q/KV 归一化让 QK-Clip 不再需要、Anticipatory Routing，以及 MTP。"
+description: "从「Adam 逐元素、Muon 逐矩阵」的动机出发，推出谱范数下最速下降的解是梯度的正交化，再看 Newton–Schulz 迭代怎么不做 SVD 地逼近它。V4 的混合迭代用两组系数：一组把小奇异值快速抬起来，一组让奇异值精确收敛到 1，多项式的形状说明了为什么。再讲 RMS 匹配、哪些参数留给 AdamW、为什么 Q/KV 归一化让 QK-Clip 不再需要、Anticipatory Routing，以及 MTP。"
 categories:
   - "📝学习"
 tags:
@@ -19,7 +19,7 @@ import V4ArchDiagram from '../../components/v4/V4ArchDiagram.astro';
 import NewtonSchulzDemo from '../../components/v4/NewtonSchulzDemo.astro';
 import RoutingTimeline from '../../components/v4/RoutingTimeline.astro';
 
-对应论文 §2.4 "Muon Optimizer"（Algorithm 1，公式 (28)）和 §4.2.3 "Mitigating Training Instability"，顺带把 §2.1 的 MTP 收掉。这是 DeepSeek 第一次在旗舰模型上用 Muon，上游是 Keller Jordan 2024 年的原始实现和 Moonshot 2025 年的 [Moonlight](https://arxiv.org/abs/2502.16982)。
+对应论文 §2.4 "Muon Optimizer"（Algorithm 1，公式 (28)）和 §4.2.3 "Mitigating Training Instability"，顺带把 §2.1 的 MTP 讲完。这是 DeepSeek 第一次在旗舰模型上用 Muon，上游是 Keller Jordan 2024 年的原始实现和 Moonshot 2025 年的 [Moonlight](https://arxiv.org/abs/2502.16982)。
 
 <V4ArchDiagram highlight="mtp" caption="这一篇不对应图上的某个模块，讲的是怎么更新图上所有的矩阵。底部的 MTP 层放在这一篇收尾。" />
 
@@ -27,7 +27,7 @@ import RoutingTimeline from '../../components/v4/RoutingTimeline.astro';
 
 Adam 把每个参数当成独立的标量：一阶矩、二阶矩、逐元素地自适应步长。它不知道参数是排成矩阵的。但 Transformer 里几乎所有参数都是矩阵 $W \in \mathbb{R}^{n \times m}$，作用是 $\mathbf{y} = W\mathbf{x}$，梯度 $G = \nabla_W \mathcal{L}$ 也是矩阵，并且经验上梯度矩阵的**奇异值分布极不均匀**：少数几个方向占了绝大部分能量，其余方向几乎不动。Adam 逐元素归一化并不会改变这一点，更新仍然集中在少数方向上，长尾方向学得慢。
 
-Muon 的想法：把更新的**所有奇异方向推同样的距离**。
+Muon 的想法：让更新在**所有奇异方向上走同样的距离**。
 
 **推导。** 把一步更新写成「在某个范数球内让损失下降最多」的最速下降：
 
@@ -73,7 +73,7 @@ $$
 
 **V4 的第二组系数 $(2, -1.5, 0.5)$。** 它满足 $p(1) = 2 - 1.5 + 0.5 = 1$，$p'(1) = 2 - 4.5 + 2.5 = 0$。1 是它的不动点，而且导数为零意味着**二次收敛**：离 1 差 $\epsilon$，一步之后差 $O(\epsilon^2)$。代价是 $p'(0) = 2$，抬升小奇异值的速度慢于第一组。
 
-**混合。** 前 8 步用第一组，把所有奇异值快速拉到 1 附近；后 2 步用第二组，把它们精确钉在 1 上。论文只说「第一阶段驱动快速收敛，第二阶段把奇异值精确稳定在 1」，上面对两个多项式的分析是从系数直接算出来的。为什么 V4 要精确正交化而 Jordan 不在乎，论文没说；一个合理的猜测是 1.6T 规模上更新的 RMS 要和 AdamW 严格对齐，震荡的奇异值会让每步的有效步长抖动。
+**混合。** 前 8 步用第一组，把所有奇异值快速拉到 1 附近；后 2 步用第二组，让它们精确收敛到 1。论文只说「第一阶段驱动快速收敛，第二阶段把奇异值精确稳定在 1」，上面对两个多项式的分析是从系数直接算出来的。为什么 V4 要精确正交化而 Jordan 不在乎，论文没说；一个合理的猜测是 1.6T 规模上更新的 RMS 要和 AdamW 严格对齐，震荡的奇异值会让每步的有效步长抖动。
 
 ## RMS 匹配与 AdamW 的分工
 
@@ -101,13 +101,13 @@ V4 不需要这一步，原因在结构上。[第 3 篇](/2026/09/05/deepseek-v4
 
 ## Anticipatory Routing
 
-§4.2.3 的第二个稳定性技巧，和 MoE 相关。V4 训练中 loss spike 一直和 MoE 层的离群激活绑定，而且**路由本身在放大它**：某个 expert 出了离群值，路由把更多 token 送过去，离群值继续长。论文说完整的机理还不清楚，但找到了一个打断这个循环的办法。
+§4.2.3 的第二个稳定性技巧，和 MoE 相关。V4 训练中 loss spike 一直和 MoE 层的离群激活有关，而且**路由本身在放大它**：某个 expert 出了离群值，路由把更多 token 送过去，离群值继续长。论文说完整的机理还不清楚，但找到了一个打断这个循环的办法。
 
 <RoutingTimeline />
 
 做法是把「算路由」和「算特征」在时间上拆开：第 $t$ 步的特征用当前参数 $\theta_t$，但路由索引用 $\Delta t$ 步之前的参数 $\theta_{t-\Delta t}$ 算。实现上不是保存两份参数，而是在第 $t - \Delta t$ 步提前取到第 $t$ 步的数据，多跑一次前向把索引算出来缓存。多出来的一次前向经过流水线和 EP 通信重叠后约 20% 额外时间，但**只在检测到 spike 之后才开启**：自动回滚一小段、打开这个模式跑一阵、再切回正常训练。整体开销可以忽略，论文说不损性能。
 
-和 SwiGLU 截断（[第 5 篇](/2026/09/05/deepseek-v4-05-moe/)）一起，这是 V4 训练稳定性的两个支柱：一个直接压离群值，一个打断路由的正反馈。
+V4 靠两个办法稳住训练：SwiGLU 截断（[第 5 篇](/2026/09/05/deepseek-v4-05-moe/)）直接限制离群值，Anticipatory Routing 打断路由的正反馈。
 
 ## MTP
 
@@ -141,9 +141,9 @@ V4 不需要这一步，原因在结构上。[第 3 篇](/2026/09/05/deepseek-v4
 
 - **Muon 里的「正交化」是半正交。** $n \ne m$ 时 $UV^\top$ 只是一侧正交。
 - **RMS 匹配的 0.18 不是学习率。** 它是把 Muon 更新的元素 RMS 对齐到 AdamW 的量级，学习率另算。
-- **QK-Clip 和 Q/KV 归一化不是二选一的技巧，是两种层面。** 前者是优化器里的事后修正，后者是结构。
+- **QK-Clip 和 Q/KV 归一化不在同一个层面。** 前者是优化器里的事后修正，后者是结构。
 - **MTP 的 `compress_ratios` 项。** 61 层的 config 有 62 项，Flash 43 层有 44 项，多的那项属于 MTP。
 
 ## 下一篇
 
-最后一篇讲结构决定的系统：混合注意力的 KV cache 怎么布局，压缩窗口跨越上下文并行边界时怎么通信，磁盘上的前缀缓存怎么存，以及 mHC 的 6.7% 是怎么压出来的。
+最后一篇讲这些结构对系统的要求：混合注意力的 KV cache 怎么布局，压缩窗口跨越上下文并行边界时怎么通信，磁盘上的前缀缓存怎么存，以及 mHC 的 6.7% 是怎么压出来的。

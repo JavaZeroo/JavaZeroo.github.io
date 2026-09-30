@@ -1,7 +1,7 @@
 ---
 /**
  * DeepSeek 系列注意力结构对比 · 总览思维导图。
- * 左侧主题「长上下文注意力的账」：KV cache ∝ 头数 × 条目维度 × 条目数 × 层数 × 每数字节，
+ * 左侧主题「长上下文注意力的开销」：KV cache ∝ 头数 × 条目维度 × 条目数 × 层数 × 每数字节，
  * 注意力 FLOPs ∝ 头数 × 维度 × 看的条目数。中间列是六个「砍哪个因子」的类别节点，
  * 右侧每片叶子是一代真实结构（3–5 行：目标 + 手段）。边上标的是砍掉的那个量的具体变化。
  * 回答的问题：每一代结构的目标是什么、靠什么手段达到。无 props。
@@ -49,7 +49,7 @@ const leaves: Leaf[] = [
     'MLA · DeepSeek-V2 / V3（2024.05 / 2024.12）',
     '目标：每 token 每层 576 维',
     'K、V 低秩压成 latent + 64 维共享 RoPE key',
-    '推理吸收上投影，折叠成 MQA 形态',
+    '推理吸收上投影，合并成 MQA 形式',
   ] },
   { cls: 'dsa', y: 330, h: 76, lines: [
     'DSA · DeepSeek-V3.2（2025.09，论文 2512.02556）',
@@ -95,7 +95,7 @@ const leafEdges = [
 ---
 
 <figure class="mind">
-  <svg viewBox="0 0 1180 712" role="img" aria-label="DeepSeek 系列注意力结构总览：每一代砍的是 KV cache 账里的哪个因子">
+  <svg viewBox="0 0 1180 712" role="img" aria-label="DeepSeek 系列注意力结构总览：每一代砍的是 KV cache 开销里的哪个因子">
     <defs>
       <marker id="mind-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" /></marker>
     </defs>
@@ -110,7 +110,7 @@ const leafEdges = [
 
     <g class="node topic">
       <rect x={topic.x} y={topic.y} width={topic.w} height={topic.h} rx="10" />
-      <SvgTex x={topic.x + topic.w / 2} y={topic.y + 28} size={13.5} weight={600} src="长上下文注意力的账" />
+      <SvgTex x={topic.x + topic.w / 2} y={topic.y + 28} size={13.5} weight={600} src="长上下文注意力的开销" />
       {topicLines.map((t, i) => (
         <SvgTex x={topic.x + topic.w / 2} y={topic.y + 62 + i * 22} size={10.5} src={t} />
       ))}
@@ -135,7 +135,7 @@ const leafEdges = [
       </g>
     ))}
   </svg>
-  <figcaption>总览：每一代结构的目标是什么、靠什么手段达到。账摆在那儿——KV cache 正比于头数 × 条目维度 × 条目数 × 层数 × 每数字节，注意力 FLOPs 正比于头数 × 维度 × 看的条目数；MHA → GQA → MLA → DSA → CSA/HCA → CSA2 每一代挑其中一个或几个因子砍。</figcaption>
+  <figcaption>总览：每一代结构的目标是什么、靠什么手段达到。开销的构成是：KV cache 正比于头数 × 条目维度 × 条目数 × 层数 × 每数字节，注意力 FLOPs 正比于头数 × 维度 × 看的条目数；MHA → GQA → MLA → DSA → CSA/HCA → CSA2 每一代挑其中一个或几个因子砍。</figcaption>
 </figure>
 
 <style>

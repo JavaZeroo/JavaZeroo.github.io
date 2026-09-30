@@ -78,7 +78,7 @@ const edges = [
 
 const caption = gqa
   ? 'DeepSeek-V1-67B 的 GQA（decode 一步，t = cache 里已有的 token 数）。64 个 query 头共享 8 组 K/V；注意 KV cache 画在 repeat_kv 之前——cache 只存 8 组（4 KiB / token / 层，若用 MHA 则是 32 KiB），repeat_kv 的 8 倍复制只是算分时的逻辑 expand，不占显存。RoPE 是 full 的（全部 128 维，θ = 10000），只加在 Q/K 上。'
-  : 'DeepSeek-V1-7B 的 MHA（decode 一步，t = cache 里已有的 token 数）。32 个头各有自己的 K、V，KV cache 每 token 每层 16 KiB；RoPE 是 full 的（全部 128 维，θ = 10000），只加在 Q/K 上。这是后续所有结构的基线形态。';
+  : 'DeepSeek-V1-7B 的 MHA（decode 一步，t = cache 里已有的 token 数）。32 个头各有自己的 K、V，KV cache 每 token 每层 16 KiB；RoPE 是 full 的（全部 128 维，θ = 10000），只加在 Q/K 上。这是后续所有结构的基线。';
 ---
 
 <FlowDiagram id={`mha-gqa-${model}`} viewBox="0 0 1300 520" minWidth={920} nodes={nodes} edges={edges}

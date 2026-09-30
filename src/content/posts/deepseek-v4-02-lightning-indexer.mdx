@@ -38,7 +38,7 @@ $$
 
 拆开看它为什么长这样：
 
-- **它是一个小号的多头注意力打分，没有 softmax。** $H^I$ 个头（V3.2 和 V4 都是 64），每头的 query $\mathbf{q}^I_{t,j}$ 和 key $\mathbf{k}^I_s$ 维度 128。主注意力有 128 头 × 512 维，indexer 是 64 头 × 128 维，内积的算术量是主注意力的 $1/8$。
+- **它是一个小号的多头注意力打分，没有 softmax。** $H^I$ 个头（V3.2 和 V4 都是 64），每头的 query $\mathbf{q}^I_{t,j}$ 和 key $\mathbf{k}^I_s$ 维度 128。主注意力有 128 头 × 512 维，indexer 是 64 头 × 128 维，内积的计算量是主注意力的 $1/8$。
 - **key 只有一份，所有头共享。** 和主注意力的 MQA 一样，indexer 的 $\mathbf{k}^I_s$ 不分头，缓存每 token 128 个数。
 - **ReLU 而不是 exp。** 论文说是为了吞吐。ReLU 让负内积直接归零、不需要跨条目的归一化，每个分数可以独立算，也不需要维护 max 和 sum。
 - **头之间用 $w^I_{t,j}$ 加权求和。** 权重由 query token 决定（$\mathbf{w}^I_t = \mathbf{h}_t W^w$），可以为负，相当于让 query 决定这次检索听哪几个头的。64 个头压成一个标量分数，top-$k$ 只需要在一个分数上做。
@@ -57,7 +57,7 @@ V4 沿用这个框架：先用稠密注意力训 1T token（Pro 更长），在�
 
 V4 的 indexer（公式 (13) – (17)）和 V3.2 的形式相同，变的是 key 和 query 的来源。
 
-**key 是压缩块。** 上一篇的压缩算子再做一份，头维换成 $c^I = 128$，产生 $K^{\text{IComp}} \in \mathbb{R}^{n/m \times c^I}$。也就是说 indexer 有自己的 $W^{aKV}, W^{bKV}, W^{aZ}, W^{bZ}$（各 7168 × 128）和自己的位置偏置，和主注意力的压缩是两套参数、同一种算法。给每个压缩块一个 128 维的「索引键」，缓存每 4 个 token 128 个数。
+**key 是压缩块。** 上一篇的压缩算子再做一份，头维换成 $c^I = 128$，产生 $K^{\text{IComp}} \in \mathbb{R}^{n/m \times c^I}$。也就是说 indexer 有自己的 $W^{aKV}, W^{bKV}, W^{aZ}, W^{bZ}$（各 7168 × 128）和自己的位置偏置，和主注意力的压缩是两套参数、同一种算法。给每个压缩块一个 128 维的「索引 key」，缓存每 4 个 token 128 个数。
 
 **query 从共享的 latent 出来。** 公式 (13)、(14)：
 
@@ -94,10 +94,10 @@ class Indexer(nn.Module):
 
 论文没写的细节：
 
-- **Hadamard 旋转。** query 和索引键在量化前都做一次随机 Hadamard 变换（`fast_hadamard_transform`，尺度 $1/\sqrt{128}$）。旋转是正交的，不改变内积，但把能量摊匀到所有维度，去掉离群通道，FP4 的量化误差小得多。这是 QuaRot 一系的做法。
+- **Hadamard 旋转。** query 和索引 key 在量化前都做一次随机 Hadamard 变换（`fast_hadamard_transform`，尺度 $1/\sqrt{128}$）。旋转是正交的，不改变内积，但把能量摊匀到所有维度，去掉离群通道，FP4 的量化误差小得多。这是 QuaRot 这类方法的做法。
 - **FP4 是模拟的。** 推理代码里 `fp4_act_quant(..., True)` 是原地量化再反量化回 BF16，注释说他们做了 QAT，真实部署用 FP4 内核。
 - **打分的缩放。** 权重 $w$ 乘了 $128^{-1/2} \cdot 64^{-1/2}$，前者是内积的标准缩放，后者是 64 个头求和的归一化。
-- **indexer 的 key 也带 RoPE。** 压缩键的后 64 维用块首位置做旋转，query 用自己的位置。两者用同一个 $\theta = 160000$ 的 YaRN 版本，和主注意力压缩层一致。
+- **indexer 的 key 也带 RoPE。** 压缩 key 的后 64 维用块首位置做旋转，query 用自己的位置。两者用同一个 $\theta = 160000$ 的 YaRN 版本，和主注意力压缩层一致。
 - **top-$k$ 不够时。** 前文不足 1024 个块时取全部；序列开头几个 token 连一个完整块都没有，只靠滑窗分支。
 
 ## 一层 CSA 的完整维度
@@ -115,9 +115,9 @@ class Indexer(nn.Module):
 5. **核心注意力。** `sparse_attn(q, kv, attn_sink, topk_idxs, scale)`：按索引从 cache 里 gather 1152 条，128 个头各做一次 softmax，分母加 sink，K 和 V 是同一份。
 6. **输出。** 后 64 维反旋转，分 16 组 4096 → 1024，拼成 16384 → `wo_b` → 7168。
 
-每 token 每层 CSA 的核心注意力算术量是 $2 \times 128 \times 1152 \times 512 \approx 151$ MFLOP，和上下文长度无关。indexer 的打分是 $2 \times 64 \times (n/4) \times 128$，1M 时约 4.3 GFLOP，在 FP4 里算。
+每 token 每层 CSA 的核心注意力计算量是 $2 \times 128 \times 1152 \times 512 \approx 151$ MFLOP，和上下文长度无关。indexer 的打分是 $2 \times 64 \times (n/4) \times 128$，1M 时约 4.3 GFLOP，在 FP4 里算。
 
-## 参数账
+## 参数量
 
 一层 CSA（Pro）：
 
@@ -145,4 +145,4 @@ HCA 少了 indexer 的三项，压缩算子只有两个矩阵，约 307M。61 �
 
 ## 下一篇
 
-第 3 篇讲剩下的部分：HCA 为什么不用 indexer、两种注意力怎么交错、滑窗分支为什么必须有、K = V 带来的位置编码问题怎么用反旋转解决、attention sink，以及 1M 上下文的 KV cache 和 FLOPs 的账。
+第 3 篇讲剩下的部分：HCA 为什么不用 indexer、两种注意力怎么交错、滑窗分支为什么必须有、K = V 带来的位置编码问题怎么用反旋转解决、attention sink，以及 1M 上下文下 KV cache 和 FLOPs 各是多少。

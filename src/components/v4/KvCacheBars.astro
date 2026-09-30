@@ -30,7 +30,7 @@ const gib = (b: number) => `${((b * 1048576) / 2 ** 30).toFixed(b > 10000 ? 0 : 
         </g>
       );
     })}
-    <SvgTex x={480} y={Y0 + 4 * RH + 6} size={10.5} color="var(--muted)" src="V4-Pro ≈ 基线的 2.2%，≈ V3.2 的 12%（论文 Figure 1 的口径分别是 2% 和 10%；差别来自 scale 与 indexer 精度的记法）" />
+    <SvgTex x={480} y={Y0 + 4 * RH + 6} size={10.5} color="var(--muted)" src="V4-Pro ≈ 基线的 2.2%，≈ V3.2 的 12%（论文 Figure 1 给的分别是 2% 和 10%；差别来自 scale 与 indexer 精度的记法）" />
   </svg>
   <figcaption>1M 上下文时每个 token 摊到的 KV cache。V4 的条目是 64 维 BF16 加 448 维 FP8，一条 576 B；CSA 每 4 个 token 一条，HCA 每 128 个 token 一条，滑窗固定 128 条不随长度增长。</figcaption>
 </figure>

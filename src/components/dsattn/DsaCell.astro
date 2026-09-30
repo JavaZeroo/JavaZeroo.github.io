@@ -77,7 +77,7 @@ const groups = [
 
 <FlowDiagram id="dsa-cell" viewBox="0 0 1460 700" minWidth={1000} nodes={nodes} edges={edges} groups={groups}
   label="DeepSeek-V3.2 的 DSA 单层结构：上泳道 lightning indexer，下泳道 MLA 主注意力"
-  caption="DSA 回答「省的是计算不是显存」：indexer 给每个 query 从 L 条里选出 top-2048（ReLU 打分、FP8，≈16.4 GFLOP/token @1M），主注意力只对这 2048 条算（≈168 MFLOP，是 dense 82 GFLOP 的 1/488）；KV cache 仍是每 token 每层 576 维，和 V3 一字节不差（还多了 indexer 自己的 128 B FP8 键）。序列短于 2048 时等价稠密。" />
+  caption="DSA 回答「省的是计算不是显存」：indexer 给每个 query 从 L 条里选出 top-2048（ReLU 打分、FP8，≈16.4 GFLOP/token @1M），主注意力只对这 2048 条算（≈168 MFLOP，是 dense 82 GFLOP 的 1/488）；KV cache 仍是每 token 每层 576 维，和 V3 一字节不差（还多了 indexer 自己的 128 B FP8 key）。序列短于 2048 时等价稠密。" />
 
 <style is:global>
   .fd .node.cache { --c: var(--cat-amber); }
