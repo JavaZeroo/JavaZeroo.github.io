@@ -59,8 +59,8 @@ const zigzag = (row: number) => (row < C ? row : 2 * C - 1 - row);   // rank i �
     )))}
     <SvgTex x={T1X + n * cell / 2} y={TY + n * cell + 12} size={9.5} color="var(--text-2)" src="格子数 3 / 7 / 11 / 15" />
     <SvgTex x={T2X + n * cell / 2} y={TY + n * cell + 12} size={9.5} color="var(--text-2)" src="格子数 9 / 9 / 9 / 9" />
-    <SvgTex x={T1X - 10} y={TY + n * cell / 2} size={9} align="end" color="var(--muted)" src="查询" />
-    <SvgTex x={(T1X + T2X + n * cell) / 2} y={TY + n * cell + 32} size={9.5} color="var(--muted)" src="行是查询块，列是键块，颜色是负责的 rank；因果掩码只算下三角" />
+    <SvgTex x={T1X - 10} y={TY + n * cell / 2} size={9} align="end" color="var(--muted)" src="query" />
+    <SvgTex x={(T1X + T2X + n * cell) / 2} y={TY + n * cell + 32} size={9.5} color="var(--muted)" src="行是 query 块，列是 key 块，颜色是负责的 rank；因果掩码只算下三角" />
     <SvgTex x={(T1X + T2X + n * cell) / 2} y={TY + n * cell + 50} size={9.5} color="var(--muted)" src="rank $i$：连续切分拿第 $2i, 2i{+}1$ 段；zigzag 拿第 $i$ 和第 $7 - i$ 段" />
   </svg>
   <figcaption set:html={texMix(caption)} />
