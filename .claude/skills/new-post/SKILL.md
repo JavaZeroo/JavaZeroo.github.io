@@ -34,9 +34,10 @@ disable-model-invocation: true
 
 ## 4. 验证
 
-1. `PATH=~/.local/node24/bin:$PATH npm run build` 通过。
-2. Playwright 截浅色与深色两份，检查图与公式。
-3. `git status` 核对新组件都在，未跟踪的组件一起提交。
-4. PLAN 里把该篇标记为已写；主架构图 `LINKS` 表填上这篇的 URL。
+1. 按 `post-style` 的「写完自查」过一遍用词，包括跑 `wording_scan.py`。
+2. `PATH=~/.local/node24/bin:$PATH npm run build` 通过。
+3. Playwright 截浅色与深色两份，检查图与公式。
+4. `git status` 核对新组件都在，未跟踪的组件一起提交。
+5. PLAN 里把该篇标记为已写；主架构图 `LINKS` 表填上这篇的 URL。
 
-完成标准：构建通过、每张图截过图、PLAN 与 LINKS 已更新。
+完成标准：用词自查做完、构建通过、每张图截过图、PLAN 与 LINKS 已更新。
