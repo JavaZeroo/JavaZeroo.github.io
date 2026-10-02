@@ -34,7 +34,7 @@ import SvgTex from '../figures/SvgTex.astro';
       </g>
     ))}
     <SvgTex x={680} y={268} size={10.5} color="var(--text-2)" src="块大小取 $\operatorname{lcm}(m, m') = 128$ 个原 token 的整数倍，两种层的条目都对齐到块边界" />
-    <text class="s" x="440" y="304">块满了才写入；每块内容只依赖它覆盖的 token，所以可以按块做前缀缓存和落盘</text>
+    <text class="s" x="440" y="304">块满了才写入；每块内容只依赖它覆盖的 token，所以可以按块做前缀缓存并存到磁盘</text>
   </svg>
   <figcaption>论文 Figure 6 的布局。左边是随序列走的「状态」，右边是随长度增长、可以分页和复用的压缩条目。</figcaption>
 </figure>

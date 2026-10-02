@@ -84,7 +84,7 @@ $c_t^{KV}$ 只有 512 维。由矩阵乘法结合律，$W^{UK}$ 可以吸收进 
 
 ## DSA（DeepSeek-V3.2）：砍每个 query 看的条目数
 
-**动机**：MLA 解决了「存」，但没解决「算」——1M 上下文下每个 query 仍要对全部 1M 条 latent 打分，每层约 82 GFLOP/token。DSA（DeepSeek Sparse Attention）的思路是：大部分 token 对当前 query 根本不重要，能不能只看 top-k 个？
+**动机**：MLA 解决了存储，但没解决计算——1M 上下文下每个 query 仍要对全部 1M 条 latent 打分，每层约 82 GFLOP/token。DSA（DeepSeek Sparse Attention）的思路是：大部分 token 对当前 query 根本不重要，能不能只看 top-k 个？
 
 <DsaCell caption="一层 DSA（DeepSeek-V3.2 维度）。上泳道是 lightning indexer：给全部前文打一个便宜的分，选出 top-2048；下泳道主注意力和 V3 一样是 MLA，但只对选中的 2048 条算。KV cache 一个字节没省，还多了 indexer 的 FP8 key（每 token 128 B + 4 B scale）。" />
 

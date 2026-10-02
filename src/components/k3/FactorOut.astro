@@ -38,7 +38,7 @@ const OP = (i: number) => RX0 + i * 62;
     ))}
     <rect class="den" x="36" y="246" width="388" height="30" rx="6" />
     <SvgTex x={230} y={261} size={10.5} color="var(--cat-rose)" src="分母 $\sum_j e^{q_t\cdot k_j}$：也含 $q_t$，且要遍历全部 $j$" />
-    <SvgTex x={230} y={300} size={10.5} color="var(--text-2)" src="$w_{t,i}$ 的指数和分母都钉在 $q_t$ 上，求和搬不进去" />
+    <SvgTex x={230} y={300} size={10.5} color="var(--text-2)" src="$w_{t,i}$ 的指数和分母都依赖 $q_t$，求和挪不进括号" />
     <SvgTex x={230} y={318} size={10.5} color="var(--text-2)" src="只能等 $q_t$ 来了再对每个 $k_i$ 算一次，所以 $k_i, v_i$ 要一直存着" />
     <SvgTex x={230} y={342} size={10.5} weight={600} color="var(--text)" src="这就是 KV cache" />
 
