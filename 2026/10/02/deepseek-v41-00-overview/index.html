@@ -1,0 +1,728 @@
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="generator" content="Astro v7.2.10"><title>DeepSeek-V4.1 模型结构（0）：一张图看懂 DeepSeek-V4.1-Flash · Java不加糖的Blog</title><meta name="description" content="连载开篇。DeepSeek-V4.1-Flash 把每 token 的全局 KV cache 压到 890 字节，prefill 只跑一半的层。这一篇用一张总架构图把 CED、CSA2 的两个共享池、Single-Pass mHC、Engram、DSpark 和视觉通路摆在一起，给出 40 层的排布、V4-Flash → V4.1-Flash 的对照表、552B 参数的分项，并说明后面每一篇讲什么。"><link rel="canonical" href="https://blog.javazero.top/2026/10/02/deepseek-v41-00-overview/"><link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png"><link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png"><link rel="sitemap" href="/sitemap-index.xml"><link rel="alternate" type="application/rss+xml" title="Java不加糖的Blog" href="https://blog.javazero.top/atom.xml"><!-- HarmonyOS Sans SC, sliced by unicode-range; the browser fetches only the
+     slices a page actually uses. Kept out of the Vite bundle on purpose.
+     Each sheet is ~47 KB gzipped, so they are fetched as low-priority print
+     stylesheets and promoted once loaded: the first frame paints in the system
+     font instead of waiting for them. The ClientRouter keeps stylesheet links
+     with a matching href across navigations, so the promoted sheet survives
+     client-side page swaps. Only 400 and 700 ship; 500 fell back to 400. --><link rel="stylesheet" href="/fonts/harmonyos-sans-sc/400/result.css" media="print" onload="this.media='all'"><link rel="stylesheet" href="/fonts/harmonyos-sans-sc/700/result.css" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="/fonts/harmonyos-sans-sc/400/result.css"><link rel="stylesheet" href="/fonts/harmonyos-sans-sc/700/result.css"></noscript><meta property="og:type" content="article"><meta property="og:title" content="DeepSeek-V4.1 模型结构（0）：一张图看懂 DeepSeek-V4.1-Flash"><meta property="og:description" content="连载开篇。DeepSeek-V4.1-Flash 把每 token 的全局 KV cache 压到 890 字节，prefill 只跑一半的层。这一篇用一张总架构图把 CED、CSA2 的两个共享池、Single-Pass mHC、Engram、DSpark 和视觉通路摆在一起，给出 40 层的排布、V4-Flash → V4.1-Flash 的对照表、552B 参数的分项，并说明后面每一篇讲什么。"><meta property="og:url" content="https://blog.javazero.top/2026/10/02/deepseek-v41-00-overview/"><meta property="og:site_name" content="Java不加糖的Blog"><meta property="article:published_time" content="2026-10-02T12:00:00.000Z"><meta property="article:modified_time" content="2026-10-02T12:00:00.000Z"><meta property="og:image" content="https://blog.javazero.top/og/deepseek-v41-00-overview.png"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta name="twitter:card" content="summary_large_image"><meta name="theme-color" content="#0b0f19"><script type="application/ld+json">{"@context":"https://schema.org","@type":"BlogPosting","headline":"DeepSeek-V4.1 模型结构（0）：一张图看懂 DeepSeek-V4.1-Flash","description":"连载开篇。DeepSeek-V4.1-Flash 把每 token 的全局 KV cache 压到 890 字节，prefill 只跑一半的层。这一篇用一张总架构图把 CED、CSA2 的两个共享池、Single-Pass mHC、Engram、DSpark 和视觉通路摆在一起，给出 40 层的排布、V4-Flash → V4.1-Flash 的对照表、552B 参数的分项，并说明后面每一篇讲什么。","inLanguage":"zh-CN","datePublished":"2026-10-02T12:00:00.000Z","dateModified":"2026-10-02T12:00:00.000Z","author":{"@type":"Person","name":"Java不加糖","url":"https://blog.javazero.top"},"publisher":{"@type":"Person","name":"Java不加糖","url":"https://blog.javazero.top"},"mainEntityOfPage":"https://blog.javazero.top/2026/10/02/deepseek-v41-00-overview/","image":"https://blog.javazero.top/og/deepseek-v41-00-overview.png"}</script><meta name="astro-view-transitions-enabled" content="true"><meta name="astro-view-transitions-fallback" content="animate"><script type="module" src="/_astro/ClientRouter.astro_astro_type_script_index_0_lang.Bwsu7jgA.js"></script><!-- Dark is the default. Runs before first paint, and again after every
+     client-side navigation because the router swaps <html>. --><script>
+  (() => {
+    let watcher;
+    // Keeps the browser UI (address bar, task switcher) on the page's own
+    // background, whichever theme is active. Reads --bg so the two never drift
+    // apart; the header's toggle only sets data-theme.
+    const paint = () => {
+      const bg = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim();
+      if (bg) document.querySelector('meta[name="theme-color"]')?.setAttribute('content', bg);
+    };
+    const apply = () => {
+      // Marks that JS runs at all: CSS keeps scroll-reveal content visible
+      // without it. Re-applied after a swap, which replaces <html>.
+      document.documentElement.classList.add('js');
+      let light = false;
+      try {
+        const stored = localStorage.getItem('theme');
+        light = stored ? stored === 'light' : matchMedia('(prefers-color-scheme: light)').matches;
+      } catch {}
+      document.documentElement.dataset.theme = light ? 'light' : 'dark';
+      paint();
+      watcher?.disconnect();
+      watcher = new MutationObserver(paint);
+      watcher.observe(document.documentElement, { attributeFilter: ['data-theme'] });
+    };
+    apply();
+    document.addEventListener('astro:after-swap', apply);
+  })();
+</script><link rel="stylesheet" href="/_astro/_..BNLSuGWh.css"><link rel="stylesheet" href="/_astro/BaseLayout.BuJD-_U7.css"><script type="module" src="/_astro/page.9pYLC08D.js"></script><style>.strip41[data-astro-cid-k2n5syb7]{border:1px solid var(--border);border-radius:var(--r);background:var(--surface);margin:2rem 0;padding:.8rem .6rem .4rem;overflow-x:auto}.strip41[data-astro-cid-k2n5syb7] svg[data-astro-cid-k2n5syb7]{width:100%;min-width:700px;height:auto;font-family:var(--font-sans);display:block}.cell[data-astro-cid-k2n5syb7].full{fill:var(--cat-indigo)}.cell[data-astro-cid-k2n5syb7].reindex{fill:var(--cat-amber)}.cell[data-astro-cid-k2n5syb7].reuse{fill:color-mix(in srgb, var(--cat-cyan) 70%, var(--bg-2))}.cell[data-astro-cid-k2n5syb7].swa{fill:color-mix(in srgb, var(--muted) 55%, var(--bg-2))}.cell[data-astro-cid-k2n5syb7].dspark{fill:color-mix(in srgb, var(--muted) 20%, var(--bg-2));stroke:var(--muted);stroke-width:.9px;stroke-dasharray:2 1.5}.eng[data-astro-cid-k2n5syb7]{fill:var(--cat-rose)}.tick[data-astro-cid-k2n5syb7]{fill:var(--muted);font-size:9.5px}.side[data-astro-cid-k2n5syb7]{fill:var(--text-2);font-size:10.5px}.bound[data-astro-cid-k2n5syb7]{stroke:var(--text-2);stroke-width:1.2px;stroke-dasharray:5 4}.br[data-astro-cid-k2n5syb7]{fill:none;stroke:var(--text-2);stroke-width:1.2px}.br[data-astro-cid-k2n5syb7].ds{stroke:var(--muted);stroke-dasharray:3 2}figcaption[data-astro-cid-k2n5syb7]{color:var(--text-2);text-align:center;margin-top:.6rem;font-size:.88rem;line-height:1.6}
+</style><link rel="stylesheet" href="/_astro/V41ArchDiagram.E5w-plUL.css"></head><body><a class="skip" href="#main">跳到正文</a><header class="site-header" data-header><div class="wide"><a class="brand" href="/"><img src="/images/avatar-64.webp" alt="" width="28" height="28">Java不加糖</a><nav class="site-nav"><a href="/series/">专栏</a><a href="/archives/">归档</a><a href="/categories/">分类</a><a href="/tags/">标签</a><a href="/about/">关于</a><button class="search-btn" type="button" data-search-open aria-label="搜索"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M10.5 3a7.5 7.5 0 0 1 5.96 12.06l4.24 4.24a1 1 0 0 1-1.41 1.41l-4.24-4.24A7.5 7.5 0 1 1 10.5 3Zm0 2a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11Z"/></svg><span>搜索</span><kbd>⌘K</kbd></button><button class="icon-btn" type="button" aria-label="切换深浅色主题" data-theme-toggle><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" class="icon-sun"><path d="M12 17a5 5 0 1 1 0-10 5 5 0 0 1 0 10Zm0-2a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm0-12a1 1 0 0 1 1 1v1.5a1 1 0 1 1-2 0V4a1 1 0 0 1 1-1Zm0 15.5a1 1 0 0 1 1 1V21a1 1 0 1 1-2 0v-1.5a1 1 0 0 1 1-1ZM21 12a1 1 0 0 1-1 1h-1.5a1 1 0 1 1 0-2H20a1 1 0 0 1 1 1ZM5.5 12a1 1 0 0 1-1 1H3a1 1 0 1 1 0-2h1.5a1 1 0 0 1 1 1Zm12.73-6.23a1 1 0 0 1 0 1.42l-1.06 1.06a1 1 0 1 1-1.42-1.42l1.06-1.06a1 1 0 0 1 1.42 0ZM8.25 15.75a1 1 0 0 1 0 1.42l-1.06 1.06a1 1 0 0 1-1.42-1.42l1.06-1.06a1 1 0 0 1 1.42 0Zm9.98 2.48a1 1 0 0 1-1.42 0l-1.06-1.06a1 1 0 0 1 1.42-1.42l1.06 1.06a1 1 0 0 1 0 1.42ZM8.25 8.25a1 1 0 0 1-1.42 0L5.77 7.19a1 1 0 0 1 1.42-1.42l1.06 1.06a1 1 0 0 1 0 1.42Z"/></svg><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" class="icon-moon"><path d="M12.1 3a1 1 0 0 1 .28 1.63 6.5 6.5 0 0 0 7 10.66 1 1 0 0 1 1.25 1.4A9 9 0 1 1 11.2 3.05a1 1 0 0 1 .9-.05Zm-2.4 2.6a7 7 0 1 0 8.72 11.1A8.5 8.5 0 0 1 9.7 5.6Z"/></svg></button><button class="icon-btn menu-btn" type="button" aria-label="菜单" aria-expanded="false" data-menu-toggle><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" class="icon-menu"><path d="M4 7a1 1 0 0 1 1-1h14a1 1 0 1 1 0 2H5a1 1 0 0 1-1-1Zm0 5a1 1 0 0 1 1-1h14a1 1 0 1 1 0 2H5a1 1 0 0 1-1-1Zm1 4a1 1 0 1 0 0 2h14a1 1 0 1 0 0-2H5Z"/></svg><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" class="icon-close"><path d="M6.3 6.3a1 1 0 0 1 1.4 0l4.3 4.29 4.3-4.3a1 1 0 1 1 1.4 1.42L13.42 12l4.3 4.3a1 1 0 0 1-1.42 1.4L12 13.42l-4.3 4.3a1 1 0 0 1-1.4-1.42L10.58 12l-4.3-4.3a1 1 0 0 1 0-1.4Z"/></svg></button></nav></div><!-- Small screens: the nav links live here instead. --><nav class="mobile-menu glass" data-mobile-menu hidden aria-label="移动端导航"><a href="/series/">专栏</a><a href="/archives/">归档</a><a href="/categories/">分类</a><a href="/tags/">标签</a><a href="/about/">关于</a></nav></header><script type="module">var e,t;document.addEventListener(`astro:page-load`,()=>{e?.abort(),e=new AbortController,t?.disconnect();let{signal:n}=e,r=document.documentElement,i=document.querySelector(`[data-theme-toggle]`),a=()=>i?.setAttribute(`aria-pressed`,String(r.dataset.theme===`light`));a(),i?.addEventListener(`click`,()=>{let e=r.dataset.theme===`light`?`dark`:`light`;r.dataset.theme=e,a();try{localStorage.setItem(`theme`,e)}catch{}},{signal:n});let o=document.querySelector(`[data-menu-toggle]`),s=document.querySelector(`[data-mobile-menu]`);if(o&&s){let e=e=>{s.hidden=!e,o.setAttribute(`aria-expanded`,String(e))};o.addEventListener(`click`,()=>e(s.hidden!==!1),{signal:n}),addEventListener(`keydown`,t=>{t.key===`Escape`&&e(!1)},{signal:n})}let c=document.querySelector(`[data-header]`);if(c){let e=()=>c.classList.toggle(`scrolled`,window.scrollY>8);e(),addEventListener(`scroll`,e,{passive:!0,signal:n})}let l=new IntersectionObserver(e=>{for(let t of e)t.isIntersecting&&(t.target.classList.add(`in`),l.unobserve(t.target))},{rootMargin:`0px 0px -8% 0px`});t=l,document.querySelectorAll(`.reveal`).forEach(e=>l.observe(e))});</script><main id="main"><div class="read-progress" data-progress></div><div class="post-shell"><article class="post-main wrap" data-article data-pagefind-body><header class="post-header"><a class="series-banner" href="/series/deepseek-v41/" style="--c:var(--cat-rose)" data-pagefind-ignore><span class="label">专栏</span><b>DeepSeek-V4.1 模型结构</b><span class="sep">·</span><span>总览</span><span class="count label">1 / 9</span><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M13.3 5.3a1 1 0 0 1 1.4 0l6 6a1 1 0 0 1 0 1.4l-6 6a1 1 0 0 1-1.4-1.4L17.58 13H4a1 1 0 1 1 0-2h13.59l-4.3-4.3a1 1 0 0 1 0-1.4Z"/></svg></a><div class="label" data-pagefind-ignore><time datetime="2026-10-02">2026.10.02</time><span>19 min</span><a href="/categories/%F0%9F%93%9D%E5%AD%A6%E4%B9%A0/">学习</a></div><h1 data-pagefind-meta="title" data-pagefind-weight="10">DeepSeek-V4.1 模型结构（0）：一张图看懂 DeepSeek-V4.1-Flash</h1><p class="lede">连载开篇。DeepSeek-V4.1-Flash 把每 token 的全局 KV cache 压到 890 字节，prefill 只跑一半的层。这一篇用一张总架构图把 CED、CSA2 的两个共享池、Single-Pass mHC、Engram、DSpark 和视觉通路摆在一起，给出 40 层的排布、V4-Flash → V4.1-Flash 的对照表、552B 参数的分项，并说明后面每一篇讲什么。</p></header><details class="toc-mobile"><summary><span class="label">目录</span><span>12 节</span></summary><ul><li><a href="#三句话版本" class="d2">三句话版本</a></li><li><a href="#这一代要解决的问题kv-cache-的三处成本" class="d2">这一代要解决的问题：KV cache 的三处成本</a></li><li><a href="#总图" class="d2">总图</a></li><li><a href="#40-层怎么排" class="d2">40 层怎么排</a></li><li><a href="#v4-flash--v41-flash-对照表" class="d2">V4-Flash → V4.1-Flash 对照表</a></li><li><a href="#一个-token-的一次前向" class="d2">一个 token 的一次前向</a></li><li><a href="#decode过全部-40-层" class="d3">decode：过全部 40 层</a></li><li><a href="#prefill算到第-20-层的入口为止" class="d3">prefill：算到第 20 层的入口为止</a></li><li><a href="#参数量" class="d2">参数量</a></li><li><a href="#890-字节是怎么来的" class="d2">890 字节是怎么来的</a></li><li><a href="#阅读地图" class="d2">阅读地图</a></li><li><a href="#资料" class="d2">资料</a></li></ul></details><script type="module">var e;document.addEventListener(`astro:page-load`,()=>{e?.abort(),e=new AbortController;let t=document.querySelectorAll(`[data-toc-link]`);if(!t.length)return;let n=new Map([...t].map(e=>[e.dataset.tocLink,e])),r=[...n.keys()].map(e=>document.getElementById(e)).filter(e=>e!==null),i=()=>{let e=window.scrollY+120,t=r[0];for(let n of r)if(n.offsetTop<=e)t=n;else break;for(let[,e]of n)e.classList.remove(`active`);t&&n.get(t.id)?.classList.add(`active`)};i(),addEventListener(`scroll`,i,{passive:!0,signal:e.signal})});</script><div class="prose"><p>这个连载配合 <a href="https://arxiv.org/abs/2609.19969">DeepSeek-V4.1-Flash 技术报告</a>的 §2 &quot;Architecture&quot; 一起读。V4.1 是在 DeepSeek-V4 上改出来的，所以它也是 <a href="/2026/09/05/deepseek-v4-00-overview/">DeepSeek-V4 连载</a>的续篇：V4 讲过的模块这里只引用，篇幅都留给这一代的改动。开篇不进细节，只做四件事：说清这一代要解决什么问题，把整个模型画成一张图，把层数、维度和参数量对上，告诉你后面每一篇在图上的哪个位置。</p>
+<h2 id="三句话版本">三句话版本<a class="h-anchor" href="#三句话版本" aria-label="链接到本节：三句话版本"></a></h2>
+<p>DeepSeek-V4.1-Flash 只有一个模型：主干 <strong>552B</strong> 参数，<strong>40 层</strong>，上下文 <strong>1M</strong>，能读图像。另有 196B 参数放在两张 Engram 查找表里。</p>
+<p>它有两个激活参数量：<strong>prefill 时每 token 8B，decode 时 16B</strong>。prefill 指把 prompt 读进去、建好缓存的阶段，decode 指逐个生成 token 的阶段。两个数不一样，是因为 prompt 里的 token 只需要算前 20 层。</p>
+<p>论文的标题是 &quot;Pushing the Limits of KV Cache Compression&quot;。和 V4-Flash 比，同样长度的上下文，显存里的 KV cache 是 1/4，磁盘上的 KV cache 是 1/8。</p>
+<p>结构上的改动按论文 §2 的顺序排：</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>维度</th><th>模块</th><th>一句话</th><th>论文</th></tr></thead><tbody><tr><td><strong>序列</strong></td><td>Causal Encoder-Decoder（CED）</td><td>前 20 层叫 encoder，后 20 层叫 decoder。decoder 的全局 KV 全部由 encoder 的最终输出投影得到</td><td>§2.2</td></tr><tr><td><strong>序列</strong></td><td>Compressed Sparse Attention 2（CSA2）</td><td>相邻的几层共用一份全局 KV，也共用稀疏选择的结果</td><td>§2.3</td></tr><tr><td><strong>序列</strong></td><td>Hierarchical Sparse Indexer</td><td>decoder 里靠后的 indexer 只在 16384 个候选位置里打分</td><td>§2.3.2</td></tr><tr><td><strong>序列</strong></td><td>FP4 main KV cache</td><td>全局 KV 用 4 bit 浮点存</td><td>§2.4.4</td></tr><tr><td><strong>深度</strong></td><td>Single-Pass mHC</td><td>读算子改用上一个子层算好的权重，残差流只需要读写一遍</td><td>§2.4.1</td></tr><tr><td><strong>记忆</strong></td><td>Engram</td><td>按 n-gram 查表，把查到的向量加进残差流</td><td>§2.4.2</td></tr><tr><td><strong>解码</strong></td><td>DSpark</td><td>三层草稿模块，一次前向猜 5 个 token</td><td>§2.4.3</td></tr><tr><td><strong>输入端</strong></td><td>DeepSeek-ViT + MLP projector</td><td>图像变成 token，和文本排成一条序列</td><td>§2.1.1</td></tr><tr><td><strong>优化器</strong></td><td>head-wise Muon、Sinkhorn-balanced update</td><td>注意力的 query 和 key 权重按头分别正交化；embedding 类的大表换一种只需要动量的更新</td><td>§2.5</td></tr></tbody></table>
+<p>宽度方向的 DeepSeekMoE 基本沿用 V4，只多了一处：文本 token 和图像 token 各用一套负载均衡偏置。</p>
+<h2 id="这一代要解决的问题kv-cache-的三处成本">这一代要解决的问题：KV cache 的三处成本<a class="h-anchor" href="#这一代要解决的问题kv-cache-的三处成本" aria-label="链接到本节：这一代要解决的问题：KV cache 的三处成本"></a></h2>
+<p>先回顾 V4 的注意力。每一层有两个分支：</p>
+<ul>
+<li><strong>滑窗分支</strong>（sliding-window attention，SWA）看最近 128 个 token，KV 不压缩。</li>
+<li><strong>全局分支</strong>看整段上下文。KV 先压缩成条目，再由一个叫 lightning indexer 的小模块给条目打分，每个 query 只读分数最高的 top-k 条。</li>
+</ul>
+<p>这两个分支在 <a href="/2026/09/05/deepseek-v4-01-kv-compression/">V4 连载的第 1 – 3 篇</a>里讲过。论文把 V4 概括成一句话：一个靠滑窗做局部处理的主干，外加一份压缩过的全局上下文。V4.1 的思路是<strong>滑窗分支基本不动，只简化全局分支</strong>。</p>
+<p>全局分支的 KV cache 论文叫 global KV，本连载写作<strong>全局 KV</strong>。它由两部分组成：注意力真正读的 <strong>main KV</strong>，和 indexer 打分用的 <strong>indexer K</strong>。全局 KV 随上下文长度线性增长，滑窗 KV 每层固定 128 条。上下文一长，占地方的就是全局 KV。</p>
+<p>agent 场景下，这份缓存在三个地方花钱。</p>
+<p><strong>第一处是显存。</strong> 生成时全局 KV 必须整份放在 GPU 显存里。V4-Flash 每个 token 的全局 KV 是 3514 字节，1M 上下文就是 3.4 GiB。一台机器能同时服务多少个长会话，由这个数决定。</p>
+<p><strong>第二处是磁盘。</strong> agent 每次调用工具后都会带着同一段前缀再发一次请求。服务端把算好的 KV cache 存在 SSD 上，下次命中前缀就不用重算。论文把这份缓存叫 persistent KV cache。V4 的部署里它至少保留 72 小时，其中将近一半的空间存的是滑窗 KV。</p>
+<p><strong>第三处是 prefill 的计算。</strong> 缓存没命中时，新进来的 prompt token 要过完全部的层。agent 的输入远多于输出，工具返回的大段内容都是输入。</p>
+<p>V4.1 对这三处各有对策：</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>成本</th><th>V4-Flash</th><th>V4.1-Flash</th><th>靠什么</th><th>哪一篇</th></tr></thead><tbody><tr><td>显存里的全局 KV</td><td>3514 B/token</td><td><strong>890 B/token</strong>，约 1/4</td><td>CSA2 跨层共享 + FP4</td><td>第 2、3 篇</td></tr><tr><td>磁盘上的 persistent KV</td><td>全局 KV + 滑窗 KV</td><td>约 <strong>1/8</strong>，只存全局 KV</td><td>上一行，再加 SWA Bounded Replay</td><td>第 8 篇</td></tr><tr><td>prefill 每 token 激活参数</td><td>13B，过全部 43 层</td><td><strong>8B</strong>，过 20 层</td><td>CED</td><td>第 1 篇</td></tr></tbody></table>
+<p>1/8 是两个因子相乘：全局 KV 自己缩到 1/4，滑窗 KV 不再进磁盘又省掉将近一半。</p>
+<p>生成一个 token 的计算量也几乎不随上下文变长。论文 Figure 2 给的数字是：上下文从 4K 增加到 1M，长了 256 倍，V4.1-Flash 单 token 的 decode FLOPs 只增加 1/4。</p>
+<h2 id="总图">总图<a class="h-anchor" href="#总图" aria-label="链接到本节：总图"></a></h2>
+<p>下面这张图对应论文 Figure 3。后面每一篇开头都会再放一次，只点亮当篇讲的模块。方块可以点击，跳到讲它的那一篇。</p>
+<figure class="v41d" data-highlight data-astro-cid-2ijvg73f><svg viewBox="0 0 1040 896" role="img" aria-label="DeepSeek-V4.1-Flash 总架构图" data-astro-cid-2ijvg73f><defs data-astro-cid-2ijvg73f><marker id="v41-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse" data-astro-cid-2ijvg73f><path d="M0 0 L10 5 L0 10 z" data-astro-cid-2ijvg73f></path></marker></defs><!-- 输入 --><text class="lbl" x="78" y="28" text-anchor="middle" data-astro-cid-2ijvg73f>图像</text><text class="lbl" x="364" y="28" text-anchor="middle" data-astro-cid-2ijvg73f>文本 token</text><line class="edge" x1="134" y1="57" x2="146" y2="57" marker-end="url(#v41-arrow)" data-astro-cid-2ijvg73f></line><line class="edge" x1="264" y1="57" x2="274" y2="57" marker-end="url(#v41-arrow)" data-astro-cid-2ijvg73f></line><text class="note" x="464" y="54" data-astro-cid-2ijvg73f>视觉特征写到图像 token 的位置上，</text><text class="note" x="464" y="68" data-astro-cid-2ijvg73f>和文本 embedding 排成同一条序列</text><!-- embedding → 4 条流 --><line class="edge" x1="364" y1="74" x2="340" y2="136" data-astro-cid-2ijvg73f></line><line class="edge" x1="364" y1="74" x2="356" y2="136" data-astro-cid-2ijvg73f></line><line class="edge" x1="364" y1="74" x2="372" y2="136" data-astro-cid-2ijvg73f></line><line class="edge" x1="364" y1="74" x2="388" y2="136" data-astro-cid-2ijvg73f></line><text class="note" x="464" y="128" data-astro-cid-2ijvg73f>复制成 4 份，进入 4 条残差流</text><!-- 残差流 --><line class="stream" x1="340" y1="138" x2="340" y2="783" data-astro-cid-2ijvg73f></line><line class="stream" x1="356" y1="138" x2="356" y2="783" data-astro-cid-2ijvg73f></line><line class="stream" x1="372" y1="138" x2="372" y2="783" data-astro-cid-2ijvg73f></line><line class="stream" x1="388" y1="138" x2="388" y2="783" data-astro-cid-2ijvg73f></line><text class="note" x="290" y="165" text-anchor="end" data-astro-cid-2ijvg73f>残差流 ×4</text><text class="note" x="290" y="179" text-anchor="end" data-astro-cid-2ijvg73f>每条 5120 维</text><!-- 重复块虚线框 --><rect class="grp" x="316" y="306" width="372" height="132" rx="10" data-astro-cid-2ijvg73f></rect><text class="grp-lbl" x="306" y="324" text-anchor="end" data-astro-cid-2ijvg73f>重复 3 组</text><text class="note" x="306" y="342" text-anchor="end" data-astro-cid-2ijvg73f>第 2 – 19 层，6 层一组</text><text class="note" x="306" y="358" text-anchor="end" data-astro-cid-2ijvg73f>每组 1 层 Full + 5 层 Reuse</text><rect class="grp" x="316" y="624" width="372" height="132" rx="10" data-astro-cid-2ijvg73f></rect><text class="grp-lbl" x="306" y="642" text-anchor="end" data-astro-cid-2ijvg73f>重复 4 组</text><text class="note" x="306" y="660" text-anchor="end" data-astro-cid-2ijvg73f>第 24 – 39 层，4 层一组</text><text class="note" x="306" y="676" text-anchor="end" data-astro-cid-2ijvg73f>每组 1 层 Reindex + 3 层 Reuse</text><!-- encoder / decoder 分界 --><line class="bound" x1="40" y1="464" x2="1024" y2="464" data-astro-cid-2ijvg73f></line><text class="grp-lbl" x="40" y="455" data-astro-cid-2ijvg73f>encoder：第 0 – 19 层</text><text class="grp-lbl" x="40" y="482" data-astro-cid-2ijvg73f>decoder：第 20 – 39 层</text><text class="note" x="464" y="455" data-astro-cid-2ijvg73f>prefill 时，绝大部分 prompt token 只算到这里</text><g class="svgtex" style="color:var(--muted)" font-size="11" font-weight="400"><text x="464" y="481.96" fill="currentColor">decoder 的全局 KV 全部由</text><svg x="601.9399999999999" y="473.6957" width="19.61531" height="10.268060000000002" viewBox="0 -683 1621.1 848.6" overflow="visible"><g stroke="currentColor" fill="currentColor" stroke-width="0" transform="scale(1,-1)"><g data-mml-node="math"><g data-mml-node="msub"><g data-mml-node="mi"><use href="#mj0"></use></g><g data-mml-node="TeXAtom" transform="translate(864,-150) scale(0.707)" data-mjx-texclass="ORD"><g data-mml-node="mn"><use href="#mj1"></use><use href="#mj2" transform="translate(500,0)"></use></g></g></g></g></g></svg><text x="625.73531" y="481.96" fill="currentColor">投影得到</text></g><!-- 每一行：读 → 模块 → 写/混 --><g data-astro-cid-2ijvg73f><line class="edge" x1="402" y1="167" x2="460" y2="167" marker-end="url(#v41-arrow)" data-astro-cid-2ijvg73f></line><path class="edge ret" d="M676 167 H 696 V 201 H 404" marker-end="url(#v41-arrow)" data-astro-cid-2ijvg73f></path></g><g data-astro-cid-2ijvg73f><line class="edge" x1="402" y1="235" x2="460" y2="235" marker-end="url(#v41-arrow)" data-astro-cid-2ijvg73f></line><path class="edge ret" d="M676 235 H 696 V 269 H 404" marker-end="url(#v41-arrow)" data-astro-cid-2ijvg73f></path></g><g data-astro-cid-2ijvg73f><line class="edge" x1="402" y1="329" x2="460" y2="329" marker-end="url(#v41-arrow)" data-astro-cid-2ijvg73f></line><path class="edge ret" d="M676 329 H 696 V 363 H 404" marker-end="url(#v41-arrow)" data-astro-cid-2ijvg73f></path></g><g data-astro-cid-2ijvg73f><line class="edge" x1="402" y1="397" x2="460" y2="397" marker-end="url(#v41-arrow)" data-astro-cid-2ijvg73f></line><path class="edge ret" d="M676 397 H 696 V 431 H 404" marker-end="url(#v41-arrow)" data-astro-cid-2ijvg73f></path></g><g data-astro-cid-2ijvg73f><line class="edge" x1="402" y1="511" x2="460" y2="511" marker-end="url(#v41-arrow)" data-astro-cid-2ijvg73f></line><path class="edge ret" d="M676 511 H 696 V 545 H 404" marker-end="url(#v41-arrow)" data-astro-cid-2ijvg73f></path></g><g data-astro-cid-2ijvg73f><line class="edge" x1="402" y1="579" x2="460" y2="579" marker-end="url(#v41-arrow)" data-astro-cid-2ijvg73f></line><path class="edge ret" d="M676 579 H 696 V 613 H 404" marker-end="url(#v41-arrow)" data-astro-cid-2ijvg73f></path></g><g data-astro-cid-2ijvg73f><line class="edge" x1="402" y1="647" x2="460" y2="647" marker-end="url(#v41-arrow)" data-astro-cid-2ijvg73f></line><path class="edge ret" d="M676 647 H 696 V 681 H 404" marker-end="url(#v41-arrow)" data-astro-cid-2ijvg73f></path></g><g data-astro-cid-2ijvg73f><line class="edge" x1="402" y1="715" x2="460" y2="715" marker-end="url(#v41-arrow)" data-astro-cid-2ijvg73f></line><path class="edge ret" d="M676 715 H 696 V 749 H 404" marker-end="url(#v41-arrow)" data-astro-cid-2ijvg73f></path></g><text class="note" x="710" y="165" data-astro-cid-2ijvg73f>只有滑窗分支，不读全局 KV</text><text class="note" x="710" y="233" data-astro-cid-2ijvg73f>40 层的注意力后面都接一个 MoE，</text><text class="note" x="710" y="247" data-astro-cid-2ijvg73f>下面各行省略不画</text><!-- 共享池的读写 --><g class="poolio" data-astro-cid-2ijvg73f><line class="edge w" x1="676" y1="321" x2="770" y2="321" marker-end="url(#v41-arrow)" data-astro-cid-2ijvg73f></line><text class="io" x="760" y="316" text-anchor="end" data-astro-cid-2ijvg73f>写</text><line class="edge r" x1="772" y1="389" x2="678" y2="389" marker-end="url(#v41-arrow)" data-astro-cid-2ijvg73f></line><text class="io" x="760" y="384" text-anchor="end" data-astro-cid-2ijvg73f>读</text><line class="edge w" x1="676" y1="503" x2="770" y2="503" marker-end="url(#v41-arrow)" data-astro-cid-2ijvg73f></line><text class="io" x="760" y="498" text-anchor="end" data-astro-cid-2ijvg73f>写</text><line class="edge r" x1="772" y1="571" x2="678" y2="571" marker-end="url(#v41-arrow)" data-astro-cid-2ijvg73f></line><text class="io" x="760" y="566" text-anchor="end" data-astro-cid-2ijvg73f>读</text><line class="edge w" x1="678" y1="639" x2="770" y2="639" marker-start="url(#v41-arrow)" marker-end="url(#v41-arrow)" data-astro-cid-2ijvg73f></line><text class="io" x="760" y="634" text-anchor="end" data-astro-cid-2ijvg73f>重选索引</text><line class="edge r" x1="772" y1="707" x2="678" y2="707" marker-end="url(#v41-arrow)" data-astro-cid-2ijvg73f></line><text class="io" x="760" y="702" text-anchor="end" data-astro-cid-2ijvg73f>读</text></g><a href="/2026/10/02/deepseek-v41-03-indexer-fp4/" data-astro-cid-2ijvg73f="true"><g class="blk pool " data-astro-cid-2ijvg73f><title>encoder 的三组各有一份全局 KV，由该组的 Full 层写入，组内 6 层共用</title><rect x="772" y="312" width="250" height="102" rx="8" data-astro-cid-2ijvg73f></rect><text class="t" x="897" y="332" text-anchor="middle" data-astro-cid-2ijvg73f>encoder 共享池（每组一份）</text><text class="s" x="786" y="354" data-astro-cid-2ijvg73f>main KV：每 2 个 token 一条，512 维 FP4</text><text class="s" x="786" y="372" data-astro-cid-2ijvg73f>indexer K：每条 128 维 FP4</text><text class="s" x="786" y="390" data-astro-cid-2ijvg73f>top-512 索引：每个 query 一份，不进缓存</text></g></a><a href="/2026/10/02/deepseek-v41-03-indexer-fp4/" data-astro-cid-2ijvg73f="true"><g class="blk pool " data-astro-cid-2ijvg73f><title>decoder 只有一份全局 KV，由第 20 层从 encoder 末态投影出来，20 层共用</title><rect x="772" y="494" width="250" height="238" rx="8" data-astro-cid-2ijvg73f></rect><text class="t" x="897" y="514" text-anchor="middle" data-astro-cid-2ijvg73f>decoder 共享池（只有一份）</text><text class="s" x="786" y="540" data-astro-cid-2ijvg73f>main KV：每个 token 一条，512 维 FP4</text><text class="s" x="786" y="558" data-astro-cid-2ijvg73f>indexer K：每条 128 维 FP4</text><text class="s" x="786" y="590" data-astro-cid-2ijvg73f>候选池：第 20 层选出的</text><text class="s" x="786" y="606" data-astro-cid-2ijvg73f>2048 块 × 8 = 16384 个位置，</text><text class="s" x="786" y="622" data-astro-cid-2ijvg73f>Reindex 层只在池内打分</text><text class="s" x="786" y="654" data-astro-cid-2ijvg73f>top-512 索引：第 20 层先写，</text><text class="s" x="786" y="670" data-astro-cid-2ijvg73f>每个 Reindex 层覆盖一次</text><text class="s" x="786" y="702" data-astro-cid-2ijvg73f>全局 KV 合计 890 B / token</text></g></a><!-- 左侧：mHC 说明 --><text class="note" x="40" y="532" data-astro-cid-2ijvg73f>Single-Pass mHC：每个子层一次读、一次写 + 混</text><g class="svgtex" style="color:var(--muted)" font-size="11" font-weight="400"><svg x="41.1" y="550.885" width="154.77594000000002" height="12.100000000000001" viewBox="0 -750 12791.4 1000" overflow="visible"><g stroke="currentColor" fill="currentColor" stroke-width="0" transform="scale(1,-1)"><g data-mml-node="math"><g data-mml-node="msub"><g data-mml-node="mi"><use href="#mj3"></use></g><g data-mml-node="TeXAtom" transform="translate(861,-150) scale(0.707)" data-mjx-texclass="ORD"><g data-mml-node="mi"><use href="#mj4"></use></g><g data-mml-node="mo" transform="translate(298,0)"><use href="#mj5"></use></g><g data-mml-node="mn" transform="translate(1076,0)"><use href="#mj6"></use></g></g></g><g data-mml-node="mo" transform="translate(2303.2,0)"><path data-c="3D" d="M56 347Q56 360 70 367H707Q722 359 722 347Q722 336 708 328L390 327H72Q56 332 56 347ZM56 153Q56 168 72 173H708Q722 163 722 153Q722 140 707 133H70Q56 140 56 153Z"></path></g><g data-mml-node="msub" transform="translate(3359,0)"><g data-mml-node="mi"><path data-c="1D435" d="M231 637Q204 637 199 638T194 649Q194 676 205 682Q206 683 335 683Q594 683 608 681Q671 671 713 636T756 544Q756 480 698 429T565 360L555 357Q619 348 660 311T702 219Q702 146 630 78T453 1Q446 0 242 0Q42 0 39 2Q35 5 35 10Q35 17 37 24Q42 43 47 45Q51 46 62 46H68Q95 46 128 49Q142 52 147 61Q150 65 219 339T288 628Q288 635 231 637ZM649 544Q649 574 634 600T585 634Q578 636 493 637Q473 637 451 637T416 636H403Q388 635 384 626Q382 622 352 506Q352 503 351 500L320 374H401Q482 374 494 376Q554 386 601 434T649 544ZM595 229Q595 273 572 302T512 336Q506 337 429 337Q311 337 310 336Q310 334 293 263T258 122L240 52Q240 48 252 48T333 46Q422 46 429 47Q491 54 543 105T595 229Z"></path></g><g data-mml-node="mi" transform="translate(792,-150) scale(0.707)"><use href="#mj4"></use></g></g><g data-mml-node="msub" transform="translate(4411.7,0)"><g data-mml-node="mi"><use href="#mj3"></use></g><g data-mml-node="mi" transform="translate(861,-150) scale(0.707)"><use href="#mj4"></use></g></g><g data-mml-node="mo" transform="translate(5755.6,0)"><use href="#mj5"></use></g><g data-mml-node="msub" transform="translate(6755.8,0)"><g data-mml-node="mi"><path data-c="1D436" d="M50 252Q50 367 117 473T286 641T490 704Q580 704 633 653Q642 643 648 636T656 626L657 623Q660 623 684 649Q691 655 699 663T715 679T725 690L740 705H746Q760 705 760 698Q760 694 728 561Q692 422 692 421Q690 416 687 415T669 413H653Q647 419 647 422Q647 423 648 429T650 449T651 481Q651 552 619 605T510 659Q484 659 454 652T382 628T299 572T226 479Q194 422 175 346T156 222Q156 108 232 58Q280 24 350 24Q441 24 512 92T606 240Q610 253 612 255T628 257Q648 257 648 248Q648 243 647 239Q618 132 523 55T319 -22Q206 -22 128 53T50 252Z"></path></g><g data-mml-node="mi" transform="translate(748,-150) scale(0.707)"><use href="#mj4"></use></g></g><g data-mml-node="mstyle" transform="translate(7764.6,0)"><g data-mml-node="mspace"></g></g><g data-mml-node="msub" transform="translate(7931.6,0)"><g data-mml-node="TeXAtom" data-mjx-texclass="ORD"><g data-mml-node="mi"><path data-c="46" d="M199 579Q181 579 181 590Q181 598 188 611T212 639T260 666T335 682Q336 682 349 682T383 682T431 682T493 683T561 683Q776 682 784 681Q826 673 829 647Q829 620 797 600T744 580Q728 580 728 595Q729 607 713 610Q698 613 598 614H500L499 610Q499 598 467 486T428 367Q428 365 551 365H674Q683 360 684 355Q687 346 677 329Q666 312 642 299T598 285Q586 285 582 296H402L394 277Q386 258 373 229T346 167T315 102T286 51Q265 22 225 -5T133 -32Q108 -32 87 -25T54 -7T33 15T21 35T18 47Q18 60 44 80T98 103Q108 103 111 101T119 88Q130 66 150 54T179 39T195 37Q199 37 203 43Q217 67 245 125T318 300T391 532Q393 543 398 564T406 598T409 613T339 614H269Q229 579 199 579Z"></path></g></g><g data-mml-node="mi" transform="translate(752,-150) scale(0.707)"><use href="#mj4"></use></g></g><g data-mml-node="mo" transform="translate(8944.3,0)"><path data-c="28" d="M94 250Q94 319 104 381T127 488T164 576T202 643T244 695T277 729T302 750H315H319Q333 750 333 741Q333 738 316 720T275 667T226 581T184 443T167 250T184 58T225 -81T274 -167T316 -220T333 -241Q333 -250 318 -250H315H302L274 -226Q180 -141 137 -14T94 250Z"></path></g><g data-mml-node="msub" transform="translate(9333.3,0)"><g data-mml-node="mi"><use href="#mj7"></use></g><g data-mml-node="TeXAtom" transform="translate(783,-150) scale(0.707)" data-mjx-texclass="ORD"><g data-mml-node="mi"><use href="#mj4"></use></g><g data-mml-node="mo" transform="translate(298,0)"><use href="#mj8"></use></g><g data-mml-node="mn" transform="translate(1076,0)"><use href="#mj6"></use></g></g></g><g data-mml-node="msub" transform="translate(11280.7,0)"><g data-mml-node="mi"><use href="#mj3"></use></g><g data-mml-node="mi" transform="translate(861,-150) scale(0.707)"><use href="#mj4"></use></g></g><g data-mml-node="mo" transform="translate(12402.4,0)"><path data-c="29" d="M60 749L64 750Q69 750 74 750H86L114 726Q208 641 251 514T294 250Q294 182 284 119T261 12T224 -76T186 -143T145 -194T113 -227T90 -246Q87 -249 86 -250H74Q66 -250 63 -250T58 -247T55 -238Q56 -237 66 -225Q221 -64 221 250T66 725Q56 737 55 738Q55 746 60 749Z"></path></g></g></g></svg></g><g class="svgtex" style="color:var(--muted)" font-size="11" font-weight="400"><text x="40" y="581.96" fill="currentColor">读用的</text><svg x="77.18" y="573.2964000000001" width="23.563540000000003" height="11.1804" viewBox="0 -716 1947.4 924" overflow="visible"><g stroke="currentColor" fill="currentColor" stroke-width="0" transform="scale(1,-1)"><g data-mml-node="math"><g data-mml-node="msub"><g data-mml-node="mi"><use href="#mj7"></use></g><g data-mml-node="TeXAtom" transform="translate(783,-150) scale(0.707)" data-mjx-texclass="ORD"><g data-mml-node="mi"><use href="#mj4"></use></g><g data-mml-node="mo" transform="translate(298,0)"><use href="#mj8"></use></g><g data-mml-node="mn" transform="translate(1076,0)"><use href="#mj6"></use></g></g></g></g></g></svg><text x="104.92354" y="581.96" fill="currentColor">是上一个子层算好的</text></g><!-- Engram → 残差流 --><line class="edge eng" x1="242" y1="295" x2="336" y2="295" marker-end="url(#v41-arrow)" data-astro-cid-2ijvg73f></line><text class="note" x="52" y="271" data-astro-cid-2ijvg73f>查表结果经门控后加进残差流</text><!-- 输出行 --><line class="edge" x1="402" y1="783" x2="460" y2="783" marker-end="url(#v41-arrow)" data-astro-cid-2ijvg73f></line><line class="edge" x1="558" y1="783" x2="572" y2="783" marker-end="url(#v41-arrow)" data-astro-cid-2ijvg73f></line><line class="edge" x1="676" y1="783" x2="706" y2="783" marker-end="url(#v41-arrow)" data-astro-cid-2ijvg73f></line><text class="lbl" x="714" y="787" data-astro-cid-2ijvg73f>logits</text><text class="note" x="318" y="787" text-anchor="end" data-astro-cid-2ijvg73f>最后一次只读：4 条流压成 1 条</text><path class="edge dsp" d="M364 800 V 851 H 460" marker-end="url(#v41-arrow)" data-astro-cid-2ijvg73f></path><text class="note" x="354" y="855" text-anchor="end" data-astro-cid-2ijvg73f>读主干第 37 – 39 层入口处 4 条流的平均</text><text class="note" x="688" y="855" data-astro-cid-2ijvg73f>一次前向出 5 个草稿 token 和各自的置信度</text><!-- CED：encoder 末态 --><a href="/2026/10/02/deepseek-v41-01-ced/" data-astro-cid-2ijvg73f="true"><g class="blk ced " data-astro-cid-2ijvg73f><title>encoder 末态：第 19 层的输出，也就是第 20 层的输入。decoder 所有层的全局 KV 都只从它投影（论文式 1）</title><rect x="290" y="452" width="148" height="24" rx="8" data-astro-cid-2ijvg73f></rect><g class="svgtex" style="color:var(--text)" font-size="12" font-weight="400"><text x="313.22074" y="468.32" fill="currentColor">encoder 末态</text><svg x="392.18074" y="459.3044" width="21.39852" height="11.201520000000002" viewBox="0 -683 1621.1 848.6" overflow="visible"><g stroke="currentColor" fill="currentColor" stroke-width="0" transform="scale(1,-1)"><g data-mml-node="math"><g data-mml-node="msub"><g data-mml-node="mi"><use href="#mj0"></use></g><g data-mml-node="TeXAtom" transform="translate(864,-150) scale(0.707)" data-mjx-texclass="ORD"><g data-mml-node="mn"><use href="#mj1"></use><use href="#mj2" transform="translate(500,0)"></use></g></g></g></g></g></svg></g></g></a><!-- 读算子 --><a href="/2026/10/02/deepseek-v41-04-single-pass-mhc/" data-astro-cid-2ijvg73f="true"><g class="blk mhc " data-astro-cid-2ijvg73f><title>mHC 读算子：对 4 条流加权求和，得到子层的 5120 维输入。权重由上一个子层算好</title><rect x="326" y="150" width="76" height="34" rx="8" data-astro-cid-2ijvg73f></rect><text class="t" x="364" y="172" text-anchor="middle" data-astro-cid-2ijvg73f>读 A</text></g></a><a href="/2026/10/02/deepseek-v41-04-single-pass-mhc/" data-astro-cid-2ijvg73f="true"><g class="blk mhc " data-astro-cid-2ijvg73f><title>mHC 读算子：对 4 条流加权求和，得到子层的 5120 维输入。权重由上一个子层算好</title><rect x="326" y="218" width="76" height="34" rx="8" data-astro-cid-2ijvg73f></rect><text class="t" x="364" y="240" text-anchor="middle" data-astro-cid-2ijvg73f>读 A</text></g></a><a href="/2026/10/02/deepseek-v41-04-single-pass-mhc/" data-astro-cid-2ijvg73f="true"><g class="blk mhc " data-astro-cid-2ijvg73f><title>mHC 读算子：对 4 条流加权求和，得到子层的 5120 维输入。权重由上一个子层算好</title><rect x="326" y="312" width="76" height="34" rx="8" data-astro-cid-2ijvg73f></rect><text class="t" x="364" y="334" text-anchor="middle" data-astro-cid-2ijvg73f>读 A</text></g></a><a href="/2026/10/02/deepseek-v41-04-single-pass-mhc/" data-astro-cid-2ijvg73f="true"><g class="blk mhc " data-astro-cid-2ijvg73f><title>mHC 读算子：对 4 条流加权求和，得到子层的 5120 维输入。权重由上一个子层算好</title><rect x="326" y="380" width="76" height="34" rx="8" data-astro-cid-2ijvg73f></rect><text class="t" x="364" y="402" text-anchor="middle" data-astro-cid-2ijvg73f>读 A</text></g></a><a href="/2026/10/02/deepseek-v41-04-single-pass-mhc/" data-astro-cid-2ijvg73f="true"><g class="blk mhc " data-astro-cid-2ijvg73f><title>mHC 读算子：对 4 条流加权求和，得到子层的 5120 维输入。权重由上一个子层算好</title><rect x="326" y="494" width="76" height="34" rx="8" data-astro-cid-2ijvg73f></rect><text class="t" x="364" y="516" text-anchor="middle" data-astro-cid-2ijvg73f>读 A</text></g></a><a href="/2026/10/02/deepseek-v41-04-single-pass-mhc/" data-astro-cid-2ijvg73f="true"><g class="blk mhc " data-astro-cid-2ijvg73f><title>mHC 读算子：对 4 条流加权求和，得到子层的 5120 维输入。权重由上一个子层算好</title><rect x="326" y="562" width="76" height="34" rx="8" data-astro-cid-2ijvg73f></rect><text class="t" x="364" y="584" text-anchor="middle" data-astro-cid-2ijvg73f>读 A</text></g></a><a href="/2026/10/02/deepseek-v41-04-single-pass-mhc/" data-astro-cid-2ijvg73f="true"><g class="blk mhc " data-astro-cid-2ijvg73f><title>mHC 读算子：对 4 条流加权求和，得到子层的 5120 维输入。权重由上一个子层算好</title><rect x="326" y="630" width="76" height="34" rx="8" data-astro-cid-2ijvg73f></rect><text class="t" x="364" y="652" text-anchor="middle" data-astro-cid-2ijvg73f>读 A</text></g></a><a href="/2026/10/02/deepseek-v41-04-single-pass-mhc/" data-astro-cid-2ijvg73f="true"><g class="blk mhc " data-astro-cid-2ijvg73f><title>mHC 读算子：对 4 条流加权求和，得到子层的 5120 维输入。权重由上一个子层算好</title><rect x="326" y="698" width="76" height="34" rx="8" data-astro-cid-2ijvg73f></rect><text class="t" x="364" y="720" text-anchor="middle" data-astro-cid-2ijvg73f>读 A</text></g></a><a href="/2026/10/02/deepseek-v41-04-single-pass-mhc/" data-astro-cid-2ijvg73f="true"><g class="blk mhc " data-astro-cid-2ijvg73f><title>mHC 读算子：对 4 条流加权求和，得到子层的 5120 维输入。权重由上一个子层算好</title><rect x="326" y="766" width="76" height="34" rx="8" data-astro-cid-2ijvg73f></rect><text class="t" x="364" y="788" text-anchor="middle" data-astro-cid-2ijvg73f>读 A</text></g></a><!-- 写 + 混算子 --><a href="/2026/10/02/deepseek-v41-04-single-pass-mhc/" data-astro-cid-2ijvg73f="true"><g class="blk mhc " data-astro-cid-2ijvg73f><title>mHC 写算子 C 与混合矩阵 B：子层输出按 C 分到 4 条流，同时 4 条流按双随机矩阵 B 互相混合</title><rect x="326" y="192" width="76" height="18" rx="6" data-astro-cid-2ijvg73f></rect><text class="s" x="364" y="205" text-anchor="middle" data-astro-cid-2ijvg73f>写 C · 混 B</text></g></a><a href="/2026/10/02/deepseek-v41-04-single-pass-mhc/" data-astro-cid-2ijvg73f="true"><g class="blk mhc " data-astro-cid-2ijvg73f><title>mHC 写算子 C 与混合矩阵 B：子层输出按 C 分到 4 条流，同时 4 条流按双随机矩阵 B 互相混合</title><rect x="326" y="260" width="76" height="18" rx="6" data-astro-cid-2ijvg73f></rect><text class="s" x="364" y="273" text-anchor="middle" data-astro-cid-2ijvg73f>写 C · 混 B</text></g></a><a href="/2026/10/02/deepseek-v41-04-single-pass-mhc/" data-astro-cid-2ijvg73f="true"><g class="blk mhc " data-astro-cid-2ijvg73f><title>mHC 写算子 C 与混合矩阵 B：子层输出按 C 分到 4 条流，同时 4 条流按双随机矩阵 B 互相混合</title><rect x="326" y="354" width="76" height="18" rx="6" data-astro-cid-2ijvg73f></rect><text class="s" x="364" y="367" text-anchor="middle" data-astro-cid-2ijvg73f>写 C · 混 B</text></g></a><a href="/2026/10/02/deepseek-v41-04-single-pass-mhc/" data-astro-cid-2ijvg73f="true"><g class="blk mhc " data-astro-cid-2ijvg73f><title>mHC 写算子 C 与混合矩阵 B：子层输出按 C 分到 4 条流，同时 4 条流按双随机矩阵 B 互相混合</title><rect x="326" y="422" width="76" height="18" rx="6" data-astro-cid-2ijvg73f></rect><text class="s" x="364" y="435" text-anchor="middle" data-astro-cid-2ijvg73f>写 C · 混 B</text></g></a><a href="/2026/10/02/deepseek-v41-04-single-pass-mhc/" data-astro-cid-2ijvg73f="true"><g class="blk mhc " data-astro-cid-2ijvg73f><title>mHC 写算子 C 与混合矩阵 B：子层输出按 C 分到 4 条流，同时 4 条流按双随机矩阵 B 互相混合</title><rect x="326" y="536" width="76" height="18" rx="6" data-astro-cid-2ijvg73f></rect><text class="s" x="364" y="549" text-anchor="middle" data-astro-cid-2ijvg73f>写 C · 混 B</text></g></a><a href="/2026/10/02/deepseek-v41-04-single-pass-mhc/" data-astro-cid-2ijvg73f="true"><g class="blk mhc " data-astro-cid-2ijvg73f><title>mHC 写算子 C 与混合矩阵 B：子层输出按 C 分到 4 条流，同时 4 条流按双随机矩阵 B 互相混合</title><rect x="326" y="604" width="76" height="18" rx="6" data-astro-cid-2ijvg73f></rect><text class="s" x="364" y="617" text-anchor="middle" data-astro-cid-2ijvg73f>写 C · 混 B</text></g></a><a href="/2026/10/02/deepseek-v41-04-single-pass-mhc/" data-astro-cid-2ijvg73f="true"><g class="blk mhc " data-astro-cid-2ijvg73f><title>mHC 写算子 C 与混合矩阵 B：子层输出按 C 分到 4 条流，同时 4 条流按双随机矩阵 B 互相混合</title><rect x="326" y="672" width="76" height="18" rx="6" data-astro-cid-2ijvg73f></rect><text class="s" x="364" y="685" text-anchor="middle" data-astro-cid-2ijvg73f>写 C · 混 B</text></g></a><a href="/2026/10/02/deepseek-v41-04-single-pass-mhc/" data-astro-cid-2ijvg73f="true"><g class="blk mhc " data-astro-cid-2ijvg73f><title>mHC 写算子 C 与混合矩阵 B：子层输出按 C 分到 4 条流，同时 4 条流按双随机矩阵 B 互相混合</title><rect x="326" y="740" width="76" height="18" rx="6" data-astro-cid-2ijvg73f></rect><text class="s" x="364" y="753" text-anchor="middle" data-astro-cid-2ijvg73f>写 C · 混 B</text></g></a><!-- 方块 --><a href="/2026/10/02/deepseek-v41-07-vision-optim/" data-astro-cid-2ijvg73f="true"><g class="blk vision " data-astro-cid-2ijvg73f><title>从头训练的视觉编码器：2D-RoPE、RMSNorm、SwiGLU，hidden 1024</title><rect x="22" y="40" width="112" height="34" rx="8" data-astro-cid-2ijvg73f></rect><text class="t" x="78" y="54" text-anchor="middle" data-astro-cid-2ijvg73f>DeepSeek-ViT</text><text class="s" x="78" y="67" text-anchor="middle" data-astro-cid-2ijvg73f>32 层 · patch 14</text></g></a><a href="/2026/10/02/deepseek-v41-07-vision-optim/" data-astro-cid-2ijvg73f="true"><g class="blk vision " data-astro-cid-2ijvg73f><title>3×3 pixel-unshuffle 把 9 个相邻 patch 拼到通道维，再过两层 MLP 投影到主干宽度</title><rect x="148" y="40" width="116" height="34" rx="8" data-astro-cid-2ijvg73f></rect><text class="t" x="206" y="54" text-anchor="middle" data-astro-cid-2ijvg73f>3×3 重排 + MLP</text><text class="s" x="206" y="67" text-anchor="middle" data-astro-cid-2ijvg73f>token ÷ 9 → 5120 维</text></g></a><a href="/2026/10/02/deepseek-v41-00-overview/" data-astro-cid-2ijvg73f="true"><g class="blk embed " data-astro-cid-2ijvg73f><title>图像位置上的 embedding 被视觉特征覆盖</title><rect x="276" y="40" width="176" height="34" rx="8" data-astro-cid-2ijvg73f></rect><text class="t" x="364" y="54" text-anchor="middle" data-astro-cid-2ijvg73f>Token Embedding</text><text class="s" x="364" y="67" text-anchor="middle" data-astro-cid-2ijvg73f>129280 × 5120</text></g></a><a href="/2026/10/02/deepseek-v41-08-systems/" data-astro-cid-2ijvg73f="true"><g class="blk swa " data-astro-cid-2ijvg73f><title>前两层只有滑窗分支，没有全局 KV</title><rect x="462" y="150" width="214" height="34" rx="8" data-astro-cid-2ijvg73f></rect><text class="t" x="569" y="164" text-anchor="middle" data-astro-cid-2ijvg73f>滑窗注意力</text><text class="s" x="569" y="177" text-anchor="middle" data-astro-cid-2ijvg73f>第 0、1 层 · 窗口 128</text></g></a><a href="/2026/10/02/deepseek-v41-07-vision-optim/" data-astro-cid-2ijvg73f="true"><g class="blk moe " data-astro-cid-2ijvg73f><title>sqrt(softplus) 打分；文本和图像 token 各用一套负载均衡偏置；routed expert 权重 FP4</title><rect x="462" y="218" width="214" height="34" rx="8" data-astro-cid-2ijvg73f></rect><text class="t" x="569" y="232" text-anchor="middle" data-astro-cid-2ijvg73f>DeepSeekMoE</text><text class="s" x="569" y="245" text-anchor="middle" data-astro-cid-2ijvg73f>每层的 FFN · 384 选 6 + 1 shared</text></g></a><a href="/2026/10/02/deepseek-v41-02-csa2/" data-astro-cid-2ijvg73f="true"><g class="blk csa2 " data-astro-cid-2ijvg73f><title>Full 模式：自己压缩 main KV（每 2 个 token 一条），投影出 indexer K，打分选 top-512，全部写进共享池</title><rect x="462" y="312" width="214" height="34" rx="8" data-astro-cid-2ijvg73f></rect><text class="t" x="569" y="326" text-anchor="middle" data-astro-cid-2ijvg73f>CSA2 · Full</text><text class="s" x="569" y="339" text-anchor="middle" data-astro-cid-2ijvg73f>第 2 / 8 / 14 层 · m = 2</text></g></a><a href="/2026/10/02/deepseek-v41-02-csa2/" data-astro-cid-2ijvg73f="true"><g class="blk csa2 " data-astro-cid-2ijvg73f><title>Reuse 模式：只有自己的 query、滑窗 KV 和输出投影；全局 KV 与 top-512 索引都从共享池读</title><rect x="462" y="380" width="214" height="34" rx="8" data-astro-cid-2ijvg73f></rect><text class="t" x="569" y="394" text-anchor="middle" data-astro-cid-2ijvg73f>CSA2 · Reuse ×5</text><text class="s" x="569" y="407" text-anchor="middle" data-astro-cid-2ijvg73f>每组其余 5 层</text></g></a><a href="/2026/10/02/deepseek-v41-02-csa2/" data-astro-cid-2ijvg73f="true"><g class="blk csa2 " data-astro-cid-2ijvg73f><title>decoder 唯一的 Full 层：输入是 encoder 末态，每个 token 一条 main KV；另选出最多 16384 个位置作为候选池</title><rect x="462" y="494" width="214" height="34" rx="8" data-astro-cid-2ijvg73f></rect><text class="t" x="569" y="508" text-anchor="middle" data-astro-cid-2ijvg73f>CSA2 · Full</text><text class="s" x="569" y="521" text-anchor="middle" data-astro-cid-2ijvg73f>第 20 层 · m = 1 · 建候选池</text></g></a><a href="/2026/10/02/deepseek-v41-02-csa2/" data-astro-cid-2ijvg73f="true"><g class="blk csa2 " data-astro-cid-2ijvg73f><title>Reuse 模式</title><rect x="462" y="562" width="214" height="34" rx="8" data-astro-cid-2ijvg73f></rect><text class="t" x="569" y="576" text-anchor="middle" data-astro-cid-2ijvg73f>CSA2 · Reuse ×3</text><text class="s" x="569" y="589" text-anchor="middle" data-astro-cid-2ijvg73f>第 21 – 23 层</text></g></a><a href="/2026/10/02/deepseek-v41-02-csa2/" data-astro-cid-2ijvg73f="true"><g class="blk csa2 " data-astro-cid-2ijvg73f><title>Reindex 模式：全局 KV 和 indexer K 从共享池读，用自己的 indexer query 在候选池里重新打分，选出新的 top-512</title><rect x="462" y="630" width="214" height="34" rx="8" data-astro-cid-2ijvg73f></rect><text class="t" x="569" y="644" text-anchor="middle" data-astro-cid-2ijvg73f>CSA2 · Reindex</text><text class="s" x="569" y="657" text-anchor="middle" data-astro-cid-2ijvg73f>第 24 / 28 / 32 / 36 层</text></g></a><a href="/2026/10/02/deepseek-v41-02-csa2/" data-astro-cid-2ijvg73f="true"><g class="blk csa2 " data-astro-cid-2ijvg73f><title>Reuse 模式：用本组 Reindex 层选出的 top-512</title><rect x="462" y="698" width="214" height="34" rx="8" data-astro-cid-2ijvg73f></rect><text class="t" x="569" y="712" text-anchor="middle" data-astro-cid-2ijvg73f>CSA2 · Reuse ×3</text><text class="s" x="569" y="725" text-anchor="middle" data-astro-cid-2ijvg73f>每组其余 3 层</text></g></a><a href="/2026/10/02/deepseek-v41-00-overview/" data-astro-cid-2ijvg73f="true"><g class="blk output " data-astro-cid-2ijvg73f><title>最终归一化</title><rect x="462" y="766" width="96" height="34" rx="8" data-astro-cid-2ijvg73f></rect><text class="t" x="510" y="788" text-anchor="middle" data-astro-cid-2ijvg73f>RMSNorm</text></g></a><a href="/2026/10/02/deepseek-v41-00-overview/" data-astro-cid-2ijvg73f="true"><g class="blk output " data-astro-cid-2ijvg73f><title>不与 embedding 共享权重</title><rect x="574" y="766" width="102" height="34" rx="8" data-astro-cid-2ijvg73f></rect><text class="t" x="625" y="780" text-anchor="middle" data-astro-cid-2ijvg73f>LM Head</text><text class="s" x="625" y="793" text-anchor="middle" data-astro-cid-2ijvg73f>→ 129280</text></g></a><a href="/2026/10/02/deepseek-v41-06-dspark/" data-astro-cid-2ijvg73f="true"><g class="blk dspark " data-astro-cid-2ijvg73f><title>投机解码的草稿模块：三个 block 一次前向给出 5 个草稿 token 的 logits，Markov head 补上草稿 token 之间的依赖，confidence head 估计每个位置被接受的概率</title><rect x="462" y="834" width="214" height="34" rx="8" data-astro-cid-2ijvg73f></rect><text class="t" x="569" y="848" text-anchor="middle" data-astro-cid-2ijvg73f>DSpark 草稿层 ×3</text><text class="s" x="569" y="861" text-anchor="middle" data-astro-cid-2ijvg73f>滑窗注意力 + MoE（128 选 3）</text></g></a><a href="/2026/10/02/deepseek-v41-05-engram/" data-astro-cid-2ijvg73f="true"><g class="blk engram " data-astro-cid-2ijvg73f><title>按 2、3、4-gram 的哈希查表，取出的向量经门控后加进 4 条残差流；两张表共 196B 参数</title><rect x="52" y="278" width="190" height="34" rx="8" data-astro-cid-2ijvg73f></rect><text class="t" x="147" y="292" text-anchor="middle" data-astro-cid-2ijvg73f>Engram</text><text class="s" x="147" y="305" text-anchor="middle" data-astro-cid-2ijvg73f>第 1、14 层入口各一个</text></g></a></svg><div class="legend" data-astro-cid-2ijvg73f><span class="chip csa2" data-astro-cid-2ijvg73f>序列 · CSA2</span><span class="chip pool" data-astro-cid-2ijvg73f>序列 · 共享池</span><span class="chip ced" data-astro-cid-2ijvg73f>序列 · CED</span><span class="chip swa" data-astro-cid-2ijvg73f>序列 · 滑窗</span><span class="chip mhc" data-astro-cid-2ijvg73f>深度 · Single-Pass mHC</span><span class="chip moe" data-astro-cid-2ijvg73f>宽度 · DeepSeekMoE</span><span class="chip engram" data-astro-cid-2ijvg73f>记忆 · Engram</span><span class="chip dspark" data-astro-cid-2ijvg73f>解码 · DSpark</span><span class="chip vision" data-astro-cid-2ijvg73f>输入与输出</span></div><figcaption data-astro-cid-2ijvg73f>DeepSeek-V4.1-Flash 总架构。纵向是深度。中间 4 条竖线是残差流，每个子层先由读算子把 4 条流压成一条，算完再由写算子分回去。横向虚线把 40 层分成 encoder 和 decoder。右侧两个方块是 CSA2 的共享池：实线箭头是写入，虚线箭头是读取。</figcaption></figure>
+<p>怎么读这张图：</p>
+<ul>
+<li><strong>中间是 4 条残差流。</strong> 这是 V4 的 mHC，V4.1 保留了它。每个子层前面有一个读算子 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>A</mi></mrow><annotation encoding="application/x-tex">A</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em"></span><span class="mord mathnormal">A</span></span></span></span>，后面有一个写算子 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>C</mi></mrow><annotation encoding="application/x-tex">C</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em"></span><span class="mord mathnormal" style="margin-right:0.0715em">C</span></span></span></span> 和一个混合矩阵 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>B</mi></mrow><annotation encoding="application/x-tex">B</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em"></span><span class="mord mathnormal" style="margin-right:0.0502em">B</span></span></span></span>。V4.1 改的是时序：读算子用的权重由上一个子层提前算好。这就是 Single-Pass mHC，<a href="/2026/09/05/deepseek-v4-04-mhc/">V4 的第 4 篇</a>讲了没改的部分。</li>
+<li><strong>一条横线把 40 层分成两半。</strong> 第 0 – 19 层是 encoder，第 20 – 39 层是 decoder。线上的方块 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>H</mi><mn>20</mn></msub></mrow><annotation encoding="application/x-tex">H_{20}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8333em;vertical-align:-0.15em"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.0813em">H</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em"><span style="top:-2.55em;margin-left:-0.0813em;margin-right:0.05em"><span class="pstrut" style="height:2.7em"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">20</span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em"><span></span></span></span></span></span></span></span></span></span> 是 encoder 的最终输出，也就是第 20 层的输入。这里的 encoder 不是 BERT 那种双向的 encoder：40 层全部是因果的，层与层之间只靠残差流相连，没有 cross-attention。两个名字只说明一件事，即全局 KV 是谁生成的。</li>
+<li><strong>右侧是两个共享池。</strong> 这是 CSA2 的核心。「共享池」是本连载的叫法，论文没有给它起名字，官方代码里对应的类是 <code>SharedAttentionRuntime</code>。V4 每一层都自己压缩一份 KV。V4.1 只有 4 层这样做，论文叫 <strong>Full</strong> 模式，图上是往池里画实线箭头的那几行。其余的层从池里读。</li>
+<li><strong>读的方式有两种。</strong> <strong>Reuse</strong> 模式连「读哪 512 条」都用现成的，40 层里有 30 层是这种。<strong>Reindex</strong> 模式共用 KV，但用自己的 indexer query 重新选一次 512 条，共 4 层，全在 decoder。</li>
+<li><strong>encoder 的池每组一份，decoder 的池只有一份。</strong> encoder 的 18 层分 3 组，每组第一层是 Full。decoder 的 20 层共用第 20 层写入的那一份，而第 20 层的输入正是 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>H</mi><mn>20</mn></msub></mrow><annotation encoding="application/x-tex">H_{20}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8333em;vertical-align:-0.15em"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.0813em">H</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em"><span style="top:-2.55em;margin-left:-0.0813em;margin-right:0.05em"><span class="pstrut" style="height:2.7em"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">20</span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em"><span></span></span></span></span></span></span></span></span></span>。所以一个 prompt token 算到横线就能把 decoder 的全局 KV 建好，后 20 层不用为它跑。</li>
+<li><strong>左侧的 Engram</strong> 在第 1 层和第 14 层入口各有一个。它按当前 token 结尾的 2-gram、3-gram、4-gram 查表，把查到的向量经过一个门加进 4 条残差流。</li>
+<li><strong>顶部是输入。</strong> 图像先过 DeepSeek-ViT，再做 3×3 的 pixel-unshuffle 把 token 数除以 9，由两层 MLP 投影到 5120 维，写到序列里图像 token 的位置上。</li>
+<li><strong>底部是输出。</strong> 最后一次读算子把 4 条流压成 1 条，过 RMSNorm 和 LM head。DSpark 是挂在主干后面的三层草稿模块，只在投机解码时运行。</li>
+</ul>
+<h2 id="40-层怎么排">40 层怎么排<a class="h-anchor" href="#40-层怎么排" aria-label="链接到本节：40 层怎么排"></a></h2>
+<figure class="strip41" data-astro-cid-k2n5syb7><svg viewBox="0 0 774.8 196" role="img" aria-label="DeepSeek-V4.1-Flash 层排布" data-astro-cid-k2n5syb7><!-- encoder / decoder --><line class="bound" x1="356.8" y1="10" x2="356.8" y2="78" data-astro-cid-k2n5syb7></line><text class="side" x="348.8" y="18" text-anchor="end" data-astro-cid-k2n5syb7>encoder（第 0 – 19 层）</text><text class="side" x="364.8" y="18" data-astro-cid-k2n5syb7>decoder（第 20 – 39 层）</text><g data-astro-cid-k2n5syb7><title>第 0 层：纯滑窗注意力，窗口 128</title><rect class="cell swa" x="30" y="44" width="14" height="30" rx="1.5" data-astro-cid-k2n5syb7></rect></g><g data-astro-cid-k2n5syb7><title>第 1 层：纯滑窗注意力，窗口 128；入口处有一个 Engram</title><rect class="cell swa" x="46.4" y="44" width="14" height="30" rx="1.5" data-astro-cid-k2n5syb7></rect></g><g data-astro-cid-k2n5syb7><title>第 2 层：Full，m = 2：自己生成 main KV 和 indexer K，选 top-512</title><rect class="cell full" x="62.8" y="44" width="14" height="30" rx="1.5" data-astro-cid-k2n5syb7></rect></g><g data-astro-cid-k2n5syb7><title>第 3 层：Reuse：读共享的 main KV 和 top-512 索引</title><rect class="cell reuse" x="79.19999999999999" y="44" width="14" height="30" rx="1.5" data-astro-cid-k2n5syb7></rect></g><g data-astro-cid-k2n5syb7><title>第 4 层：Reuse：读共享的 main KV 和 top-512 索引</title><rect class="cell reuse" x="95.6" y="44" width="14" height="30" rx="1.5" data-astro-cid-k2n5syb7></rect></g><g data-astro-cid-k2n5syb7><title>第 5 层：Reuse：读共享的 main KV 和 top-512 索引</title><rect class="cell reuse" x="112" y="44" width="14" height="30" rx="1.5" data-astro-cid-k2n5syb7></rect></g><g data-astro-cid-k2n5syb7><title>第 6 层：Reuse：读共享的 main KV 和 top-512 索引</title><rect class="cell reuse" x="128.39999999999998" y="44" width="14" height="30" rx="1.5" data-astro-cid-k2n5syb7></rect></g><g data-astro-cid-k2n5syb7><title>第 7 层：Reuse：读共享的 main KV 和 top-512 索引</title><rect class="cell reuse" x="144.79999999999998" y="44" width="14" height="30" rx="1.5" data-astro-cid-k2n5syb7></rect></g><g data-astro-cid-k2n5syb7><title>第 8 层：Full，m = 2：自己生成 main KV 和 indexer K，选 top-512</title><rect class="cell full" x="161.2" y="44" width="14" height="30" rx="1.5" data-astro-cid-k2n5syb7></rect></g><g data-astro-cid-k2n5syb7><title>第 9 层：Reuse：读共享的 main KV 和 top-512 索引</title><rect class="cell reuse" x="177.6" y="44" width="14" height="30" rx="1.5" data-astro-cid-k2n5syb7></rect></g><g data-astro-cid-k2n5syb7><title>第 10 层：Reuse：读共享的 main KV 和 top-512 索引</title><rect class="cell reuse" x="194" y="44" width="14" height="30" rx="1.5" data-astro-cid-k2n5syb7></rect></g><g data-astro-cid-k2n5syb7><title>第 11 层：Reuse：读共享的 main KV 和 top-512 索引</title><rect class="cell reuse" x="210.39999999999998" y="44" width="14" height="30" rx="1.5" data-astro-cid-k2n5syb7></rect></g><g data-astro-cid-k2n5syb7><title>第 12 层：Reuse：读共享的 main KV 和 top-512 索引</title><rect class="cell reuse" x="226.79999999999998" y="44" width="14" height="30" rx="1.5" data-astro-cid-k2n5syb7></rect></g><g data-astro-cid-k2n5syb7><title>第 13 层：Reuse：读共享的 main KV 和 top-512 索引</title><rect class="cell reuse" x="243.2" y="44" width="14" height="30" rx="1.5" data-astro-cid-k2n5syb7></rect></g><g data-astro-cid-k2n5syb7><title>第 14 层：Full，m = 2：自己生成 main KV 和 indexer K，选 top-512；入口处有一个 Engram</title><rect class="cell full" x="259.59999999999997" y="44" width="14" height="30" rx="1.5" data-astro-cid-k2n5syb7></rect></g><g data-astro-cid-k2n5syb7><title>第 15 层：Reuse：读共享的 main KV 和 top-512 索引</title><rect class="cell reuse" x="276" y="44" width="14" height="30" rx="1.5" data-astro-cid-k2n5syb7></rect></g><g data-astro-cid-k2n5syb7><title>第 16 层：Reuse：读共享的 main KV 和 top-512 索引</title><rect class="cell reuse" x="292.4" y="44" width="14" height="30" rx="1.5" data-astro-cid-k2n5syb7></rect></g><g data-astro-cid-k2n5syb7><title>第 17 层：Reuse：读共享的 main KV 和 top-512 索引</title><rect class="cell reuse" x="308.79999999999995" y="44" width="14" height="30" rx="1.5" data-astro-cid-k2n5syb7></rect></g><g data-astro-cid-k2n5syb7><title>第 18 层：Reuse：读共享的 main KV 和 top-512 索引</title><rect class="cell reuse" x="325.2" y="44" width="14" height="30" rx="1.5" data-astro-cid-k2n5syb7></rect></g><g data-astro-cid-k2n5syb7><title>第 19 层：Reuse：读共享的 main KV 和 top-512 索引</title><rect class="cell reuse" x="341.59999999999997" y="44" width="14" height="30" rx="1.5" data-astro-cid-k2n5syb7></rect></g><g data-astro-cid-k2n5syb7><title>第 20 层：Full，m = 1：自己生成 main KV 和 indexer K，选 top-512，并建候选池</title><rect class="cell full" x="358" y="44" width="14" height="30" rx="1.5" data-astro-cid-k2n5syb7></rect></g><g data-astro-cid-k2n5syb7><title>第 21 层：Reuse：读共享的 main KV 和 top-512 索引</title><rect class="cell reuse" x="374.4" y="44" width="14" height="30" rx="1.5" data-astro-cid-k2n5syb7></rect></g><g data-astro-cid-k2n5syb7><title>第 22 层：Reuse：读共享的 main KV 和 top-512 索引</title><rect class="cell reuse" x="390.79999999999995" y="44" width="14" height="30" rx="1.5" data-astro-cid-k2n5syb7></rect></g><g data-astro-cid-k2n5syb7><title>第 23 层：Reuse：读共享的 main KV 和 top-512 索引</title><rect class="cell reuse" x="407.2" y="44" width="14" height="30" rx="1.5" data-astro-cid-k2n5syb7></rect></g><g data-astro-cid-k2n5syb7><title>第 24 层：Reindex：读共享的 indexer K，在候选池里重新选 top-512</title><rect class="cell reindex" x="423.59999999999997" y="44" width="14" height="30" rx="1.5" data-astro-cid-k2n5syb7></rect></g><g data-astro-cid-k2n5syb7><title>第 25 层：Reuse：读共享的 main KV 和 top-512 索引</title><rect class="cell reuse" x="439.99999999999994" y="44" width="14" height="30" rx="1.5" data-astro-cid-k2n5syb7></rect></g><g data-astro-cid-k2n5syb7><title>第 26 层：Reuse：读共享的 main KV 和 top-512 索引</title><rect class="cell reuse" x="456.4" y="44" width="14" height="30" rx="1.5" data-astro-cid-k2n5syb7></rect></g><g data-astro-cid-k2n5syb7><title>第 27 层：Reuse：读共享的 main KV 和 top-512 索引</title><rect class="cell reuse" x="472.79999999999995" y="44" width="14" height="30" rx="1.5" data-astro-cid-k2n5syb7></rect></g><g data-astro-cid-k2n5syb7><title>第 28 层：Reindex：读共享的 indexer K，在候选池里重新选 top-512</title><rect class="cell reindex" x="489.19999999999993" y="44" width="14" height="30" rx="1.5" data-astro-cid-k2n5syb7></rect></g><g data-astro-cid-k2n5syb7><title>第 29 层：Reuse：读共享的 main KV 和 top-512 索引</title><rect class="cell reuse" x="505.59999999999997" y="44" width="14" height="30" rx="1.5" data-astro-cid-k2n5syb7></rect></g><g data-astro-cid-k2n5syb7><title>第 30 层：Reuse：读共享的 main KV 和 top-512 索引</title><rect class="cell reuse" x="522" y="44" width="14" height="30" rx="1.5" data-astro-cid-k2n5syb7></rect></g><g data-astro-cid-k2n5syb7><title>第 31 层：Reuse：读共享的 main KV 和 top-512 索引</title><rect class="cell reuse" x="538.4" y="44" width="14" height="30" rx="1.5" data-astro-cid-k2n5syb7></rect></g><g data-astro-cid-k2n5syb7><title>第 32 层：Reindex：读共享的 indexer K，在候选池里重新选 top-512</title><rect class="cell reindex" x="554.8" y="44" width="14" height="30" rx="1.5" data-astro-cid-k2n5syb7></rect></g><g data-astro-cid-k2n5syb7><title>第 33 层：Reuse：读共享的 main KV 和 top-512 索引</title><rect class="cell reuse" x="571.1999999999999" y="44" width="14" height="30" rx="1.5" data-astro-cid-k2n5syb7></rect></g><g data-astro-cid-k2n5syb7><title>第 34 层：Reuse：读共享的 main KV 和 top-512 索引</title><rect class="cell reuse" x="587.5999999999999" y="44" width="14" height="30" rx="1.5" data-astro-cid-k2n5syb7></rect></g><g data-astro-cid-k2n5syb7><title>第 35 层：Reuse：读共享的 main KV 和 top-512 索引</title><rect class="cell reuse" x="604" y="44" width="14" height="30" rx="1.5" data-astro-cid-k2n5syb7></rect></g><g data-astro-cid-k2n5syb7><title>第 36 层：Reindex：读共享的 indexer K，在候选池里重新选 top-512</title><rect class="cell reindex" x="620.4" y="44" width="14" height="30" rx="1.5" data-astro-cid-k2n5syb7></rect></g><g data-astro-cid-k2n5syb7><title>第 37 层：Reuse：读共享的 main KV 和 top-512 索引</title><rect class="cell reuse" x="636.8" y="44" width="14" height="30" rx="1.5" data-astro-cid-k2n5syb7></rect></g><g data-astro-cid-k2n5syb7><title>第 38 层：Reuse：读共享的 main KV 和 top-512 索引</title><rect class="cell reuse" x="653.1999999999999" y="44" width="14" height="30" rx="1.5" data-astro-cid-k2n5syb7></rect></g><g data-astro-cid-k2n5syb7><title>第 39 层：Reuse：读共享的 main KV 和 top-512 索引</title><rect class="cell reuse" x="669.5999999999999" y="44" width="14" height="30" rx="1.5" data-astro-cid-k2n5syb7></rect></g><g data-astro-cid-k2n5syb7><title>第 40 层：DSpark 草稿层：纯滑窗注意力 + MoE（128 选 3）</title><rect class="cell dspark" x="698" y="44" width="14" height="30" rx="1.5" data-astro-cid-k2n5syb7></rect></g><g data-astro-cid-k2n5syb7><title>第 41 层：DSpark 草稿层：纯滑窗注意力 + MoE（128 选 3）</title><rect class="cell dspark" x="714.4" y="44" width="14" height="30" rx="1.5" data-astro-cid-k2n5syb7></rect></g><g data-astro-cid-k2n5syb7><title>第 42 层：DSpark 草稿层：纯滑窗注意力 + MoE（128 选 3）</title><rect class="cell dspark" x="730.8" y="44" width="14" height="30" rx="1.5" data-astro-cid-k2n5syb7></rect></g><text class="tick" x="37" y="30" text-anchor="middle" data-astro-cid-k2n5syb7>0</text><text class="tick" x="69.8" y="30" text-anchor="middle" data-astro-cid-k2n5syb7>2</text><text class="tick" x="168.2" y="30" text-anchor="middle" data-astro-cid-k2n5syb7>8</text><text class="tick" x="266.59999999999997" y="30" text-anchor="middle" data-astro-cid-k2n5syb7>14</text><text class="tick" x="365" y="30" text-anchor="middle" data-astro-cid-k2n5syb7>20</text><text class="tick" x="430.59999999999997" y="30" text-anchor="middle" data-astro-cid-k2n5syb7>24</text><text class="tick" x="496.19999999999993" y="30" text-anchor="middle" data-astro-cid-k2n5syb7>28</text><text class="tick" x="561.8" y="30" text-anchor="middle" data-astro-cid-k2n5syb7>32</text><text class="tick" x="627.4" y="30" text-anchor="middle" data-astro-cid-k2n5syb7>36</text><text class="tick" x="676.5999999999999" y="30" text-anchor="middle" data-astro-cid-k2n5syb7>39</text><text class="tick" x="721.4" y="30" text-anchor="middle" data-astro-cid-k2n5syb7>40 – 42</text><!-- Engram --><path class="eng" d="M49.4 35 h8 l-4 7 z" data-astro-cid-k2n5syb7></path><path class="eng" d="M262.59999999999997 35 h8 l-4 7 z" data-astro-cid-k2n5syb7></path><!-- 共用全局 KV 的范围 --><path class="br" d="M62.8 80 v5 H158.79999999999998 v-5" data-astro-cid-k2n5syb7></path><path class="br" d="M161.2 80 v5 H257.2 v-5" data-astro-cid-k2n5syb7></path><path class="br" d="M259.59999999999997 80 v5 H355.59999999999997 v-5" data-astro-cid-k2n5syb7></path><path class="br" d="M358 80 v5 H683.5999999999999 v-5" data-astro-cid-k2n5syb7></path><text class="side" x="209.2" y="100" text-anchor="middle" data-astro-cid-k2n5syb7>3 组，每组共用一份全局 KV（m = 2）</text><text class="side" x="520.8" y="100" text-anchor="middle" data-astro-cid-k2n5syb7>20 层共用一份全局 KV（m = 1）</text><!-- DSpark 读取的层 --><path class="br ds" d="M636.8 40 v-4 H683.5999999999999 v4" data-astro-cid-k2n5syb7></path><path class="br ds" d="M698 80 v5 H744.8 v-5" data-astro-cid-k2n5syb7></path><text class="side" x="744.8" y="100" text-anchor="end" data-astro-cid-k2n5syb7>DSpark</text><!-- 图例 --><g transform="translate(30 124)" data-astro-cid-k2n5syb7><rect class="cell full" x="0" y="0" width="10" height="10" rx="2" data-astro-cid-k2n5syb7></rect><text class="side" x="15" y="9" data-astro-cid-k2n5syb7>Full ×4：自己生成全局 KV（第 2、8、14、20 层）</text><rect class="cell reindex" x="310" y="0" width="10" height="10" rx="2" data-astro-cid-k2n5syb7></rect><text class="side" x="325" y="9" data-astro-cid-k2n5syb7>Reindex ×4：只重新选 top-512（第 24、28、32、36 层）</text><rect class="cell reuse" x="0" y="20" width="10" height="10" rx="2" data-astro-cid-k2n5syb7></rect><text class="side" x="15" y="29" data-astro-cid-k2n5syb7>Reuse ×30：KV 和索引都用现成的</text><rect class="cell swa" x="310" y="20" width="10" height="10" rx="2" data-astro-cid-k2n5syb7></rect><text class="side" x="325" y="29" data-astro-cid-k2n5syb7>纯滑窗 ×2（第 0、1 层）</text><rect class="cell dspark" x="500" y="20" width="10" height="10" rx="2" data-astro-cid-k2n5syb7></rect><text class="side" x="515" y="29" data-astro-cid-k2n5syb7>DSpark 草稿层 ×3</text><path class="eng" d="M0 41 h8 l-4 7 z" data-astro-cid-k2n5syb7></path><text class="side" x="15" y="49" data-astro-cid-k2n5syb7>Engram：第 1、14 层入口</text><path class="br ds" d="M310 46 v-4 h12 v4" data-astro-cid-k2n5syb7></path><text class="side" x="328" y="49" data-astro-cid-k2n5syb7>DSpark 读第 37 – 39 层入口的残差流</text></g></svg><figcaption data-astro-cid-k2n5syb7>43 格 = 40 层主干 + 3 个 DSpark 草稿层。层号和 config.json、官方代码一样从 0 开始数。</figcaption></figure>
+<p>排布来自 config 里的三个数组。</p>
+<p><code>compress_ratios</code> 给出每层的压缩率 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>m</mi></mrow><annotation encoding="application/x-tex">m</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.4306em"></span><span class="mord mathnormal">m</span></span></span></span>，即几个 token 压成一条全局 KV：</p>
+<span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mo stretchy="false">[</mo><munder><munder><mrow><mn>0</mn><mo separator="true">,</mo><mtext> </mtext><mn>0</mn></mrow><mo stretchy="true">⏟</mo></munder><mtext>第 0、1 层</mtext></munder><mo separator="true">,</mo><mtext> </mtext><munder><munder><mrow><mn>2</mn><mo separator="true">,</mo><mtext> </mtext><mo>…</mo><mo separator="true">,</mo><mtext> </mtext><mn>2</mn></mrow><mo stretchy="true">⏟</mo></munder><mtext>第 2 – 19 层</mtext></munder><mo separator="true">,</mo><mtext> </mtext><munder><munder><mrow><mn>1</mn><mo separator="true">,</mo><mtext> </mtext><mo>…</mo><mo separator="true">,</mo><mtext> </mtext><mn>1</mn></mrow><mo stretchy="true">⏟</mo></munder><mtext>第 20 – 39 层</mtext></munder><mo separator="true">,</mo><mtext> </mtext><munder><munder><mrow><mn>0</mn><mo separator="true">,</mo><mtext> </mtext><mn>0</mn><mo separator="true">,</mo><mtext> </mtext><mn>0</mn></mrow><mo stretchy="true">⏟</mo></munder><mtext>DSpark</mtext></munder><mo stretchy="false">]</mo></mrow><annotation encoding="application/x-tex">[\underbrace{0,\ 0}_{\text{第 0、1 层}},\ \underbrace{2,\ \dots,\ 2}_{\text{第 2 – 19 层}},\ \underbrace{1,\ \dots,\ 1}_{\text{第 20 – 39 层}},\ \underbrace{0,\ 0,\ 0}_{\text{DSpark}}]</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:2.4147em;vertical-align:-1.6647em"></span><span class="mopen">[</span><span class="minner munder"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.6444em"><span style="top:-1.4792em"><span class="pstrut" style="height:3em"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord text mtight"><span class="mord cjk_fallback mtight">第</span><span class="mord mtight"> 0</span><span class="mord cjk_fallback mtight">、</span><span class="mord mtight">1 </span><span class="mord cjk_fallback mtight">层</span></span></span></span></span><span style="top:-3em"><span class="pstrut" style="height:3em"></span><span class="minner munder"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.6444em"><span class="svg-align" style="top:-2.1576em"><span class="pstrut" style="height:3em"></span><span class="stretchy" style="height:0.548em;min-width:1.6em"><span class="brace-left" style="height:0.548em"><svg xmlns="http://www.w3.org/2000/svg" width="400em" height="0.548em" viewBox="0 0 400000 548" preserveAspectRatio="xMinYMin slice"><path d="M0 6l6-6h17c12.688 0 19.313.3 20 1 4 4 7.313 8.3 10 13
+ 35.313 51.3 80.813 93.8 136.5 127.5 55.688 33.7 117.188 55.8 184.5 66.5.688
+ 0 2 .3 4 1 18.688 2.7 76 4.3 172 5h399450v120H429l-6-1c-124.688-8-235-61.7
+-331-161C60.687 138.7 32.312 99.3 7 54L0 41V6z"></path></svg></span><span class="brace-center" style="height:0.548em"><svg xmlns="http://www.w3.org/2000/svg" width="400em" height="0.548em" viewBox="0 0 400000 548" preserveAspectRatio="xMidYMin slice"><path d="M199572 214
+c100.7 8.3 195.3 44 280 108 55.3 42 101.7 93 139 153l9 14c2.7-4 5.7-8.7 9-14
+ 53.3-86.7 123.7-153 211-199 66.7-36 137.3-56.3 212-62h199568v120H200432c-178.3
+ 11.7-311.7 78.3-403 201-6 8-9.7 12-11 12-.7.7-6.7 1-18 1s-17.3-.3-18-1c-1.3 0
+-5-4-11-12-44.7-59.3-101.3-106.3-170-141s-145.3-54.3-229-60H0V214z"></path></svg></span><span class="brace-right" style="height:0.548em"><svg xmlns="http://www.w3.org/2000/svg" width="400em" height="0.548em" viewBox="0 0 400000 548" preserveAspectRatio="xMaxYMin slice"><path d="M399994 0l6 6v35l-6 11c-56 104-135.3 181.3-238 232-57.3
+ 28.7-117 45-179 50H-300V214h399897c43.3-7 81-15 113-26 100.7-33 179.7-91 237
+-174 2.7-5 6-9 10-13 .7-1 7.3-1 20-1h17z"></path></svg></span></span></span><span style="top:-3em"><span class="pstrut" style="height:3em"></span><span class="mord"><span class="mord">0</span><span class="mpunct">,</span><span class="mspace"> </span><span class="mspace" style="margin-right:0.1667em"></span><span class="mord">0</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.8424em"><span></span></span></span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:1.5208em"><span></span></span></span></span></span><span class="mspace" style="margin-right:0.1667em"></span><span class="mpunct">,</span><span class="mspace"> </span><span class="mspace" style="margin-right:0.1667em"></span><span class="minner munder"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.6444em"><span style="top:-1.4792em"><span class="pstrut" style="height:3em"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord text mtight"><span class="mord cjk_fallback mtight">第</span><span class="mord mtight"> 2 – 19 </span><span class="mord cjk_fallback mtight">层</span></span></span></span></span><span style="top:-3em"><span class="pstrut" style="height:3em"></span><span class="minner munder"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.6444em"><span class="svg-align" style="top:-2.1576em"><span class="pstrut" style="height:3em"></span><span class="stretchy" style="height:0.548em;min-width:1.6em"><span class="brace-left" style="height:0.548em"><svg xmlns="http://www.w3.org/2000/svg" width="400em" height="0.548em" viewBox="0 0 400000 548" preserveAspectRatio="xMinYMin slice"><path d="M0 6l6-6h17c12.688 0 19.313.3 20 1 4 4 7.313 8.3 10 13
+ 35.313 51.3 80.813 93.8 136.5 127.5 55.688 33.7 117.188 55.8 184.5 66.5.688
+ 0 2 .3 4 1 18.688 2.7 76 4.3 172 5h399450v120H429l-6-1c-124.688-8-235-61.7
+-331-161C60.687 138.7 32.312 99.3 7 54L0 41V6z"></path></svg></span><span class="brace-center" style="height:0.548em"><svg xmlns="http://www.w3.org/2000/svg" width="400em" height="0.548em" viewBox="0 0 400000 548" preserveAspectRatio="xMidYMin slice"><path d="M199572 214
+c100.7 8.3 195.3 44 280 108 55.3 42 101.7 93 139 153l9 14c2.7-4 5.7-8.7 9-14
+ 53.3-86.7 123.7-153 211-199 66.7-36 137.3-56.3 212-62h199568v120H200432c-178.3
+ 11.7-311.7 78.3-403 201-6 8-9.7 12-11 12-.7.7-6.7 1-18 1s-17.3-.3-18-1c-1.3 0
+-5-4-11-12-44.7-59.3-101.3-106.3-170-141s-145.3-54.3-229-60H0V214z"></path></svg></span><span class="brace-right" style="height:0.548em"><svg xmlns="http://www.w3.org/2000/svg" width="400em" height="0.548em" viewBox="0 0 400000 548" preserveAspectRatio="xMaxYMin slice"><path d="M399994 0l6 6v35l-6 11c-56 104-135.3 181.3-238 232-57.3
+ 28.7-117 45-179 50H-300V214h399897c43.3-7 81-15 113-26 100.7-33 179.7-91 237
+-174 2.7-5 6-9 10-13 .7-1 7.3-1 20-1h17z"></path></svg></span></span></span><span style="top:-3em"><span class="pstrut" style="height:3em"></span><span class="mord"><span class="mord">2</span><span class="mpunct">,</span><span class="mspace"> </span><span class="mspace" style="margin-right:0.1667em"></span><span class="minner">…</span><span class="mspace" style="margin-right:0.1667em"></span><span class="mpunct">,</span><span class="mspace"> </span><span class="mspace" style="margin-right:0.1667em"></span><span class="mord">2</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.8424em"><span></span></span></span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:1.5208em"><span></span></span></span></span></span><span class="mspace" style="margin-right:0.1667em"></span><span class="mpunct">,</span><span class="mspace"> </span><span class="mspace" style="margin-right:0.1667em"></span><span class="minner munder"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.6444em"><span style="top:-1.4792em"><span class="pstrut" style="height:3em"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord text mtight"><span class="mord cjk_fallback mtight">第</span><span class="mord mtight"> 20 – 39 </span><span class="mord cjk_fallback mtight">层</span></span></span></span></span><span style="top:-3em"><span class="pstrut" style="height:3em"></span><span class="minner munder"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.6444em"><span class="svg-align" style="top:-2.1576em"><span class="pstrut" style="height:3em"></span><span class="stretchy" style="height:0.548em;min-width:1.6em"><span class="brace-left" style="height:0.548em"><svg xmlns="http://www.w3.org/2000/svg" width="400em" height="0.548em" viewBox="0 0 400000 548" preserveAspectRatio="xMinYMin slice"><path d="M0 6l6-6h17c12.688 0 19.313.3 20 1 4 4 7.313 8.3 10 13
+ 35.313 51.3 80.813 93.8 136.5 127.5 55.688 33.7 117.188 55.8 184.5 66.5.688
+ 0 2 .3 4 1 18.688 2.7 76 4.3 172 5h399450v120H429l-6-1c-124.688-8-235-61.7
+-331-161C60.687 138.7 32.312 99.3 7 54L0 41V6z"></path></svg></span><span class="brace-center" style="height:0.548em"><svg xmlns="http://www.w3.org/2000/svg" width="400em" height="0.548em" viewBox="0 0 400000 548" preserveAspectRatio="xMidYMin slice"><path d="M199572 214
+c100.7 8.3 195.3 44 280 108 55.3 42 101.7 93 139 153l9 14c2.7-4 5.7-8.7 9-14
+ 53.3-86.7 123.7-153 211-199 66.7-36 137.3-56.3 212-62h199568v120H200432c-178.3
+ 11.7-311.7 78.3-403 201-6 8-9.7 12-11 12-.7.7-6.7 1-18 1s-17.3-.3-18-1c-1.3 0
+-5-4-11-12-44.7-59.3-101.3-106.3-170-141s-145.3-54.3-229-60H0V214z"></path></svg></span><span class="brace-right" style="height:0.548em"><svg xmlns="http://www.w3.org/2000/svg" width="400em" height="0.548em" viewBox="0 0 400000 548" preserveAspectRatio="xMaxYMin slice"><path d="M399994 0l6 6v35l-6 11c-56 104-135.3 181.3-238 232-57.3
+ 28.7-117 45-179 50H-300V214h399897c43.3-7 81-15 113-26 100.7-33 179.7-91 237
+-174 2.7-5 6-9 10-13 .7-1 7.3-1 20-1h17z"></path></svg></span></span></span><span style="top:-3em"><span class="pstrut" style="height:3em"></span><span class="mord"><span class="mord">1</span><span class="mpunct">,</span><span class="mspace"> </span><span class="mspace" style="margin-right:0.1667em"></span><span class="minner">…</span><span class="mspace" style="margin-right:0.1667em"></span><span class="mpunct">,</span><span class="mspace"> </span><span class="mspace" style="margin-right:0.1667em"></span><span class="mord">1</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.8424em"><span></span></span></span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:1.5208em"><span></span></span></span></span></span><span class="mspace" style="margin-right:0.1667em"></span><span class="mpunct">,</span><span class="mspace"> </span><span class="mspace" style="margin-right:0.1667em"></span><span class="minner munder"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.6444em"><span style="top:-1.4715em"><span class="pstrut" style="height:3em"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord text mtight"><span class="mord mtight">DSpark</span></span></span></span></span><span style="top:-3em"><span class="pstrut" style="height:3em"></span><span class="minner munder"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.6444em"><span class="svg-align" style="top:-2.1576em"><span class="pstrut" style="height:3em"></span><span class="stretchy" style="height:0.548em;min-width:1.6em"><span class="brace-left" style="height:0.548em"><svg xmlns="http://www.w3.org/2000/svg" width="400em" height="0.548em" viewBox="0 0 400000 548" preserveAspectRatio="xMinYMin slice"><path d="M0 6l6-6h17c12.688 0 19.313.3 20 1 4 4 7.313 8.3 10 13
+ 35.313 51.3 80.813 93.8 136.5 127.5 55.688 33.7 117.188 55.8 184.5 66.5.688
+ 0 2 .3 4 1 18.688 2.7 76 4.3 172 5h399450v120H429l-6-1c-124.688-8-235-61.7
+-331-161C60.687 138.7 32.312 99.3 7 54L0 41V6z"></path></svg></span><span class="brace-center" style="height:0.548em"><svg xmlns="http://www.w3.org/2000/svg" width="400em" height="0.548em" viewBox="0 0 400000 548" preserveAspectRatio="xMidYMin slice"><path d="M199572 214
+c100.7 8.3 195.3 44 280 108 55.3 42 101.7 93 139 153l9 14c2.7-4 5.7-8.7 9-14
+ 53.3-86.7 123.7-153 211-199 66.7-36 137.3-56.3 212-62h199568v120H200432c-178.3
+ 11.7-311.7 78.3-403 201-6 8-9.7 12-11 12-.7.7-6.7 1-18 1s-17.3-.3-18-1c-1.3 0
+-5-4-11-12-44.7-59.3-101.3-106.3-170-141s-145.3-54.3-229-60H0V214z"></path></svg></span><span class="brace-right" style="height:0.548em"><svg xmlns="http://www.w3.org/2000/svg" width="400em" height="0.548em" viewBox="0 0 400000 548" preserveAspectRatio="xMaxYMin slice"><path d="M399994 0l6 6v35l-6 11c-56 104-135.3 181.3-238 232-57.3
+ 28.7-117 45-179 50H-300V214h399897c43.3-7 81-15 113-26 100.7-33 179.7-91 237
+-174 2.7-5 6-9 10-13 .7-1 7.3-1 20-1h17z"></path></svg></span></span></span><span style="top:-3em"><span class="pstrut" style="height:3em"></span><span class="mord"><span class="mord">0</span><span class="mpunct">,</span><span class="mspace"> </span><span class="mspace" style="margin-right:0.1667em"></span><span class="mord">0</span><span class="mpunct">,</span><span class="mspace"> </span><span class="mspace" style="margin-right:0.1667em"></span><span class="mord">0</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.8424em"><span></span></span></span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:1.6647em"><span></span></span></span></span></span><span class="mclose">]</span></span></span></span></span>
+<p>0 表示这一层只有滑窗分支。encoder 里每 2 个 token 压成一条。decoder 里 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>m</mi><mo>=</mo><mn>1</mn></mrow><annotation encoding="application/x-tex">m = 1</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.4306em"></span><span class="mord mathnormal">m</span><span class="mspace" style="margin-right:0.2778em"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em"></span></span><span class="base"><span class="strut" style="height:0.6444em"></span><span class="mord">1</span></span></span></span>，每个 token 一条，不压缩。数组有 43 项，最后 3 项属于 DSpark 的三层。V4 的 CSA（<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>m</mi><mo>=</mo><mn>4</mn></mrow><annotation encoding="application/x-tex">m = 4</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.4306em"></span><span class="mord mathnormal">m</span><span class="mspace" style="margin-right:0.2778em"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em"></span></span><span class="base"><span class="strut" style="height:0.6444em"></span><span class="mord">4</span></span></span></span>）与 HCA（<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>m</mi><mo>=</mo><mn>128</mn></mrow><annotation encoding="application/x-tex">m = 128</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.4306em"></span><span class="mord mathnormal">m</span><span class="mspace" style="margin-right:0.2778em"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em"></span></span><span class="base"><span class="strut" style="height:0.6444em"></span><span class="mord">128</span></span></span></span>）交错的排法在 V4.1 里没有了，论文的说法是 &quot;pure CSA2&quot;。</p>
+<p><code>kv_source_layer_ids = [2, 8, 14, 20]</code> 是 Full 模式的层，它们自己生成全局 KV。</p>
+<p><code>index_source_layer_ids = [2, 8, 14, 20, 24, 28, 32, 36]</code> 是自己跑 indexer 的层。在这个数组里、又不在上一个数组里的 24、28、32、36 就是 Reindex 模式。两个数组都不在的层是 Reuse 模式。</p>
+<p>合起来：</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>层</th><th>模式</th><th><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>m</mi></mrow><annotation encoding="application/x-tex">m</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.4306em"></span><span class="mord mathnormal">m</span></span></span></span></th><th>全局 KV 从哪来</th></tr></thead><tbody><tr><td>0、1</td><td>纯滑窗</td><td>—</td><td>没有</td></tr><tr><td>2 – 7、8 – 13、14 – 19</td><td>每组第 1 层 Full，其余 5 层 Reuse</td><td>2</td><td>本组的 Full 层</td></tr><tr><td>20 – 23</td><td>第 20 层 Full，其余 3 层 Reuse</td><td>1</td><td>第 20 层</td></tr><tr><td>24 – 39，4 层一组</td><td>每组第 1 层 Reindex，其余 3 层 Reuse</td><td>1</td><td>第 20 层</td></tr></tbody></table>
+<p>Full 4 层，Reindex 4 层，Reuse 30 层，纯滑窗 2 层。</p>
+<aside class="note note-info"><p><strong>只在代码里能看到的两点。</strong> 第一，三种模式在官方 <code>inference/model.py</code> 里只是两个布尔值：<code>is_kv_source</code> 决定这层有没有压缩算子，<code>is_index_source</code> 决定有没有 indexer。Reuse 层的注意力参数和第 0 层的纯滑窗注意力完全一样，一个多余的矩阵都没有。第二，V4 前三层的 hash routing 在 V4.1 里不见了：config 没有 <code>num_hash_layers</code> 字段，路由代码里也没有按 token id 查表的分支。论文没有提这件事。</p></aside>
+<h2 id="v4-flash--v41-flash-对照表">V4-Flash → V4.1-Flash 对照表<a class="h-anchor" href="#v4-flash--v41-flash-对照表" aria-label="链接到本节：V4-Flash → V4.1-Flash 对照表"></a></h2>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th></th><th>DeepSeek-V4-Flash</th><th>DeepSeek-V4.1-Flash</th></tr></thead><tbody><tr><td>主干参数</td><td>284B</td><td>552B，另有 Engram 196B</td></tr><tr><td>每 token 激活参数</td><td>13B</td><td>prefill 8B / decode 16B</td></tr><tr><td>层数</td><td>43</td><td>40 = 20 encoder + 20 decoder</td></tr><tr><td>隐藏维 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>d</mi></mrow><annotation encoding="application/x-tex">d</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6944em"></span><span class="mord mathnormal">d</span></span></span></span></td><td>4096</td><td>5120</td></tr><tr><td>输入</td><td>文本</td><td>文本 + 图像</td></tr><tr><td>全局注意力</td><td>CSA（<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>m</mi><mo>=</mo><mn>4</mn></mrow><annotation encoding="application/x-tex">m = 4</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.4306em"></span><span class="mord mathnormal">m</span><span class="mspace" style="margin-right:0.2778em"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em"></span></span><span class="base"><span class="strut" style="height:0.6444em"></span><span class="mord">4</span></span></span></span>）与 HCA（<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>m</mi><mo>=</mo><mn>128</mn></mrow><annotation encoding="application/x-tex">m = 128</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.4306em"></span><span class="mord mathnormal">m</span><span class="mspace" style="margin-right:0.2778em"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em"></span></span><span class="base"><span class="strut" style="height:0.6444em"></span><span class="mord">128</span></span></span></span>）交错</td><td>只有 CSA2，<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>m</mi><mo>=</mo><mn>2</mn></mrow><annotation encoding="application/x-tex">m = 2</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.4306em"></span><span class="mord mathnormal">m</span><span class="mspace" style="margin-right:0.2778em"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em"></span></span><span class="base"><span class="strut" style="height:0.6444em"></span><span class="mord">2</span></span></span></span>（encoder）与 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>m</mi><mo>=</mo><mn>1</mn></mrow><annotation encoding="application/x-tex">m = 1</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.4306em"></span><span class="mord mathnormal">m</span><span class="mspace" style="margin-right:0.2778em"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em"></span></span><span class="base"><span class="strut" style="height:0.6444em"></span><span class="mord">1</span></span></span></span>（decoder）</td></tr><tr><td>生成全局 KV 的层数</td><td>41 层各自一份</td><td>4 层</td></tr><tr><td>压缩算子</td><td>相邻条目重叠，带块内位置偏置</td><td>不重叠，没有位置偏置</td></tr><tr><td>indexer K 的来源</td><td>从隐藏态另压一路</td><td>从 main KV 投影</td></tr><tr><td>query 头数 / 头维</td><td>64 / 512</td><td>64 / 512</td></tr><tr><td>query 低秩维</td><td>1024</td><td>1280</td></tr><tr><td>indexer 头数 / 头维 / top-k</td><td>64 / 128 / 512</td><td>32 / 128 / 512</td></tr><tr><td>候选池</td><td>无</td><td>decoder 里 2048 块 × 8 = 16384 个位置</td></tr><tr><td>main KV 精度</td><td>448 维 FP8 + 64 维 BF16</td><td>512 维 FP4</td></tr><tr><td>滑窗 KV 精度</td><td>448 维 FP8 + 64 维 BF16</td><td>512 维 FP8</td></tr><tr><td>全局 KV</td><td>3514 B/token</td><td>890 B/token</td></tr><tr><td>滑窗窗口</td><td>128</td><td>128</td></tr><tr><td>残差连接</td><td>mHC，4 条流</td><td>Single-Pass mHC，4 条流</td></tr><tr><td>routed expert / 激活 / shared</td><td>256 / 6 / 1</td><td>384 / 6 / 1</td></tr><tr><td>expert 中间维</td><td>2048</td><td>2304</td></tr><tr><td>前三层的 FFN</td><td>hash-MoE</td><td>普通 MoE</td></tr><tr><td>负载均衡偏置</td><td>一套</td><td>文本、图像各一套</td></tr><tr><td>草稿模块</td><td>MTP 1 层，随主干一起预训练</td><td>DSpark 3 层，主干预训练结束后单独训练</td></tr><tr><td>优化器</td><td>Muon + AdamW</td><td>head-wise Muon + AdamW + Sinkhorn-balanced update</td></tr><tr><td>预训练 token</td><td>32T</td><td>45T，文本与多模态的 token 比是 7 : 1</td></tr><tr><td>稀疏注意力的训练</td><td>先稠密训 1T token，再换成稀疏</td><td>从第一步就是稀疏</td></tr><tr><td>词表</td><td>129280</td><td>129280</td></tr></tbody></table>
+<p>「V4-Flash」一列里论文没给的数字取自它的 config，出处见 <a href="/2026/09/05/deepseek-v4-00-overview/">V4 的总览</a>。</p>
+<p>config.json 里值得先记住的字段，后面每一篇都会用到：</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>字段</th><th>值</th><th>意思</th></tr></thead><tbody><tr><td><code>hidden_size</code></td><td>5120</td><td>主干宽度 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>d</mi></mrow><annotation encoding="application/x-tex">d</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6944em"></span><span class="mord mathnormal">d</span></span></span></span></td></tr><tr><td><code>num_hidden_layers</code></td><td>40</td><td>前一半是 encoder，后一半是 decoder。config 里没有单独的字段标这条分界</td></tr><tr><td><code>num_attention_heads</code> / <code>head_dim</code></td><td>64 / 512</td><td>query 头数与头维</td></tr><tr><td><code>num_key_value_heads</code></td><td>1</td><td>只有一条 KV 向量，K 和 V 是同一个东西</td></tr><tr><td><code>q_lora_rank</code></td><td>1280</td><td>query 的低秩维，indexer 的 query 也从这里出来</td></tr><tr><td><code>qk_rope_head_dim</code></td><td>64</td><td>每个头最后 64 维带 RoPE</td></tr><tr><td><code>o_groups</code> / <code>o_lora_rank</code></td><td>8 / 1024</td><td>分组输出投影</td></tr><tr><td><code>sliding_window</code></td><td>128</td><td>滑窗窗口 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>n</mi><mtext>win</mtext></msub></mrow><annotation encoding="application/x-tex">n_{\text{win}}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.5806em;vertical-align:-0.15em"></span><span class="mord"><span class="mord mathnormal">n</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3175em"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em"><span class="pstrut" style="height:2.7em"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord text mtight"><span class="mord mtight">win</span></span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em"><span></span></span></span></span></span></span></span></span></span></td></tr><tr><td><code>compress_ratios</code></td><td>0 / 2 / 1</td><td>每层的压缩率，见上一节</td></tr><tr><td><code>kv_source_layer_ids</code></td><td>2, 8, 14, 20</td><td>Full 模式的层</td></tr><tr><td><code>index_source_layer_ids</code></td><td>上面 4 层 + 24, 28, 32, 36</td><td>自己跑 indexer 的层</td></tr><tr><td><code>index_n_heads</code> / <code>index_head_dim</code> / <code>index_topk</code></td><td>32 / 128 / 512</td><td>indexer 的头数、头维，每个 query 读多少条全局 KV</td></tr><tr><td><code>candidate_source_layer_id</code></td><td>20</td><td>建候选池的层</td></tr><tr><td><code>candidate_topk_blocks</code> / <code>candidate_block_size</code></td><td>2048 / 8</td><td>候选池最多 2048 块，每块 8 个位置</td></tr><tr><td><code>hc_mult</code> / <code>hc_sinkhorn_iters</code></td><td>4 / 20</td><td>mHC 的流数和 Sinkhorn 轮数</td></tr><tr><td><code>n_routed_experts</code> / <code>num_experts_per_tok</code> / <code>n_shared_experts</code></td><td>384 / 6 / 1</td><td>MoE 配置</td></tr><tr><td><code>moe_intermediate_size</code></td><td>2304</td><td>expert 中间维</td></tr><tr><td><code>scoring_func</code> / <code>routed_scaling_factor</code></td><td>sqrtsoftplus / 1.5</td><td>路由打分函数与权重缩放</td></tr><tr><td><code>engram_layer_ids</code></td><td>1, 14</td><td>Engram 的位置</td></tr><tr><td><code>engram_max_ngram_size</code> / <code>engram_n_heads</code> / <code>engram_head_dim</code></td><td>4 / 8 / 256</td><td>n-gram 最长 4，每一阶 8 个哈希头，每头取出 256 维</td></tr><tr><td><code>engram_num_embeddings</code></td><td>约 3.84 亿，两张表</td><td>每张表的行数</td></tr><tr><td><code>num_nextn_predict_layers</code></td><td>3</td><td>DSpark 的层数。字段名沿用了 MTP 的</td></tr><tr><td><code>dspark_block_size</code></td><td>5</td><td>一次猜 5 个 token</td></tr><tr><td><code>dspark_target_layer_ids</code></td><td>37, 38, 39</td><td>DSpark 读主干的哪几层</td></tr><tr><td><code>dspark_n_routed_experts</code> / <code>dspark_num_experts_per_tok</code></td><td>128 / 3</td><td>DSpark 层的 MoE 比主干小</td></tr><tr><td><code>expert_dtype</code></td><td>fp4</td><td>routed expert 权重 FP4，其余 FP8</td></tr><tr><td><code>vision_config</code></td><td>32 层，hidden 1024，patch 14，<code>downsample_ratio</code> 3</td><td>DeepSeek-ViT</td></tr></tbody></table>
+<h2 id="一个-token-的一次前向">一个 token 的一次前向<a class="h-anchor" href="#一个-token-的一次前向" aria-label="链接到本节：一个 token 的一次前向"></a></h2>
+<p>一个 token 走哪条路，取决于它是 prompt 里的 token 还是正在生成的 token。先看生成，它走完全程。</p>
+<h3 id="decode过全部-40-层">decode：过全部 40 层<a class="h-anchor" href="#decode过全部-40-层" aria-label="链接到本节：decode：过全部 40 层"></a></h3>
+<p>这一节和下一节的维度与顺序都取自官方的参考实现 <code>inference/model.py</code>，论文只给了各模块的概述。</p>
+<p><strong>入口。</strong> token id 查 embedding 得到 5120 维向量，复制 4 份进入 4 条残差流。</p>
+<p><strong>Engram（第 1、14 层入口）。</strong> 取以当前 token 结尾的 2-gram、3-gram、4-gram。每一阶用 8 个头各算一个行号，共 24 个行号，从表里取出 24 个 256 维向量，拼成 6144 维。一个线性层把它变成 5 个 5120 维向量：4 个 key 分别对应 4 条残差流，1 个 value 共用。每条流和自己的 key 做归一化的点积，取带符号的平方根，再过 sigmoid 得到一个 0 到 1 之间的门。每条流加上「门 × value」。图像 token 不参与。</p>
+<p><strong>读算子。</strong> 把 4 条流按 4 个权重加权求和，得到子层的 5120 维输入，再过 RMSNorm。这 4 个权重不是现算的，是上一个子层留下的。第 0 层的注意力前面没有上一个子层，权重固定为 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo stretchy="false">(</mo><mn>1</mn><mo separator="true">,</mo><mn>0</mn><mo separator="true">,</mo><mn>0</mn><mo separator="true">,</mo><mn>0</mn><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">(1, 0, 0, 0)</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em"></span><span class="mopen">(</span><span class="mord">1</span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em"></span><span class="mord">0</span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em"></span><span class="mord">0</span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em"></span><span class="mord">0</span><span class="mclose">)</span></span></span></span>。</p>
+<p>读的同时，这个子层也从 4 条流算出自己的一组系数。做法是把 4 条流拉平成 20480 维，乘一个 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mn>24</mn><mo>×</mo><mn>20480</mn></mrow><annotation encoding="application/x-tex">24 \times 20480</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.7278em;vertical-align:-0.0833em"></span><span class="mord">24</span><span class="mspace" style="margin-right:0.2222em"></span><span class="mbin">×</span><span class="mspace" style="margin-right:0.2222em"></span></span><span class="base"><span class="strut" style="height:0.6444em"></span><span class="mord">20480</span></span></span></span> 的矩阵得到 24 个数。其中 4 个是写权重 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>C</mi></mrow><annotation encoding="application/x-tex">C</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em"></span><span class="mord mathnormal" style="margin-right:0.0715em">C</span></span></span></span>，16 个排成 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mn>4</mn><mo>×</mo><mn>4</mn></mrow><annotation encoding="application/x-tex">4 \times 4</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.7278em;vertical-align:-0.0833em"></span><span class="mord">4</span><span class="mspace" style="margin-right:0.2222em"></span><span class="mbin">×</span><span class="mspace" style="margin-right:0.2222em"></span></span><span class="base"><span class="strut" style="height:0.6444em"></span><span class="mord">4</span></span></span></span> 过 20 轮 Sinkhorn 得到混合矩阵 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>B</mi></mrow><annotation encoding="application/x-tex">B</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em"></span><span class="mord mathnormal" style="margin-right:0.0502em">B</span></span></span></span>，这两样留给本子层的写算子。剩下 4 个是读权重 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>A</mi></mrow><annotation encoding="application/x-tex">A</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em"></span><span class="mord mathnormal">A</span></span></span></span>，留给下一个子层。</p>
+<p><strong>注意力（以 Reuse 层为例）。</strong> 自己算三样东西：</p>
+<ul>
+<li>query：5120 → 1280 → 64 头 × 512 维，每头最后 64 维加 RoPE。</li>
+<li>滑窗 KV：5120 → 512，过 RMSNorm，最后 64 维加 RoPE，按 FP8 写进一个 128 格的环形缓存。</li>
+<li>输出投影：分 8 组，每组 4096 → 1024，拼起来 8192 → 5120。</li>
+</ul>
+<p>全局 KV 和「读哪 512 条」都从共享池拿。64 个 query 头对着 128 条滑窗 KV 加 512 条全局 KV 做一次注意力，共 640 条。每个头另有一个可学习的 attention sink。输出的 64 维 RoPE 位做反旋转。这一段和 V4 相同，见 <a href="/2026/09/05/deepseek-v4-03-hybrid-attention/">V4 的第 3 篇</a>。</p>
+<p><strong>Full 层多做的事。</strong> 第 20 层把输入投影成 512 维，过 RMSNorm，这就是 main KV 的一条。再把它投影到 128 维，得到 indexer K。两者都按 FP4 写进 decoder 的共享池。然后 indexer 给所有看得见的条目打分：32 个头、每头 128 维的 indexer query 和 indexer K 做点积，过 ReLU，按头加权求和。分数最高的 512 条的位置写进共享池。第 20 层还要建候选池：每 8 个位置算一块，块的分数取块内最高分，留下分数最高的 2048 块。encoder 的 Full 层多一步压缩：每 2 个 token 的 512 维向量按由输入算出的逐通道 softmax 权重加权求和，合成一条。</p>
+<p><strong>Reindex 层多做的事。</strong> 只算自己的 indexer query，和共享池里的 indexer K 打分，范围限制在候选池的 16384 个位置里，选出新的 512 条，覆盖共享池里的索引。</p>
+<p><strong>写算子。</strong> 注意力的输出乘写权重 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>C</mi></mrow><annotation encoding="application/x-tex">C</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em"></span><span class="mord mathnormal" style="margin-right:0.0715em">C</span></span></span></span> 分到 4 条流，旧的 4 条流按混合矩阵 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>B</mi></mrow><annotation encoding="application/x-tex">B</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em"></span><span class="mord mathnormal" style="margin-right:0.0502em">B</span></span></span></span> 互相混合，两者相加。</p>
+<p><strong>DeepSeekMoE。</strong> router 给 384 个 expert 打分，打分函数是 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msqrt><mrow><mi mathvariant="normal">softplus</mi><mo>⁡</mo><mo stretchy="false">(</mo><mo>⋅</mo><mo stretchy="false">)</mo></mrow></msqrt></mrow><annotation encoding="application/x-tex">\sqrt{\operatorname{softplus}(\cdot)}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1.24em;vertical-align:-0.305em"></span><span class="mord sqrt"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.935em"><span class="svg-align" style="top:-3.2em"><span class="pstrut" style="height:3.2em"></span><span class="mord" style="padding-left:1em"><span class="mop"><span class="mord mathrm">softplus</span></span><span class="mopen">(</span><span class="mord">⋅</span><span class="mclose">)</span></span></span><span style="top:-2.895em"><span class="pstrut" style="height:3.2em"></span><span class="hide-tail" style="min-width:1.02em;height:1.28em"><svg xmlns="http://www.w3.org/2000/svg" width="400em" height="1.28em" viewBox="0 0 400000 1296" preserveAspectRatio="xMinYMin slice"><path d="M263,681c0.7,0,18,39.7,52,119
+c34,79.3,68.167,158.7,102.5,238c34.3,79.3,51.8,119.3,52.5,120
+c340,-704.7,510.7,-1060.3,512,-1067
+l0 -0
+c4.7,-7.3,11,-11,19,-11
+H40000v40H1012.3
+s-271.3,567,-271.3,567c-38.7,80.7,-84,175,-136,283c-52,108,-89.167,185.3,-111.5,232
+c-22.3,46.7,-33.8,70.3,-34.5,71c-4.7,4.7,-12.3,7,-23,7s-12,-1,-12,-1
+s-109,-253,-109,-253c-72.7,-168,-109.3,-252,-110,-252c-10.7,8,-22,16.7,-34,26
+c-22,17.3,-33.3,26,-34,26s-26,-26,-26,-26s76,-59,76,-59s76,-60,76,-60z
+M1001 80h400000v40h-400000z"></path></svg></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.305em"><span></span></span></span></span></span></span></span></span>。加上偏置后选 top-6，图像 token 和文本 token 加的偏置不是同一套。权重取不加偏置的分数，归一化后乘 1.5。每个 expert 是 5120 → 2304 → 5120 的 SwiGLU，带截断。另有一个同样结构的 shared expert，所有 token 都过。</p>
+<p><strong>出口。</strong> 第 39 层的 MoE 留下最后一组读权重，把 4 条流压成 1 条，过 RMSNorm，LM head 把 5120 维映到 129280 个 logit。V4 在这里有一个单独的 <code>hc_head</code> 来产生读权重，V4.1 不需要了。</p>
+<p><strong>DSpark。</strong> 投机解码开启时，主干每生成一个 token，DSpark 的三层接着猜后面的 token。它的输入有两部分：主干第 37、38、39 层入口处 4 条残差流的平均，以及刚生成的那个 token。三层一次前向给出 5 个位置的 logits，这 5 个位置互相看不到对方采样出了什么。所以后面接一个 Markov head：它按顺序逐个位置采样，每采一个 token，就把这个 token 对下一个位置的影响加到 logits 上。最后一个 confidence head 估计每个草稿 token 被主干接受的概率。</p>
+<h3 id="prefill算到第-20-层的入口为止">prefill：算到第 20 层的入口为止<a class="h-anchor" href="#prefill算到第-20-层的入口为止" aria-label="链接到本节：prefill：算到第 20 层的入口为止"></a></h3>
+<p>prompt 里的一个 token，同样从 embedding 开始，过第 0 – 19 层，得到 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>H</mi><mn>20</mn></msub></mrow><annotation encoding="application/x-tex">H_{20}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8333em;vertical-align:-0.15em"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.0813em">H</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em"><span style="top:-2.55em;margin-left:-0.0813em;margin-right:0.05em"><span class="pstrut" style="height:2.7em"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">20</span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em"><span></span></span></span></span></span></span></span></span></span>。第 20 层把它投影成 main KV 和 indexer K，写进 decoder 的共享池。到这里，后面所有 token 需要从它身上读的全局信息已经齐了，第 20 – 39 层不用为它算。</p>
+<p>有一个例外。decoder 每一层还有自己的滑窗 KV，它来自那一层自己的输入。生成第一个新 token 时，decoder 每层的滑窗里要有最近 128 个 token。所以 prompt 的<strong>最后 128 个 token</strong> 仍然要过 decoder。严格地重建这些滑窗 KV 需要回放更多的 token：一层的滑窗 KV 依赖上一层最近 128 个位置的输出，20 层叠起来就是 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mn>20</mn><mo>×</mo><mn>128</mn><mo>=</mo><mn>2560</mn></mrow><annotation encoding="application/x-tex">20 \times 128 = 2560</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.7278em;vertical-align:-0.0833em"></span><span class="mord">20</span><span class="mspace" style="margin-right:0.2222em"></span><span class="mbin">×</span><span class="mspace" style="margin-right:0.2222em"></span></span><span class="base"><span class="strut" style="height:0.6444em"></span><span class="mord">128</span><span class="mspace" style="margin-right:0.2778em"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em"></span></span><span class="base"><span class="strut" style="height:0.6444em"></span><span class="mord">2560</span></span></span></span> 个 token。V4.1 只回放 128 个，接受一点近似，论文把这个做法叫 Decoder SWA Bounded Replay。</p>
+<p>于是 prompt 长度为 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>N</mi></mrow><annotation encoding="application/x-tex">N</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em"></span><span class="mord mathnormal" style="margin-right:0.109em">N</span></span></span></span> 时，prefill 的计算量从 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>N</mi><mo>×</mo><mn>40</mn></mrow><annotation encoding="application/x-tex">N \times 40</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.7667em;vertical-align:-0.0833em"></span><span class="mord mathnormal" style="margin-right:0.109em">N</span><span class="mspace" style="margin-right:0.2222em"></span><span class="mbin">×</span><span class="mspace" style="margin-right:0.2222em"></span></span><span class="base"><span class="strut" style="height:0.6444em"></span><span class="mord">40</span></span></span></span> 层变成 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>N</mi><mo>×</mo><mn>20</mn><mo>+</mo><mn>128</mn><mo>×</mo><mn>20</mn></mrow><annotation encoding="application/x-tex">N \times 20 + 128 \times 20</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.7667em;vertical-align:-0.0833em"></span><span class="mord mathnormal" style="margin-right:0.109em">N</span><span class="mspace" style="margin-right:0.2222em"></span><span class="mbin">×</span><span class="mspace" style="margin-right:0.2222em"></span></span><span class="base"><span class="strut" style="height:0.7278em;vertical-align:-0.0833em"></span><span class="mord">20</span><span class="mspace" style="margin-right:0.2222em"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2222em"></span></span><span class="base"><span class="strut" style="height:0.7278em;vertical-align:-0.0833em"></span><span class="mord">128</span><span class="mspace" style="margin-right:0.2222em"></span><span class="mbin">×</span><span class="mspace" style="margin-right:0.2222em"></span></span><span class="base"><span class="strut" style="height:0.6444em"></span><span class="mord">20</span></span></span></span> 层。<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>N</mi></mrow><annotation encoding="application/x-tex">N</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em"></span><span class="mord mathnormal" style="margin-right:0.109em">N</span></span></span></span> 远大于 128 时就是一半。</p>
+<h2 id="参数量">参数量<a class="h-anchor" href="#参数量" aria-label="链接到本节：参数量"></a></h2>
+<p>按 config 手算：</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>部件</th><th>算式</th><th>参数量</th></tr></thead><tbody><tr><td>routed expert</td><td>3 × 5120 × 2304 × 384 个 × 40 层</td><td><strong>543.6B</strong></td></tr><tr><td>shared expert</td><td>3 × 5120 × 2304 × 40 层</td><td>1.4B</td></tr><tr><td>注意力</td><td>每层约 127M × 40 层</td><td>5.1B</td></tr><tr><td>embedding + LM head</td><td>2 × 129280 × 5120</td><td>1.3B</td></tr><tr><td>Engram 的投影</td><td>6144 × 25600 × 2 个</td><td>0.3B</td></tr><tr><td>router、mHC、压缩算子、indexer</td><td></td><td>0.2B</td></tr><tr><td><strong>主干合计</strong></td><td></td><td><strong>≈ 552B</strong></td></tr><tr><td>Engram 的表</td><td>约 3.84 亿行 × 256 维 × 2 张</td><td>196.6B</td></tr><tr><td>DSpark 三层</td><td>每层 128 个 expert，约 4.7B</td><td>≈ 14B</td></tr><tr><td>DeepSeek-ViT</td><td>32 层，hidden 1024</td><td>≈ 0.4B</td></tr></tbody></table>
+<p>主干合计和论文的 552B 对得上，Engram 的表和论文的 196B 对得上。这是我的推算：552B 里不含 DSpark 和 ViT。论文没有给分项。</p>
+<p>注意力每层的 127M 是这样来的：query 的两个矩阵 5120 × 1280 和 1280 × 32768，共 48.5M；滑窗 KV 的投影 5120 × 512，2.6M；输出投影的两个矩阵 8 × 4096 × 1024 和 8192 × 5120，共 75.5M。</p>
+<p>两个激活参数量也能算出来。下面的拆法是我的估算，论文只给了 8B 和 16B 两个结果，没有给统计的范围；算不算 embedding 和 LM head 是这里的关键假设。一个 token 在一层里用到 6 个 routed expert 加 1 个 shared expert，再加这一层的注意力：</p>
+<span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mn>7</mn><mo>×</mo><mn>35.4</mn><mtext>M</mtext><mo>+</mo><mn>127</mn><mtext>M</mtext><mo>≈</mo><mn>374</mn><mtext>M</mtext><mi mathvariant="normal">.</mi></mrow><annotation encoding="application/x-tex">7 \times 35.4\text{M} + 127\text{M} \approx 374\text{M}.</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.7278em;vertical-align:-0.0833em"></span><span class="mord">7</span><span class="mspace" style="margin-right:0.2222em"></span><span class="mbin">×</span><span class="mspace" style="margin-right:0.2222em"></span></span><span class="base"><span class="strut" style="height:0.7667em;vertical-align:-0.0833em"></span><span class="mord">35.4</span><span class="mord text"><span class="mord">M</span></span><span class="mspace" style="margin-right:0.2222em"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2222em"></span></span><span class="base"><span class="strut" style="height:0.6833em"></span><span class="mord">127</span><span class="mord text"><span class="mord">M</span></span><span class="mspace" style="margin-right:0.2778em"></span><span class="mrel">≈</span><span class="mspace" style="margin-right:0.2778em"></span></span><span class="base"><span class="strut" style="height:0.6833em"></span><span class="mord">374</span><span class="mord text"><span class="mord">M</span></span><span class="mord">.</span></span></span></span></span>
+<p>decode 过 40 层，是 15.0B。加上 embedding 和 LM head 的 1.3B，约 <strong>16B</strong>。prefill 过 20 层，是 7.5B。加上 embedding 的 0.66B，约 <strong>8B</strong>。prefill 不出 logits，所以不算 LM head。</p>
+<p>routed expert 占主干的 98%，这一点和 V4 一样。V4.1-Flash 的总参数是 V4-Flash 的近两倍，prefill 的激活参数反而从 13B 降到 8B。</p>
+<h2 id="890-字节是怎么来的">890 字节是怎么来的<a class="h-anchor" href="#890-字节是怎么来的" aria-label="链接到本节：890 字节是怎么来的"></a></h2>
+<p>这个数可以用 config 复算，留到第 3 篇细讲，这里先给结果。</p>
+<p>一条 main KV 是 512 个 4 bit 的数，256 字节。每 16 个数共用一个 1 字节的 scale，32 字节。合计 288 字节。一条 indexer K 是 128 个 4 bit 的数加 4 字节 scale，68 字节。所以每生成一条全局 KV 要存 356 字节。</p>
+<p>每个 token 摊到多少条：encoder 有 3 个 Full 层，每 2 个 token 一条，合 1.5 条。decoder 有 1 个 Full 层，每个 token 一条。共 2.5 条。</p>
+<span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mn>356</mn><mo>×</mo><mn>2.5</mn><mo>=</mo><mn>890</mn><mtext> 字节 / token</mtext><mi mathvariant="normal">.</mi></mrow><annotation encoding="application/x-tex">356 \times 2.5 = 890\ \text{字节 / token}.</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.7278em;vertical-align:-0.0833em"></span><span class="mord">356</span><span class="mspace" style="margin-right:0.2222em"></span><span class="mbin">×</span><span class="mspace" style="margin-right:0.2222em"></span></span><span class="base"><span class="strut" style="height:0.6444em"></span><span class="mord">2.5</span><span class="mspace" style="margin-right:0.2778em"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em"></span><span class="mord">890</span><span class="mspace"> </span><span class="mord text"><span class="mord cjk_fallback">字节</span><span class="mord"> / token</span></span><span class="mord">.</span></span></span></span></span>
+<p>1M 上下文是 0.87 GiB。V4-Flash 的 3514 字节对应 3.4 GiB。</p>
+<p>890 字节只是全局 KV。每层的滑窗 KV 另算：128 条 × 528 字节 × 40 层，约 2.7 MB。它和上下文长度无关，所以不摊到每个 token 上。</p>
+<h2 id="阅读地图">阅读地图<a class="h-anchor" href="#阅读地图" aria-label="链接到本节：阅读地图"></a></h2>
+<p>每一篇对应论文的一个小节。</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>篇</th><th>讲什么</th><th>对应论文</th></tr></thead><tbody><tr><td>0</td><td>本篇。要解决的问题、总图、层排布、参数量</td><td>§1，§2.1，§4.2.1</td></tr><tr><td>1</td><td><a href="/2026/10/02/deepseek-v41-01-ced/">序列（上）：CED</a>。它和 YOCO 差在哪，8B 与 16B 的来历，decoder 的滑窗 KV 怎么补</td><td>§2.2</td></tr><tr><td>2</td><td><a href="/2026/10/02/deepseek-v41-02-csa2/">序列（中）：CSA2 的三种模式</a>。简化后的压缩算子，谁往共享池里写、谁读，「共用缓存」和「共用索引」为什么是两件事</td><td>§2.3，§2.3.1</td></tr><tr><td>3</td><td><a href="/2026/10/02/deepseek-v41-03-indexer-fp4/">序列（下）：Hierarchical Sparse Indexer 与 FP4 main KV</a>。候选池怎么建，4 bit 浮点为什么够用，890 字节的分项</td><td>§2.3.2，§2.4.4</td></tr><tr><td>4</td><td><a href="/2026/10/02/deepseek-v41-04-single-pass-mhc/">深度：Single-Pass mHC</a>。残差流的访存量下界，读权重为什么能晚一拍</td><td>§2.4.1</td></tr><tr><td>5</td><td><a href="/2026/10/02/deepseek-v41-05-engram/">记忆：Engram</a>。n-gram 哈希查表，门控，196B 参数怎么训练和存放</td><td>§2.4.2，§3.1.3，Engram 论文</td></tr><tr><td>6</td><td><a href="/2026/10/02/deepseek-v41-06-dspark/">解码：DSpark</a>。一次出 5 个 token 的草稿，Markov head，按置信度决定验证几个</td><td>§2.4.3，DSpark 论文</td></tr><tr><td>7</td><td><a href="/2026/10/02/deepseek-v41-07-vision-optim/">输入端与优化器</a>：DeepSeek-ViT，分模态的负载均衡，head-wise Muon，Sinkhorn-balanced update</td><td>§2.1.1，§2.5</td></tr><tr><td>8</td><td><a href="/2026/10/02/deepseek-v41-08-systems/">系统</a>：persistent KV cache 的管理，SWA Bounded Replay，CSA2 在流水线并行下怎么训练</td><td>§3.1.2，§3.2</td></tr></tbody></table>
+<p>本连载<strong>不讲</strong>：数据构建、post-training（SFT、RL、on-policy distillation、可调的 reasoning effort）、评测结果。这些在论文 §4.1、§4.3、§5。V4 已有、V4.1 没改的模块也不重讲，包括 lightning indexer 的打分公式、部分 RoPE 与输出反旋转、attention sink、mHC 的双随机约束、sqrt-softplus 打分、Muon。它们在 <a href="/2026/09/05/deepseek-v4-00-overview/">V4 连载</a>里。只想看 CSA2 相对前几代注意力改了什么，可以先读独立的一篇 <a href="/2026/09/23/deepseek-attention-structures/">DeepSeek 注意力结构对比</a>。</p>
+<aside class="note note-info"><p><strong>关于层号。</strong> 本连载的层号一律从 0 开始，和 <code>config.json</code>、官方代码一致。论文 §2.2 写 &quot;<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>l</mi><mo>&gt;</mo><mi>L</mi><mi mathvariant="normal">/</mi><mn>2</mn></mrow><annotation encoding="application/x-tex">l &gt; L/2</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.7335em;vertical-align:-0.0391em"></span><span class="mord mathnormal" style="margin-right:0.0197em">l</span><span class="mspace" style="margin-right:0.2778em"></span><span class="mrel">&gt;</span><span class="mspace" style="margin-right:0.2778em"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em"></span><span class="mord mathnormal">L</span><span class="mord">/2</span></span></span></span> 的层是 decoder&quot; 时是从 1 开始数的，对应这里的第 20 – 39 层。</p></aside>
+<h2 id="资料">资料<a class="h-anchor" href="#资料" aria-label="链接到本节：资料"></a></h2>
+<ul>
+<li>DeepSeek-V4.1-Flash 技术报告：<a href="https://arxiv.org/abs/2609.19969">arXiv 2609.19969</a></li>
+<li>权重、config 与官方推理实现：Hugging Face <a href="https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash">deepseek-ai/DeepSeek-V4.1-Flash</a>，<code>inference/model.py</code> 是可读的参考实现，不是生产用的服务引擎</li>
+<li>DeepSeek-V4 技术报告：<a href="https://arxiv.org/abs/2606.19348">arXiv 2606.19348</a></li>
+<li>上游论文：YOCO（Sun et al.，NeurIPS 2024，CED 的出发点）、Engram <a href="https://arxiv.org/abs/2601.07372">2601.07372</a>、DSpark <a href="https://arxiv.org/abs/2607.05147">2607.05147</a>、mHC <a href="https://arxiv.org/abs/2512.24880">2512.24880</a></li>
+</ul></div><footer class="post-tags"><a href="/tags/%E5%A4%A7%E6%A8%A1%E5%9E%8B/">#大模型</a><a href="/tags/DeepSeek-V4.1/">#DeepSeek-V4.1</a><a href="/tags/%E6%A8%A1%E5%9E%8B%E7%BB%93%E6%9E%84/">#模型结构</a></footer><nav class="post-nav"><span></span><a class="next" href="/2026/10/02/deepseek-v41-01-ced/"><span class="label">下一篇 →</span><span class="t">DeepSeek-V4.1 模型结构（1）：序列维度（上），CED</span></a></nav><section class="comments" data-giscus data-config="{&quot;data-repo&quot;:&quot;JavaZeroo/JavaZeroo.github.io&quot;,&quot;data-repo-id&quot;:&quot;R_kgDOH4QcDQ&quot;,&quot;data-category&quot;:&quot;Announcements&quot;,&quot;data-category-id&quot;:&quot;DIC_kwDOH4QcDc4DFDzC&quot;,&quot;data-mapping&quot;:&quot;pathname&quot;,&quot;data-strict&quot;:&quot;1&quot;,&quot;data-reactions-enabled&quot;:&quot;1&quot;,&quot;data-emit-metadata&quot;:&quot;0&quot;,&quot;data-input-position&quot;:&quot;top&quot;,&quot;data-lang&quot;:&quot;zh-CN&quot;,&quot;data-loading&quot;:&quot;lazy&quot;}" aria-label="评论"><h2 class="label">评论</h2><div class="giscus"></div></section><script type="module">var e=`https://giscus.app`,t=()=>document.documentElement.dataset.theme===`light`?`light`:`transparent_dark`,n,r,i;document.addEventListener(`astro:page-load`,()=>{n?.abort(),n=new AbortController,r?.disconnect(),i?.disconnect();let a=document.querySelector(`[data-giscus]`);if(!a)return;let o=()=>{let n=document.createElement(`script`);n.src=`${e}/client.js`,n.async=!0,n.crossOrigin=`anonymous`;for(let[e,t]of Object.entries(JSON.parse(a.dataset.config)))n.setAttribute(e,t);n.setAttribute(`data-theme`,t()),a.querySelector(`.giscus`).appendChild(n)};r=new IntersectionObserver(([e],t)=>{e.isIntersecting&&(t.disconnect(),o())},{rootMargin:`400px`}),r.observe(a),i=new MutationObserver(()=>{a.querySelector(`iframe.giscus-frame`)?.contentWindow?.postMessage({giscus:{setConfig:{theme:t()}}},e)}),i.observe(document.documentElement,{attributeFilter:[`data-theme`]})});</script></article><nav class="toc glass" aria-label="目录"><span class="label">目录</span><ul><li><a href="#三句话版本" class="d2" data-toc-link="三句话版本">三句话版本</a></li><li><a href="#这一代要解决的问题kv-cache-的三处成本" class="d2" data-toc-link="这一代要解决的问题kv-cache-的三处成本">这一代要解决的问题：KV cache 的三处成本</a></li><li><a href="#总图" class="d2" data-toc-link="总图">总图</a></li><li><a href="#40-层怎么排" class="d2" data-toc-link="40-层怎么排">40 层怎么排</a></li><li><a href="#v4-flash--v41-flash-对照表" class="d2" data-toc-link="v4-flash--v41-flash-对照表">V4-Flash → V4.1-Flash 对照表</a></li><li><a href="#一个-token-的一次前向" class="d2" data-toc-link="一个-token-的一次前向">一个 token 的一次前向</a></li><li><a href="#decode过全部-40-层" class="d3" data-toc-link="decode过全部-40-层">decode：过全部 40 层</a></li><li><a href="#prefill算到第-20-层的入口为止" class="d3" data-toc-link="prefill算到第-20-层的入口为止">prefill：算到第 20 层的入口为止</a></li><li><a href="#参数量" class="d2" data-toc-link="参数量">参数量</a></li><li><a href="#890-字节是怎么来的" class="d2" data-toc-link="890-字节是怎么来的">890 字节是怎么来的</a></li><li><a href="#阅读地图" class="d2" data-toc-link="阅读地图">阅读地图</a></li><li><a href="#资料" class="d2" data-toc-link="资料">资料</a></li></ul></nav></div></main><footer class="site-footer"><div class="wide"><span>© 2026 Java不加糖</span><span class="links"><a href="https://github.com/JavaZeroo" rel="me noopener" target="_blank">GitHub</a><a href="https://space.bilibili.com/95945127" rel="me noopener" target="_blank">哔哩哔哩</a><a href="https://t.me/javaisme0" rel="me noopener" target="_blank">Telegram</a><a href="/atom.xml">RSS</a></span><!-- Required by the HarmonyOS Sans Fonts License Agreement ("prominent notice"). --><span class="credit">字体：HarmonyOS Sans © Huawei Device Co., Ltd. · Cascadia Code © Microsoft (OFL) · 由 <a href="https://astro.build" rel="noopener" target="_blank">Astro</a> 构建</span></div></footer><div class="search-root" data-search hidden><div class="search-panel glass" role="dialog" aria-modal="true" aria-label="站内搜索"><label class="search-input"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M10.5 3a7.5 7.5 0 0 1 5.96 12.06l4.24 4.24a1 1 0 0 1-1.41 1.41l-4.24-4.24A7.5 7.5 0 1 1 10.5 3Zm0 2a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11Z"/></svg><input type="search" placeholder="搜索文章…" autocomplete="off" data-search-input><kbd>ESC</kbd></label><ul class="search-results" data-search-results></ul></div></div><script type="module">var e;async function t(){if(e!==void 0)return e;try{e=await Function(`p`,`return import(p)`)(`/pagefind/pagefind.js`),await e.init()}catch(t){console.error(`[search] pagefind failed to load`,t),e=null}return e}var n;document.addEventListener(`astro:page-load`,()=>{n?.abort(),n=new AbortController;let{signal:e}=n,r=document.querySelector(`[data-search]`),i=r?.querySelector(`[data-search-input]`),a=r?.querySelector(`[data-search-results]`);if(!r||!i||!a)return;let o=0,s=null,c=()=>{s=document.activeElement,r.hidden=!1,i.value=``,a.innerHTML=``,i.focus(),t()},l=()=>{r.hidden=!0,s?.focus(),s=null};document.querySelectorAll(`[data-search-open]`).forEach(t=>t.addEventListener(`click`,c,{signal:e})),r.addEventListener(`click`,e=>{e.target===r&&l()},{signal:e}),addEventListener(`keydown`,e=>{(e.metaKey||e.ctrlKey)&&e.key.toLowerCase()===`k`?(e.preventDefault(),r.hidden?c():l()):e.key===`Escape`&&!r.hidden&&l()},{signal:e}),r.addEventListener(`keydown`,e=>{if(e.key!==`Tab`)return;let t=[i,...a.querySelectorAll(`a`)];e.preventDefault();let n=t.indexOf(document.activeElement);t[(Math.max(n,0)+(e.shiftKey?t.length-1:1))%t.length]?.focus()},{signal:e});let u=e=>{o=0,a.innerHTML=e.length?e.map((e,t)=>`<li class="${t===0?`active`:``}"><a href="${e.url}"><div class="st">${e.meta.title??e.url}</div><div class="sx">${e.excerpt}</div></a></li>`).join(``):`<li class="search-empty">没有找到相关文章</li>`},d;i.addEventListener(`input`,()=>{clearTimeout(d),d=window.setTimeout(async()=>{let e=i.value.trim();if(!e){a.innerHTML=``;return}let n=await t();if(!n){a.innerHTML=`<li class="search-empty">搜索索引尚未生成（需要先 build）</li>`;return}let r=await n.search(e);u(await Promise.all(r.results.slice(0,8).map(e=>e.data())))},120)},{signal:e}),i.addEventListener(`keydown`,e=>{let t=[...a.querySelectorAll(`li`)].filter(e=>!e.classList.contains(`search-empty`));t.length&&(e.key===`ArrowDown`||e.key===`ArrowUp`?(e.preventDefault(),t[o]?.classList.remove(`active`),o=(o+(e.key===`ArrowDown`?1:t.length-1))%t.length,t[o]?.classList.add(`active`),t[o]?.scrollIntoView({block:`nearest`})):e.key===`Enter`&&t[o]?.querySelector(`a`)?.click())},{signal:e})});</script><svg width="0" height="0" aria-hidden="true" style="position:absolute"><defs><path id="mj0" d="M228 637Q194 637 192 641Q191 643 191 649Q191 673 202 682Q204 683 219 683Q260 681 355 681Q389 681 418 681T463 682T483 682Q499 682 499 672Q499 670 497 658Q492 641 487 638H485Q483 638 480 638T473 638T464 637T455 637Q416 636 405 634T387 623Q384 619 355 500Q348 474 340 442T328 395L324 380Q324 378 469 378H614L615 381Q615 384 646 504Q674 619 674 627T617 637Q594 637 587 639T580 648Q580 650 582 660Q586 677 588 679T604 682Q609 682 646 681T740 680Q802 680 835 681T871 682Q888 682 888 672Q888 645 876 638H874Q872 638 869 638T862 638T853 637T844 637Q805 636 794 634T776 623Q773 618 704 340T634 58Q634 51 638 51Q646 48 692 46H723Q729 38 729 37T726 19Q722 6 716 0H701Q664 2 567 2Q533 2 504 2T458 2T437 1Q420 1 420 10Q420 15 423 24Q428 43 433 45Q437 46 448 46H454Q481 46 514 49Q520 50 522 50T528 55T534 64T540 82T547 110T558 153Q565 181 569 198Q602 330 602 331T457 332H312L279 197Q245 63 245 58Q245 51 253 49T303 46H334Q340 38 340 37T337 19Q333 6 327 0H312Q275 2 178 2Q144 2 115 2T69 2T48 1Q31 1 31 10Q31 12 34 24Q39 43 44 45Q48 46 59 46H65Q92 46 125 49Q139 52 144 61Q147 65 216 339T285 628Q285 635 228 637Z"></path><path id="mj1" d="M109 429Q82 429 66 447T50 491Q50 562 103 614T235 666Q326 666 387 610T449 465Q449 422 429 383T381 315T301 241Q265 210 201 149L142 93L218 92Q375 92 385 97Q392 99 409 186V189H449V186Q448 183 436 95T421 3V0H50V19V31Q50 38 56 46T86 81Q115 113 136 137Q145 147 170 174T204 211T233 244T261 278T284 308T305 340T320 369T333 401T340 431T343 464Q343 527 309 573T212 619Q179 619 154 602T119 569T109 550Q109 549 114 549Q132 549 151 535T170 489Q170 464 154 447T109 429Z"></path><path id="mj2" d="M96 585Q152 666 249 666Q297 666 345 640T423 548Q460 465 460 320Q460 165 417 83Q397 41 362 16T301 -15T250 -22Q224 -22 198 -16T137 16T82 83Q39 165 39 320Q39 494 96 585ZM321 597Q291 629 250 629Q208 629 178 597Q153 571 145 525T137 333Q137 175 145 125T181 46Q209 16 250 16Q290 16 318 46Q347 76 354 130T362 333Q362 478 354 524T321 597Z"></path><path id="mj3" d="M42 0H40Q26 0 26 11Q26 15 29 27Q33 41 36 43T55 46Q141 49 190 98Q200 108 306 224T411 342Q302 620 297 625Q288 636 234 637H206Q200 643 200 645T202 664Q206 677 212 683H226Q260 681 347 681Q380 681 408 681T453 682T473 682Q490 682 490 671Q490 670 488 658Q484 643 481 640T465 637Q434 634 411 620L488 426L541 485Q646 598 646 610Q646 628 622 635Q617 635 609 637Q594 637 594 648Q594 650 596 664Q600 677 606 683H618Q619 683 643 683T697 681T738 680Q828 680 837 683H845Q852 676 852 672Q850 647 840 637H824Q790 636 763 628T722 611T698 593L687 584Q687 585 592 480L505 384Q505 383 536 304T601 142T638 56Q648 47 699 46Q734 46 734 37Q734 35 732 23Q728 7 725 4T711 1Q708 1 678 1T589 2Q528 2 496 2T461 1Q444 1 444 10Q444 11 446 25Q448 35 450 39T455 44T464 46T480 47T506 54Q523 62 523 64Q522 64 476 181L429 299Q241 95 236 84Q232 76 232 72Q232 53 261 47Q262 47 267 47T273 46Q276 46 277 46T280 45T283 42T284 35Q284 26 282 19Q279 6 276 4T261 1Q258 1 243 1T201 2T142 2Q64 2 42 0Z"></path><path id="mj4" d="M117 59Q117 26 142 26Q179 26 205 131Q211 151 215 152Q217 153 225 153H229Q238 153 241 153T246 151T248 144Q247 138 245 128T234 90T214 43T183 6T137 -11Q101 -11 70 11T38 85Q38 97 39 102L104 360Q167 615 167 623Q167 626 166 628T162 632T157 634T149 635T141 636T132 637T122 637Q112 637 109 637T101 638T95 641T94 647Q94 649 96 661Q101 680 107 682T179 688Q194 689 213 690T243 693T254 694Q266 694 266 686Q266 675 193 386T118 83Q118 81 118 75T117 65V59Z"></path><path id="mj5" d="M56 237T56 250T70 270H369V420L370 570Q380 583 389 583Q402 583 409 568V270H707Q722 262 722 250T707 230H409V-68Q401 -82 391 -82H389H387Q375 -82 369 -68V230H70Q56 237 56 250Z"></path><path id="mj6" d="M213 578L200 573Q186 568 160 563T102 556H83V602H102Q149 604 189 617T245 641T273 663Q275 666 285 666Q294 666 302 660V361L303 61Q310 54 315 52T339 48T401 46H427V0H416Q395 3 257 3Q121 3 100 0H88V46H114Q136 46 152 46T177 47T193 50T201 52T207 57T213 61V578Z"></path><path id="mj7" d="M208 74Q208 50 254 46Q272 46 272 35Q272 34 270 22Q267 8 264 4T251 0Q249 0 239 0T205 1T141 2Q70 2 50 0H42Q35 7 35 11Q37 38 48 46H62Q132 49 164 96Q170 102 345 401T523 704Q530 716 547 716H555H572Q578 707 578 706L606 383Q634 60 636 57Q641 46 701 46Q726 46 726 36Q726 34 723 22Q720 7 718 4T704 0Q701 0 690 0T651 1T578 2Q484 2 455 0H443Q437 6 437 9T439 27Q443 40 445 43L449 46H469Q523 49 533 63L521 213H283L249 155Q208 86 208 74ZM516 260Q516 271 504 416T490 562L463 519Q447 492 400 412L310 260L413 259Q516 259 516 260Z"></path><path id="mj8" d="M84 237T84 250T98 270H679Q694 262 694 250T679 230H98Q84 237 84 250Z"></path></defs></svg></body></html><script type="module">var e;document.addEventListener(`astro:page-load`,()=>{e?.abort(),e=new AbortController;let{signal:t}=e,n=document.querySelector(`[data-progress]`),r=document.querySelector(`[data-article]`);if(n&&r){let e=()=>{let e=r.offsetTop+r.offsetHeight-innerHeight,t=e<=0?1:Math.min(Math.max(scrollY/e,0),1);n.style.width=`${t*100}%`};e(),addEventListener(`scroll`,e,{passive:!0,signal:t}),addEventListener(`resize`,e,{signal:t})}let i=e=>`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${e}</svg>`,a=i(`<circle cx="11" cy="11" r="7"/><path d="M20 20l-3.6-3.6M11 8v6M8 11h6"/>`),o=i(`<path d="M6 6l12 12M18 6L6 18"/>`),s=null,c=()=>{s?.remove(),s=null},l=(e,t)=>{s=document.createElement(`div`),s.className=`fig-lightbox`;let n=e.cloneNode(!0),r=n.querySelector(`svg, img`),i=r?.getAttribute(`viewBox`)?.split(/[\s,]+/).map(Number),a=i&&i.length===4?{w:i[2],h:i[3]}:r instanceof HTMLImageElement&&r.naturalHeight?{w:r.naturalWidth,h:r.naturalHeight}:null,l=a?Math.min(innerWidth*.94,innerHeight*.88*(a.w/a.h)):0,u=l>=a?.w;a&&(n.style.width=`${u?l:a.w*1.2}px`),n.style.background=`var(--bg-2)`;let d=document.createElement(`div`);d.className=`fig-scroll`,d.appendChild(n);let f=document.createElement(`button`);f.type=`button`,f.className=`fig-close`,f.setAttribute(`aria-label`,`关闭`),f.innerHTML=o,s.append(d,f),s.addEventListener(`click`,e=>{e.target===s&&c()}),f.addEventListener(`click`,c),document.body.appendChild(s);let p=(d.clientHeight-2)/n.getBoundingClientRect().height;u&&p<1&&(n.style.width=`${Math.floor(n.getBoundingClientRect().width*p)}px`),f.focus(),s.addEventListener(`keydown`,e=>{e.key===`Escape`&&(c(),t.focus())})};document.querySelectorAll(`.prose figure`).forEach(e=>{if(!e.querySelector(`svg, img`))return;let n=document.createElement(`button`);n.type=`button`,n.className=`fig-zoom`,n.setAttribute(`aria-label`,`放大这张图`),n.innerHTML=a,n.addEventListener(`click`,()=>l(e,n),{signal:t}),e.appendChild(n)}),addEventListener(`keydown`,e=>{e.key===`Escape`&&c()},{signal:t}),document.querySelectorAll(`[data-copy]`).forEach(e=>{e.addEventListener(`click`,async()=>{let t=e.closest(`.code-block`)?.querySelector(`code`),n=e.querySelector(`[data-copy-label]`);if(t){try{await navigator.clipboard.writeText(t.textContent??``),e.classList.add(`copied`),n&&(n.textContent=`已复制`)}catch{n&&(n.textContent=`失败`)}setTimeout(()=>{e.classList.remove(`copied`),n&&(n.textContent=`复制`)},1600)}})})});</script>
