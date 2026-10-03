@@ -89,7 +89,7 @@ const portY = (i: number) => rowY(i) + 9;          // 模块框右边通向共�
 const VB_H = rowY(9) + BOX_H + 28;
 
 // 有链接的组包一层 <a>，没有的包一层 <g>
-const wrap = (g: Group, f: (T: string, h: string | null) => any) => f(href(g) ? 'a' : 'g', href(g));
+const wrap = (g: Group, f: (T: any, h: string | null) => any) => f(href(g) ? 'a' : 'g', href(g));
 ---
 
 <figure class:list={['v41d', { dimming }]} data-highlight={[...hl].join(' ')}>
