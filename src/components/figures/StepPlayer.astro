@@ -4,7 +4,8 @@
  * 用法：把场景 SVG 放在默认 slot 里，场景里要受控的元素加 `data-el="<id>"`；
  * `steps[i].state` 写每个 id 在这一步的状态：on（正常）/ dim（淡化）/ hide（隐藏），没写的 id 沿用 `base`，
  * `base` 没写的默认 on。`steps[i].title` 是步骤按钮上的字，`caption` 是这一步的字幕，`facts` 是右上角的计数。
- * 传 `step` 则固定在那一帧、不显示控件，正文里当静态图用。
+ * 场景可以拆成几张并排的 SVG，各包一层 `<div class="sp-panel" data-el="...">`：宽屏并排，窄屏上下排列，
+ * 且窄屏只显示这一步状态为 on 的面板。传 `step` 则固定在那一帧、不显示控件，正文里当静态图用。
  * 自动播放每帧 `interval` 毫秒；`prefers-reduced-motion` 时没有过渡。
  */
 import { texMix } from './tex';
@@ -49,7 +50,9 @@ const init = full[cur];
 <style is:global>
   .stepplayer { outline: none; margin: 2rem 0; padding: 1rem 1rem 0.8rem; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); }
   .stepplayer .scene { position: relative; }
-  .stepplayer .scene > svg { display: block; width: 100%; height: auto; font-family: var(--font-sans); }
+  .stepplayer .scene svg { display: block; width: 100%; height: auto; font-family: var(--font-sans); }
+  .stepplayer .sp-panels { display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: flex-start; }
+  .stepplayer .sp-panel { flex: 1 1 300px; min-width: 0; }
   .stepplayer [data-el] { transition: opacity 0.5s ease, transform 0.5s ease; }
   .stepplayer [data-el].is-dim { opacity: 0.22; }
   .stepplayer [data-el].is-hide { opacity: 0; pointer-events: none; }
@@ -71,6 +74,7 @@ const init = full[cur];
   .stepplayer figcaption { margin-top: 0.6rem; font-size: 0.88rem; color: var(--text-2); text-align: center; line-height: 1.6; }
   @media (prefers-reduced-motion: reduce) { .stepplayer [data-el] { transition: none; } }
   @media (max-width: 640px) { .stepplayer .steps button .t { display: none; } }
+  @media (max-width: 700px) { .stepplayer .sp-panel.is-hide, .stepplayer .sp-panel.is-dim { display: none; } }
 </style>
 
 <script>

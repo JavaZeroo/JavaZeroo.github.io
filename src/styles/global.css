@@ -505,6 +505,15 @@ main { flex: 1; }
 
 /* Mermaid: two build-time renders, toggled with the site theme. */
 
+/* ---- figures on phones ----
+   Below 640px the diagrams drop their min-width and shrink to the column, so the
+   reader sees the whole figure instead of panning a strip of it; the zoom button
+   (always visible on touch screens) is the way to read the labels. */
+@media (max-width: 640px) {
+  .prose figure svg { min-width: 0 !important; }
+  .prose figure { overflow-x: hidden; }
+}
+
 /* ---- figures: zoom ----
    The diagrams are drawn on a ~1000-unit viewBox, so even a full-width column
    renders them at roughly 1:1 and their 11-12px labels stay small. The button
