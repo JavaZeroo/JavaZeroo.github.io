@@ -19,6 +19,10 @@ description: 博客配图与 Astro 图组件的约定与坑。新建或修改 sr
 
 每个系列一张主架构图（`k3/K3ArchDiagram.astro`、`v4/V4ArchDiagram.astro`），接受 `highlight` 与 `caption`，方块可点击跳文章，`LINKS` 表里为 `null` 的是还没写的篇。新系列照此建一张，每篇开头复用并高亮本篇模块。
 
+## 分步演进动画
+
+文章开头「一步一改」的引入动画用 `figures/StepPlayer`，写法、帧的设计和截图脚本在 skill `post-step-player`。
+
 ## 交互 demo
 
 - 用 innerHTML 动态生成 SVG 的组件必须写 `<style is:global>`：Astro 作用域样式不会匹配动态插入的节点，症状是黑色默认填充。参考 `k3/PpTimeline.astro`、`v4/CsaCell.astro`。
@@ -28,7 +32,7 @@ description: 博客配图与 Astro 图组件的约定与坑。新建或修改 sr
 
 - `.astro` 的 SVG `<text>` 里 `{...}`（如 `S_{t-1}`）会被当 JSX 解析，包成字符串表达式 `{'S_{t-1}'}`。
 - 模板属性里的 LaTeX 用单反斜杠 `$\Psi$`；双反斜杠会原样进 KaTeX。
-- 每张图给 `label`（aria）和 `caption`；`viewBox` 配 `minWidth`，窄屏横向滚动而不是缩成看不清。
+- 每张图给 `label`（aria）和 `caption`；`viewBox` 配 `minWidth`。640px 以下全站样式会去掉最小宽度、把图缩到屏宽，读者靠右上角的放大按钮看细节；想在手机上直接可读，就把图拆成几张竖排的面板（见 skill `post-step-player`）。
 - 组件文件顶部一段注释写这张图表达什么机制、每个 prop 干什么。
 
 ## 验证

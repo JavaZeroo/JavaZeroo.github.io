@@ -10,7 +10,7 @@ Astro 静态博客，中文技术文章为主。站点怎么跑、front-matter �
 
 ## 写文章
 
-- 长文写作规范（推导深度、段落骨架、通用与模型特有的边界）在 skill `post-style`；画图与 Astro 组件约定在 skill `post-figures`。动笔前先读。
+- 长文写作规范（推导深度、段落骨架、通用与模型特有的边界）在 skill `post-style`；画图与 Astro 组件约定在 skill `post-figures`，文章开头的分步演进动画在 skill `post-step-player`。动笔前先读。
 - 流程：`/research-topic` 精读一手资料写 `drafts/<专栏>/refs/<主题>.md` → `/new-post` 规划并写正文 → `/review-post` 按清单审。
 - 每个连载在 `drafts/<系列>/` 下有 `PLAN.md`（大纲、每篇要点、图清单）和 `refs/`（论文摘录、config、代码）。续写系列先读 PLAN 再读对应 refs，PLAN 是后续各篇的依据。
 - 系列图组件放 `src/components/<系列缩写>/`（k3、v4、llm），共用图元在 `src/components/figures/`。
