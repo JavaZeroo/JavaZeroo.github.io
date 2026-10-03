@@ -1,0 +1,113 @@
+---
+/**
+ * 分步播放器：把一张 SVG 场景按「步骤」逐帧显示，每一步只改一处。
+ * 用法：把场景 SVG 放在默认 slot 里，场景里要受控的元素加 `data-el="<id>"`；
+ * `steps[i].state` 写每个 id 在这一步的状态：on（正常）/ dim（淡化）/ hide（隐藏），没写的 id 沿用 `base`，
+ * `base` 没写的默认 on。`steps[i].title` 是步骤按钮上的字，`caption` 是这一步的字幕，`facts` 是右上角的计数。
+ * 传 `step` 则固定在那一帧、不显示控件，正文里当静态图用。
+ * 自动播放每帧 `interval` 毫秒；`prefers-reduced-motion` 时没有过渡。
+ */
+import { texMix } from './tex';
+export type ElState = 'on' | 'dim' | 'hide';
+export interface Step { title: string; caption: string; facts?: string[]; state: Record<string, ElState> }
+interface Props {
+  id: string; label: string; steps: Step[];
+  base?: Record<string, ElState>;
+  step?: number; interval?: number; caption?: string;
+}
+const { id, label, steps, base = {}, step, interval = 3000, caption } = Astro.props;
+const fixed = typeof step === 'number';
+const cur = fixed ? step : 0;
+// 每一步的完整状态表（含 base），序列化给脚本
+// 字幕和计数里的 $...$ 在构建期用 KaTeX 渲染好，脚本只负责切换
+const full = steps.map((s) => ({ title: s.title, caption: texMix(s.caption), facts: (s.facts || []).map(texMix), state: { ...base, ...s.state } }));
+const init = full[cur];
+---
+
+<figure class:list={['stepplayer', { fixed }]} data-stepplayer={id} data-step={cur} data-interval={interval} role="group" aria-label={label}>
+  <div class="scene">
+    <slot />
+  </div>
+  <ul class="facts" data-facts hidden={init.facts.length === 0}>
+    {init.facts.map((f) => <li set:html={f} />)}
+  </ul>
+  <p class="cap"><b data-title>{init.title}</b><span data-cap set:html={init.caption} /></p>
+  {!fixed && (
+    <div class="ctl">
+      <button type="button" class="play" data-play aria-label="自动播放">▶ 播放</button>
+      <button type="button" data-prev aria-label="上一步">‹</button>
+      <ol class="steps" data-steps>
+        {full.map((s, i) => <li><button type="button" data-goto={i} class:list={{ cur: i === cur }}><span class="n">{i}</span><span class="t">{s.title}</span></button></li>)}
+      </ol>
+      <button type="button" data-next aria-label="下一步">›</button>
+    </div>
+  )}
+  {caption && <figcaption set:html={texMix(caption)} />}
+  <script type="application/json" data-script-steps set:html={JSON.stringify(full)} />
+</figure>
+
+<style is:global>
+  .stepplayer { outline: none; margin: 2rem 0; padding: 1rem 1rem 0.8rem; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); }
+  .stepplayer .scene { position: relative; }
+  .stepplayer .scene > svg { display: block; width: 100%; height: auto; font-family: var(--font-sans); }
+  .stepplayer [data-el] { transition: opacity 0.5s ease, transform 0.5s ease; }
+  .stepplayer [data-el].is-dim { opacity: 0.22; }
+  .stepplayer [data-el].is-hide { opacity: 0; pointer-events: none; }
+  .stepplayer .facts { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.5rem 0 0; padding: 0; list-style: none; font-size: 0.82rem; color: var(--text-2); }
+  .stepplayer .facts li { padding: 0.15rem 0.6rem; border: 1px solid var(--border); border-radius: 999px; background: var(--bg-2); }
+  .stepplayer .facts b { color: var(--text); font-variant-numeric: tabular-nums; }
+  .stepplayer .cap { margin: 0.7rem 0 0; font-size: 0.92rem; line-height: 1.7; color: var(--text-2); min-height: 3.2em; }
+  .stepplayer .cap b { color: var(--text); margin-right: 0.6em; }
+  .stepplayer .ctl { display: flex; align-items: center; gap: 0.4rem; margin-top: 0.6rem; flex-wrap: wrap; }
+  .stepplayer .ctl button { font: inherit; font-size: 0.82rem; color: var(--text-2); background: var(--bg-2); border: 1px solid var(--border); border-radius: 6px; padding: 0.25rem 0.55rem; cursor: pointer; }
+  .stepplayer .ctl button:hover { color: var(--text); border-color: var(--border-2); }
+  .stepplayer .ctl .play { min-width: 4.6em; }
+  .stepplayer .ctl .play.on { color: var(--accent); border-color: var(--accent); }
+  .stepplayer .steps { display: flex; flex-wrap: wrap; gap: 0.3rem; margin: 0; padding: 0; list-style: none; flex: 1; }
+  .stepplayer .steps button { display: inline-flex; align-items: center; gap: 0.35em; }
+  .stepplayer .steps button .n { display: inline-block; width: 1.4em; height: 1.4em; line-height: 1.4em; text-align: center; border-radius: 50%; background: var(--border); color: var(--text); font-size: 0.75rem; font-weight: 600; }
+  .stepplayer .steps button.cur { color: var(--text); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--bg-2)); }
+  .stepplayer .steps button.cur .n { background: var(--accent); color: #fff; }
+  .stepplayer figcaption { margin-top: 0.6rem; font-size: 0.88rem; color: var(--text-2); text-align: center; line-height: 1.6; }
+  @media (prefers-reduced-motion: reduce) { .stepplayer [data-el] { transition: none; } }
+  @media (max-width: 640px) { .stepplayer .steps button .t { display: none; } }
+</style>
+
+<script>
+  type ElState = 'on' | 'dim' | 'hide';
+  interface Step { title: string; caption: string; facts?: string[]; state: Record<string, ElState> }
+  const init = () => document.querySelectorAll<HTMLElement>('[data-stepplayer]').forEach((root) => {
+    if (root.dataset.ready || root.classList.contains('fixed')) { if (!root.dataset.ready) { root.dataset.ready = '1'; apply(root, 0); } return; }
+    root.dataset.ready = '1';
+    let cur = Number(root.dataset.step || 0), timer: number | null = null;
+    const steps = JSON.parse(root.querySelector('[data-script-steps]')!.textContent || '[]') as Step[];
+    const play = root.querySelector<HTMLButtonElement>('[data-play]')!;
+    const go = (i: number) => { cur = (i + steps.length) % steps.length; apply(root, cur); root.focus({ preventScroll: true }); };
+    const stop = () => { if (timer !== null) { clearInterval(timer); timer = null; } play.classList.remove('on'); play.textContent = '▶ 播放'; };
+    const start = () => { stop(); play.classList.add('on'); play.textContent = '❚❚ 暂停'; timer = window.setInterval(() => { if (cur === steps.length - 1) stop(); else go(cur + 1); }, Number(root.dataset.interval) || 3000); };
+    play.addEventListener('click', () => (timer === null ? (cur === steps.length - 1 && go(0), start()) : stop()));
+    root.querySelector('[data-prev]')!.addEventListener('click', () => { stop(); go(cur - 1); });
+    root.querySelector('[data-next]')!.addEventListener('click', () => { stop(); go(cur + 1); });
+    root.querySelectorAll<HTMLButtonElement>('[data-goto]').forEach((b) => b.addEventListener('click', () => { stop(); go(Number(b.dataset.goto)); }));
+    root.tabIndex = 0;
+    root.addEventListener('keydown', (e) => { if (e.key === 'ArrowRight') { stop(); go(cur + 1); e.preventDefault(); } if (e.key === 'ArrowLeft') { stop(); go(cur - 1); e.preventDefault(); } });
+    apply(root, cur);
+  });
+  function apply(root: HTMLElement, i: number) {
+    const steps = JSON.parse(root.querySelector('[data-script-steps]')!.textContent || '[]') as Step[];
+    const s = steps[i];
+    root.dataset.step = String(i);
+    root.querySelectorAll<HTMLElement>('[data-el]').forEach((el) => {
+      const st = s.state[el.dataset.el!] ?? 'on';
+      el.classList.toggle('is-dim', st === 'dim');
+      el.classList.toggle('is-hide', st === 'hide');
+    });
+    const t = root.querySelector('[data-title]'); if (t) t.textContent = s.title;
+    const c = root.querySelector('[data-cap]'); if (c) c.innerHTML = s.caption;
+    const f = root.querySelector<HTMLElement>('[data-facts]');
+    if (f) { f.innerHTML = (s.facts || []).map((x) => `<li>${x}</li>`).join(''); f.hidden = !(s.facts && s.facts.length); }
+    root.querySelectorAll<HTMLButtonElement>('[data-goto]').forEach((b) => b.classList.toggle('cur', Number(b.dataset.goto) === i));
+  }
+  document.addEventListener('astro:page-load', init);
+  if (document.readyState !== 'loading') init(); else document.addEventListener('DOMContentLoaded', init);
+</script>

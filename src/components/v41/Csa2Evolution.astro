@@ -1,0 +1,154 @@
+---
+/**
+ * CSA2 怎么从 V4 的 CSA 一步步变过来，配 figures/StepPlayer 用的场景。
+ * 左栏是 encoder 的一组 6 层（第 2–7 层），右栏是 decoder 的前 8 层（第 20–27 层）。
+ * 每层四个块：main KV、indexer K、打分（选 top-512）、注意力。受控元素都带 data-el，状态表在 steps 里。
+ * 传 `step` 固定在某一帧，正文里当静态图用。
+ */
+import StepPlayer from '../figures/StepPlayer.astro';
+import type { Step, ElState } from '../figures/StepPlayer.astro';
+interface Props { step?: number; caption?: string }
+const { step, caption } = Astro.props;
+
+const CH = 34;
+const chips = [
+  { k: 'kv', t: 'main KV' }, { k: 'ik', t: 'indexer K' }, { k: 'sc', t: '打分，选 512 条' }, { k: 'at', t: '注意力' },
+];
+// 左栏（encoder）
+const EX = [100, 196, 292, 388], EW = 88, EY = (i: number) => 64 + i * 52;
+const encRows = [2, 3, 4, 5, 6, 7];
+// 右栏（decoder）
+const DX = [586, 678, 770, 890], DW = 84, DY = (j: number) => 64 + j * 44;
+const decRows = [20, 21, 22, 23, 24, 25, 26, 27];
+const decMode = (l: number) => (l === 20 ? 'Full' : l === 24 ? 'Reindex' : 'Reuse');
+
+// 一条「总线」：从源层的块出发，向下给后面的层各送一个箭头
+const bus = (xs: number[], w: number, y: (i: number) => number, col: number, from: number, to: number[], xBus: number, h: number) => {
+  const cx = xs[col] + w / 2, y0 = y(from) + h, yMid = y0 + 6;
+  const last = y(to[to.length - 1]) + h / 2;
+  const trunk = `M${cx} ${y0} V ${yMid} H ${xBus} V ${last}`;
+  return { trunk, arrows: to.map((i) => `M${xBus} ${y(i) + h / 2} H ${xs[col] - 3}`) };
+};
+const encKv = bus(EX, EW, EY, 0, 0, [1, 2, 3, 4, 5], 92, CH);
+const encIk = bus(EX, EW, EY, 1, 0, [1, 2, 3, 4, 5], 188, CH);
+const encSc = bus(EX, EW, EY, 2, 0, [1, 2, 3, 4, 5], 284, CH);
+const decKv = bus(DX, DW, DY, 0, 0, [1, 2, 3, 4, 5, 6, 7], 578, 30);
+const decIk = bus(DX, DW, DY, 1, 0, [1, 2, 3, 4, 5, 6, 7], 670, 30);
+const decSc0 = bus(DX, DW, DY, 2, 0, [1, 2, 3], 762, 30);
+const decSc4 = bus(DX, DW, DY, 2, 4, [5, 6, 7], 762, 30);
+// 候选池：第 20 层的打分 → 第 24 层的打分，走打分列右侧
+const poolPath = `M${DX[2] + DW} ${DY(0) + 15} H 872 V ${DY(4) + 15} H ${DX[2] + DW + 3}`;
+
+const encDim = (k: string, rows = [1, 2, 3, 4, 5]) => Object.fromEntries(rows.map((i) => [`e${i}-${k}`, 'dim' as ElState]));
+const decDim = (k: string, rows: number[]) => Object.fromEntries(rows.map((j) => [`d${j}-${k}`, 'dim' as ElState]));
+const allOf = (prefix: string, rows: number[], st: ElState) =>
+  Object.fromEntries(rows.flatMap((i) => ['kv', 'ik', 'sc', 'at', 'lab'].map((k) => [`${prefix}${i}-${k}`, st])));
+const hideDec: Record<string, ElState> = { ...allOf('d', [0, 1, 2, 3, 4, 5, 6, 7], 'hide'), 'dec-title': 'hide', 'dec-bus-kv': 'hide', 'dec-bus-ik': 'hide', 'dec-bus-sc0': 'hide', 'dec-bus-sc4': 'hide', 'dec-pool': 'hide', 'dec-tags': 'hide', 'dec-more': 'hide' };
+// decoder 栏整体显示，再把共用的块淡化
+const showDec: Record<string, ElState> = { ...allOf('d', [0, 1, 2, 3, 4, 5, 6, 7], 'on'), 'dec-title': 'on', 'dec-bus-kv': 'on', 'dec-bus-ik': 'on', 'dec-bus-sc0': 'on', 'dec-bus-sc4': 'on', 'dec-tags': 'on', 'dec-more': 'on' };
+const decShared: Record<string, ElState> = { ...showDec, ...decDim('kv', [1, 2, 3, 4, 5, 6, 7]), ...decDim('ik', [1, 2, 3, 4, 5, 6, 7]), ...decDim('sc', [1, 2, 3, 5, 6, 7]) };
+
+const base: Record<string, ElState> = { 'enc-bus-kv': 'hide', 'enc-bus-ik': 'hide', 'enc-bus-sc': 'hide', 'enc-tags': 'hide', ...hideDec };
+const steps: Step[] = [
+  { title: 'V4 的做法：每层各做一遍', caption: '一组 6 层，每层自己生成 main KV 和 indexer K，自己打分选 512 条，再做注意力。V4-Flash 带全局注意力的 41 层各存一份。',
+    facts: ['全局 KV：每层各一份', 'V4-Flash：5.41 条 / token'], state: {} },
+  { title: '共用 main KV', caption: '这 6 层看的是同一段上下文。main KV 只由组里第一层生成，其余 5 层读它。存储先省下来。',
+    facts: ['main KV：6 份 → 1 份'], state: { ...encDim('kv'), 'enc-bus-kv': 'on' } },
+  { title: 'indexer K 跟着共用', caption: 'indexer K 由 main KV 投影得到（512 维 → 128 维）。main KV 共用了，它自然也只有一份。',
+    facts: ['main KV：6 份 → 1 份', '每条 288 + 68 = 356 B'], state: { ...encDim('kv'), ...encDim('ik'), 'enc-bus-kv': 'on', 'enc-bus-ik': 'on' } },
+  { title: 'Reuse：选出的 512 条也共用', caption: '相邻层选中的条目高度相似（IndexCache 的实验）。其余 5 层直接用第一层选出的 512 条，不跑 indexer，这就是 Reuse 模式。注意力权重仍由每层自己的 query 算。',
+    facts: ['indexer：6 次 → 1 次', 'encoder：3 组各 1 份，1.5 条 / token'], state: { ...encDim('kv'), ...encDim('ik'), ...encDim('sc'), 'enc-bus-kv': 'on', 'enc-bus-ik': 'on', 'enc-bus-sc': 'on', 'enc-tags': 'on' } },
+  { title: 'decoder：一份 KV，每 4 层重选一次', caption: 'decoder 的 20 层共用第 20 层那一份 KV（由 encoder 末态投影，CED）。20 层只选一次 512 条太少，第 24、28、32、36 层用自己的 indexer query 重选一次，不生成新 KV，这是 Reindex 模式。',
+    facts: ['decoder：1 份，1 条 / token', '合计 2.5 条 / token'],
+    state: { ...allOf('e', [0, 1, 2, 3, 4, 5], 'dim'), 'enc-title': 'dim', 'enc-tags': 'dim', ...decShared, 'dec-pool': 'hide' } },
+  { title: '候选池：Reindex 只在 16384 个位置里打分', caption: 'Reindex 层仍要给全部可见的条目打分，1M 上下文就是 100 万条。第 20 层打分时顺便留下 2048 块 × 8 = 16384 个高分位置作为候选池，后面的 Reindex 层只在池内打分。',
+    facts: ['Reindex 的打分：1M → 16384 条'],
+    state: { ...allOf('e', [0, 1, 2, 3, 4, 5], 'dim'), 'enc-title': 'dim', 'enc-tags': 'dim', ...decShared, 'dec-pool': 'on' } },
+  { title: '合起来：890 B / token', caption: '40 层里 4 个 Full、4 个 Reindex、30 个 Reuse。每 token 2.5 条全局 KV，每条 356 B（FP4），共 890 B。V4-Flash 是 3514 B。',
+    facts: ['3514 B → 890 B / token'],
+    state: { ...encDim('kv'), ...encDim('ik'), ...encDim('sc'), 'enc-bus-kv': 'on', 'enc-bus-ik': 'on', 'enc-bus-sc': 'on', 'enc-tags': 'on', ...decShared, 'dec-pool': 'on' } },
+];
+---
+
+<StepPlayer id="csa2-evo" label="CSA2 从 V4 的 CSA 演进而来的七步" steps={steps} base={base} step={step} caption={caption}>
+  <svg viewBox="0 0 1000 440" class="csa2evo">
+    <defs>
+      <marker id="csa2evo-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" /></marker>
+    </defs>
+    <!-- 左栏：encoder 的一组 -->
+    <text class="ttl" x="30" y="34" data-el="enc-title">encoder 的一组：第 2 – 7 层（共 3 组）</text>
+    {encRows.map((l, i) => (
+      <g>
+        <g data-el={`e${i}-lab`}>
+          <text class="lab" x="30" y={EY(i) + 15}>第 {l} 层</text>
+          <text class:list={['tag', i === 0 ? 'full' : 'reuse']} x="30" y={EY(i) + 29} data-el="enc-tags">{i === 0 ? 'Full' : 'Reuse'}</text>
+        </g>
+        {chips.map((c, k) => (
+          <g class:list={['chip', c.k]} data-el={`e${i}-${c.k}`}>
+            <rect x={EX[k]} y={EY(i)} width={EW} height={CH} rx="7" />
+            <text x={EX[k] + EW / 2} y={EY(i) + CH / 2 + 4} text-anchor="middle">{c.t}</text>
+          </g>
+        ))}
+      </g>
+    ))}
+    {[['enc-bus-kv', encKv, 'kv'], ['enc-bus-ik', encIk, 'ik'], ['enc-bus-sc', encSc, 'sc']].map(([id, b, k]) => (
+      <g class:list={['bus', k as string]} data-el={id as string}>
+        <path class="trunk" d={(b as typeof encKv).trunk} />
+        {(b as typeof encKv).arrows.map((d) => <path class="arr" d={d} marker-end="url(#csa2evo-arrow)" />)}
+      </g>
+    ))}
+
+    <!-- 右栏：decoder -->
+    <text class="ttl" x="530" y="34" data-el="dec-title">decoder：第 20 – 39 层（画前 8 层）</text>
+    {decRows.map((l, j) => (
+      <g>
+        <g data-el={`d${j}-lab`}>
+          <text class="lab" x="528" y={DY(j) + 13}>第 {l} 层</text>
+          <text class:list={['tag', decMode(l).toLowerCase()]} x="528" y={DY(j) + 26} data-el="dec-tags">{decMode(l)}</text>
+        </g>
+        {chips.map((c, k) => (
+          <g class:list={['chip', c.k]} data-el={`d${j}-${c.k}`}>
+            <rect x={DX[k]} y={DY(j)} width={DW} height="30" rx="6" />
+            <text x={DX[k] + DW / 2} y={DY(j) + 19} text-anchor="middle">{c.t}</text>
+          </g>
+        ))}
+      </g>
+    ))}
+    <text class="note" x="528" y={DY(8) + 8} data-el="dec-more">… 第 28、32、36 层是 Reindex，其余是 Reuse，到第 39 层</text>
+    {[['dec-bus-kv', decKv, 'kv'], ['dec-bus-ik', decIk, 'ik'], ['dec-bus-sc0', decSc0, 'sc'], ['dec-bus-sc4', decSc4, 'sc']].map(([id, b, k]) => (
+      <g class:list={['bus', k as string]} data-el={id as string}>
+        <path class="trunk" d={(b as typeof decKv).trunk} />
+        {(b as typeof decKv).arrows.map((d) => <path class="arr" d={d} marker-end="url(#csa2evo-arrow)" />)}
+      </g>
+    ))}
+    <g class="bus pool" data-el="dec-pool">
+      <path class="trunk" d={poolPath} marker-end="url(#csa2evo-arrow)" />
+      <text class="note pool" x="884" y={DY(2) + 22} text-anchor="middle" transform={`rotate(-90 884 ${DY(2) + 22})`}>候选池 → 第 24 层</text>
+    </g>
+  </svg>
+</StepPlayer>
+
+<style>
+  .csa2evo { min-width: 760px; }
+  .ttl { fill: var(--text); font-size: 13px; font-weight: 600; }
+  .lab { fill: var(--text-2); font-size: 11.5px; }
+  .tag { font-size: 10px; font-weight: 600; }
+  .tag.full { fill: var(--cat-indigo); }
+  .tag.reindex { fill: var(--cat-amber); }
+  .tag.reuse { fill: var(--cat-cyan); }
+  .note { fill: var(--muted); font-size: 10.5px; }
+  .note.pool { fill: var(--cat-rose); font-weight: 600; }
+  .chip rect { fill: color-mix(in srgb, var(--c) 18%, var(--bg-2)); stroke: var(--c); stroke-width: 1.4; }
+  .chip text { fill: var(--text); font-size: 11px; }
+  .chip.kv { --c: var(--cat-cyan); }
+  .chip.ik { --c: var(--cat-rose); }
+  .chip.sc { --c: var(--cat-amber); }
+  .chip.at { --c: var(--cat-indigo); }
+  .bus .trunk, .bus .arr { fill: none; stroke: var(--c); stroke-width: 1.6; }
+  .bus.kv { --c: var(--cat-cyan); }
+  .bus.ik { --c: var(--cat-rose); }
+  .bus.sc { --c: var(--cat-amber); }
+  .bus.pool { --c: var(--cat-rose); }
+  .bus.pool .trunk { stroke-dasharray: 5 4; }
+  .csa2evo marker path { fill: var(--text-2); }
+</style>

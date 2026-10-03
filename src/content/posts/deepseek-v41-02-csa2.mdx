@@ -20,8 +20,13 @@ import CompressCell from '../../components/v4/CompressCell.astro';
 import Compress2 from '../../components/v41/Compress2.astro';
 import Csa2Cell from '../../components/dsattn/Csa2Cell.astro';
 import PoolTimeline from '../../components/v41/PoolTimeline.astro';
+import Csa2Evolution from '../../components/v41/Csa2Evolution.astro';
 
 对应论文 §2.3 "Compressed Sparse Attention 2 (CSA2)" 的开头和 §2.3.1 "Cross-Layer KV and Index Reuse"，层的具体排布在 §4.2.1。CSA2 是在 V4 的 CSA 上改的。压缩算子怎么推出来、lightning indexer 怎么打分，在 V4 连载的[第 1 篇](/2026/09/05/deepseek-v4-01-kv-compression/)和[第 2 篇](/2026/09/05/deepseek-v4-02-lightning-indexer/)里，这里只摆出结论，篇幅留给改动。
+
+先用七步看 CSA2 是怎么从 V4 的 CSA 变过来的，每一步只改一处。看完再往下读，每一节对应其中一步。
+
+<Csa2Evolution caption="CSA2 的演进。左边是 encoder 的一组 6 层，右边是 decoder 的前 8 层。可以点步骤按钮，也可以按键盘左右键。" />
 
 <V41ArchDiagram highlight={['csa2', 'pool']} caption="你现在在这里：三种模式的注意力层，和它们读写的两个共享池。" />
 
