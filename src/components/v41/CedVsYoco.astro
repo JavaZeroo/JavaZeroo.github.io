@@ -1,0 +1,44 @@
+---
+/**
+ * YOCO 与 CED 并排。两边都是「下半层的最终输出投影成上半层的全局 KV」，差别有三处：
+ *  - YOCO 的上半层每层只有 cross-attention，CED 每层都保留滑窗注意力和自己的滑窗 KV；
+ *  - YOCO 的下半层没有全局注意力，CED 的 encoder 自己也有全局 KV；
+ *  - YOCO 全网一份全局 KV，CED 的 decoder 一份、encoder 三份。
+ * 深度向下，和总架构图一致。
+ */
+import FlowDiagram from '../figures/FlowDiagram.astro';
+interface Props { caption?: string }
+const { caption } = Astro.props;
+
+const nodes = [
+  // ---- YOCO ----
+  { id: 'ys', x: 30, y: 44, w: 220, h: 62, lines: ['self-decoder，L/2 层', '每层：滑窗注意力或 gated retention', '缓存大小不随长度增长'] },
+  { id: 'ym', x: 100, y: 146, w: 80, kind: 'in', lines: ['$X^{L/2}$'] },
+  { id: 'yk', x: 262, y: 136, w: 176, h: 64, kind: 'main', strong: true, lines: ['全局 KV，只有一份', '$\\hat K = \\mathrm{LN}(X^{L/2})\\, W_K$', '$\\hat V = \\mathrm{LN}(X^{L/2})\\, W_V$'] },
+  { id: 'yc', x: 30, y: 244, w: 220, h: 74, lines: ['cross-decoder，L/2 层', '每层只有一个 cross-attention', 'query 用本层的，K、V 读共享的那一份', '没有自己的 KV'] },
+  // ---- CED ----
+  { id: 'ce', x: 500, y: 44, w: 220, h: 62, kind: 'mla', lines: ['causal encoder，L/2 层', '每层：滑窗注意力，KV 是本层自己的', '外加全局注意力'] },
+  { id: 'cek', x: 752, y: 44, w: 168, h: 62, kind: 'main', lines: ['encoder 的全局 KV', 'V4.1-Flash 里 3 组各一份', '每 2 个 token 一条'] },
+  { id: 'cm', x: 570, y: 146, w: 80, kind: 'in', lines: ['$H_{L/2}$'] },
+  { id: 'ck', x: 732, y: 136, w: 188, h: 64, kind: 'main', strong: true, lines: ['decoder 的全局 KV', '$C_l = H_{L/2}\\, W_l^{KV}$', '$Z_l = H_{L/2}\\, W_l^{Z}$'] },
+  { id: 'cd', x: 500, y: 244, w: 220, h: 74, kind: 'mla', lines: ['decoder，L/2 层', '每层：滑窗注意力，KV 是本层自己的', '外加全局注意力，', '从投影出的全局 KV 里读 top-512 条'] },
+];
+const edges = [
+  { from: 'ys', to: 'ym' },
+  { from: 'ym', to: 'yk', label: '投影' },
+  { from: 'ym', to: 'yc' },
+  { from: 'yk', to: 'yc', path: 'M350 200 V 281 H 252', dashed: true, label: '读', lx: 356, ly: 244 },
+  { from: 'ce', to: 'cek', label: '写' },
+  { from: 'ce', to: 'cm' },
+  { from: 'cm', to: 'ck', label: '投影（式 1）', lx: 654, ly: 158 },
+  { from: 'cm', to: 'cd' },
+  { from: 'ck', to: 'cd', path: 'M826 200 V 281 H 722', dashed: true, label: '读', lx: 832, ly: 244 },
+];
+const groups = [
+  { x: 12, y: 10, w: 440, h: 326, label: 'YOCO（Sun et al.，2024）' },
+  { x: 482, y: 10, w: 452, h: 326, label: 'CED（DeepSeek-V4.1-Flash）' },
+];
+---
+
+<FlowDiagram id="cedyoco" viewBox="0 0 946 346" minWidth={780} label="YOCO 与 CED 的结构对比"
+  nodes={nodes} edges={edges} groups={groups} caption={caption} />

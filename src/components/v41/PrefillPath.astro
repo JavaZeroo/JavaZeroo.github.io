@@ -1,0 +1,67 @@
+---
+/**
+ * prefill 时哪些（token，层）要算。三栏各是一个「prompt 位置 × 层」的矩形，深度向下，涂色的部分是要算的：
+ *  - 不用 CED：每个 token 过全部 L 层；
+ *  - CED，精确重建 decoder 的滑窗 KV：前 L/2 层全算，后 L/2 层算最后 n_win·L/2 = 2560 个 token；
+ *  - CED + Decoder SWA Bounded Replay：后 L/2 层只算最后 n_win = 128 个 token。
+ * 示意图，横向不按比例。回答的问题：CED 省掉的是哪一块，回放又加回来多少。
+ */
+import SvgTex from '../figures/SvgTex.astro';
+interface Props { caption?: string }
+const { caption } = Astro.props;
+
+const PW = 250, PH = 150, GAP = 48, X0 = 58, Y0 = 62;
+const panels = [
+  { title: '不用 CED：每层从自己的隐藏态生成 KV', sub: '每个 prompt token 过全部 40 层', tail: PW, cost: '$N \\times L$', ex: '例：$N$ = 10 万时是 400 万', tailLbl: '' },
+  { title: 'CED，精确重建 decoder 的滑窗 KV', sub: '后 20 层要算最后 2560 个 token', tail: 64, cost: '$N \\cdot \\frac{L}{2} + n_{\\text{win}} \\frac{L}{2} \\cdot \\frac{L}{2}$', ex: '例：200 万 + 5.1 万', tailLbl: '2560 个 token' },
+  { title: 'CED + Decoder SWA Bounded Replay', sub: '后 20 层只算最后 128 个 token', tail: 12, cost: '$N \\cdot \\frac{L}{2} + n_{\\text{win}} \\cdot \\frac{L}{2}$', ex: '例：200 万 + 2560', tailLbl: '128 个 token' },
+];
+const px = (i: number) => X0 + i * (PW + GAP);
+const W = px(2) + PW + 24;
+---
+
+<figure class="pfp">
+  <svg viewBox={`0 0 ${W} 292`} role="img" aria-label="三种做法下 prefill 要计算的 token 与层">
+    {panels.map((p, i) => (
+      <g>
+        <text class="ttl" x={px(i)} y="22">{p.title}</text>
+        <text class="sub" x={px(i)} y="40">{p.sub}</text>
+        <!-- 外框与涂色 -->
+        <rect class="fill enc" x={px(i)} y={Y0} width={PW} height={PH / 2} />
+        <rect class="fill dec" x={px(i) + PW - p.tail} y={Y0 + PH / 2} width={p.tail} height={PH / 2} />
+        <rect class="frame" x={px(i)} y={Y0} width={PW} height={PH} />
+        <line class="mid" x1={px(i) - 4} y1={Y0 + PH / 2} x2={px(i) + PW + 4} y2={Y0 + PH / 2} />
+        {p.tailLbl && (
+          <g>
+            <path class="br" d={`M${px(i) + PW - p.tail} ${Y0 + PH + 5} v4 H${px(i) + PW} v-4`} />
+            <text class="sub" x={px(i) + PW} y={Y0 + PH + 24} text-anchor="end">最后 {p.tailLbl}</text>
+          </g>
+        )}
+        {i > 0 && <text class="skip" x={px(i) + (PW - p.tail) / 2} y={Y0 + PH * 0.75 + 4} text-anchor="middle">不算</text>}
+        <text class="axis" x={px(i)} y={Y0 + PH + 24}>{i === 0 ? 'prompt 的位置 →' : ''}</text>
+        <SvgTex x={px(i)} y={Y0 + PH + 50} size={12.5} align="start" src={`层 × token：${p.cost}`} />
+        <SvgTex x={px(i)} y={Y0 + PH + 70} size={10.5} align="start" color="var(--muted)" src={p.ex} />
+      </g>
+    ))}
+    <!-- 左侧层号 -->
+    <text class="axis" x={X0 - 8} y={Y0 + 10} text-anchor="end">第 0 层</text>
+    <text class="axis" x={X0 - 8} y={Y0 + PH / 2 - 5} text-anchor="end">第 19 层</text>
+    <text class="axis" x={X0 - 8} y={Y0 + PH / 2 + 13} text-anchor="end">第 20 层</text>
+    <text class="axis" x={X0 - 8} y={Y0 + PH - 2} text-anchor="end">第 39 层</text>
+  </svg>
+  {caption && <figcaption>{caption}</figcaption>}
+</figure>
+
+<style>
+  .pfp { margin: 2rem 0; padding: 0.9rem 0.7rem 0.5rem; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); overflow-x: auto; }
+  .pfp svg { display: block; width: 100%; min-width: 780px; height: auto; font-family: var(--font-sans); }
+  .ttl { fill: var(--text); font-size: 12.5px; font-weight: 600; }
+  .sub, .axis { fill: var(--muted); font-size: 10.5px; }
+  .skip { fill: var(--muted); font-size: 12px; }
+  .frame { fill: none; stroke: var(--text-2); stroke-width: 1.3; }
+  .mid { stroke: var(--cat-cyan); stroke-width: 1.4; stroke-dasharray: 6 4; }
+  .fill.enc { fill: color-mix(in srgb, var(--cat-indigo) 38%, var(--bg-2)); }
+  .fill.dec { fill: color-mix(in srgb, var(--cat-amber) 55%, var(--bg-2)); }
+  .br { fill: none; stroke: var(--text-2); stroke-width: 1.2; }
+  figcaption { margin-top: 0.6rem; font-size: 0.88rem; color: var(--text-2); text-align: center; line-height: 1.6; }
+</style>

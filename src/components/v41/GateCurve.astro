@@ -1,0 +1,62 @@
+---
+/**
+ * Engram 门的两种写法对比：论文式子里的 σ(s) 与代码里的 σ(sign(s)·√|s|)，横轴 s ∈ [−10, 10]。
+ * 回答的问题：带符号的平方根改变了什么。|s| < 1 时门离 0.5 更远，|s| > 1 时门更晚饱和。
+ */
+import SvgTex from '../figures/SvgTex.astro';
+interface Props { caption?: string }
+const { caption } = Astro.props;
+
+const X0 = 70, X1 = 620, Y0 = 26, Y1 = 206;
+const sx = (s: number) => X0 + ((s + 10) / 20) * (X1 - X0);
+const sy = (a: number) => Y1 - a * (Y1 - Y0);
+const sig = (x: number) => 1 / (1 + Math.exp(-x));
+const ss = Array.from({ length: 401 }, (_, i) => -10 + i * 0.05);
+const path = (f: (s: number) => number) => ss.map((s, i) => `${i ? 'L' : 'M'}${sx(s).toFixed(1)} ${sy(f(s)).toFixed(1)}`).join(' ');
+const plain = path(sig);
+const sqrt = path((s) => sig(Math.sign(s) * Math.sqrt(Math.abs(s))));
+---
+
+<figure class="gc">
+  <svg viewBox="0 0 860 244" role="img" aria-label="Engram 门的两种写法对比">
+    {[0, 0.5, 1].map((a) => (
+      <g>
+        <line class="grid" x1={X0} y1={sy(a)} x2={X1} y2={sy(a)} />
+        <text class="tk" x={X0 - 8} y={sy(a) + 4} text-anchor="end">{a}</text>
+      </g>
+    ))}
+    {[-10, -5, -1, 0, 1, 5, 10].map((s) => (
+      <g>
+        <line class="grid v" x1={sx(s)} y1={Y0} x2={sx(s)} y2={Y1} />
+        <text class="tk" x={sx(s)} y={Y1 + 16} text-anchor="middle">{s}</text>
+      </g>
+    ))}
+    <path class="c plain" d={plain} />
+    <path class="c sqrt" d={sqrt} />
+    <SvgTex x={(X0 + X1) / 2} y={Y1 + 32} size={11} color="var(--text-2)" src="归一化点积 $s$" />
+    <text class="tk" x={X0 - 8} y={Y0 - 8} text-anchor="end">门</text>
+
+    <line class="c plain" x1="650" y1="60" x2="686" y2="60" />
+    <SvgTex x={694} y={60} size={11.5} align="start" src="$\sigma(s)$，论文的式子" />
+    <line class="c sqrt" x1="650" y1="92" x2="686" y2="92" />
+    <SvgTex x={694} y={92} size={11.5} align="start" src="$\sigma(\mathrm{sign}(s)\sqrt{|s|})$" />
+    <text class="tk" x="694" y="110">官方代码的写法</text>
+    <text class="tk" x="650" y="150">s = 5 时：</text>
+    <text class="tk" x="650" y="166">蓝线 0.993，橙线 0.903</text>
+    <text class="tk" x="650" y="186">s = 0.25 时：</text>
+    <text class="tk" x="650" y="202">蓝线 0.562，橙线 0.622</text>
+  </svg>
+  {caption && <figcaption>{caption}</figcaption>}
+</figure>
+
+<style>
+  .gc { margin: 2rem 0; padding: 0.9rem 0.7rem 0.5rem; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); overflow-x: auto; }
+  .gc svg { display: block; width: 100%; min-width: 680px; height: auto; font-family: var(--font-sans); }
+  .grid { stroke: var(--border-2); stroke-width: 1; }
+  .grid.v { stroke-dasharray: 2 4; }
+  .tk { fill: var(--muted); font-size: 10.5px; }
+  .c { fill: none; stroke-width: 2.2; }
+  .c.plain { stroke: var(--cat-indigo); }
+  .c.sqrt { stroke: var(--cat-amber); }
+  figcaption { margin-top: 0.6rem; font-size: 0.88rem; color: var(--text-2); text-align: center; line-height: 1.6; }
+</style>

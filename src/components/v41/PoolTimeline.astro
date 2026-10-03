@@ -1,0 +1,95 @@
+---
+/**
+ * CSA2 共享池的读写表：横轴是 40 层（0 起），纵轴是共享池的四样东西
+ * （官方代码 SharedAttentionRuntime 的四个槽：compress_kv、index_k、candidates、topk_idxs）。
+ * 每格标出这一层对这样东西是写还是读。回答的问题：谁写、谁读、什么时候被覆盖。
+ * 规则直接来自 config：kv_source_layer_ids（Full）写 main KV 和 indexer K；
+ * index_source_layer_ids（Full + Reindex）写 top-512 索引；candidate_source_layer_id = 20 写候选池；
+ * Reindex 读 indexer K 和候选池；非 Full 的层读 main KV；Reuse 读索引。
+ */
+interface Props { caption?: string }
+const { caption } = Astro.props;
+
+const full = new Set([2, 8, 14, 20]);
+const reindex = new Set([24, 28, 32, 36]);
+const mode = (l: number) => (l < 2 ? 'swa' : full.has(l) ? 'full' : reindex.has(l) ? 'reindex' : 'reuse');
+type Op = 'w' | 'r' | '';
+const rows: { name: string; code: string; note: string; op: (l: number) => Op }[] = [
+  { name: 'main KV', code: 'compress_kv', note: '进 KV cache', op: (l) => (l < 2 ? '' : full.has(l) ? 'w' : 'r') },
+  { name: 'indexer K', code: 'index_k', note: '进 KV cache', op: (l) => (full.has(l) ? 'w' : reindex.has(l) ? 'r' : '') },
+  { name: '候选池', code: 'candidates', note: '每个 query 现算', op: (l) => (l === 20 ? 'w' : reindex.has(l) ? 'r' : '') },
+  { name: 'top-512 索引', code: 'topk_idxs', note: '每个 query 现算', op: (l) => (l < 2 ? '' : mode(l) === 'reuse' ? 'r' : 'w') },
+];
+const X0 = 128, STEP = 21, CELL = 19, Y0 = 62, RH = 34;
+const cx = (l: number) => X0 + l * STEP;
+const ry = (i: number) => Y0 + i * RH;
+const starts = [2, 8, 14, 20, 24, 28, 32, 36];
+const ticks = [0, 2, 8, 14, 20, 24, 28, 32, 36, 39];
+const W = cx(40) + 118;
+const H = ry(4) + 44;
+---
+
+<figure class="pool41">
+  <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="CSA2 共享池在 40 层里的读写">
+    <!-- 层号与模式条 -->
+    {ticks.map((l) => <text class="tick" x={cx(l) + CELL / 2} y="20" text-anchor="middle">{l}</text>)}
+    {Array.from({ length: 40 }, (_, l) => (
+      <g><title>{`第 ${l} 层`}</title><rect class:list={['m', mode(l)]} x={cx(l)} y="28" width={CELL} height="12" rx="2" /></g>
+    ))}
+    <text class="lab" x={X0 - 12} y="38" text-anchor="end">层的模式</text>
+    <!-- 组的分界 -->
+    {starts.map((l) => <line class:list={['sep', { big: l === 20 }]} x1={cx(l) - 1} y1="24" x2={cx(l) - 1} y2={ry(4) - 4} />)}
+    <text class="lab" x={cx(20) - 8} y="54" text-anchor="end">encoder</text>
+    <text class="lab" x={cx(20) + 6} y="54">decoder</text>
+
+    {rows.map((r, i) => (
+      <g>
+        <text class="name" x={X0 - 12} y={ry(i) + 14} text-anchor="end">{r.name}</text>
+        <text class="code" x={X0 - 12} y={ry(i) + 27} text-anchor="end">{r.code}</text>
+        {Array.from({ length: 40 }, (_, l) => {
+          const op = r.op(l);
+          return (
+            <g>
+              <rect class:list={['c', op || 'none']} x={cx(l)} y={ry(i) + 2} width={CELL} height={RH - 8} rx="3" />
+              {op && <text class:list={['o', op]} x={cx(l) + CELL / 2} y={ry(i) + 19} text-anchor="middle">{op === 'w' ? '写' : '读'}</text>}
+            </g>
+          );
+        })}
+        <text class="lab" x={cx(40) + 8} y={ry(i) + 20}>{r.note}</text>
+      </g>
+    ))}
+
+    <!-- 图例 -->
+    <g transform={`translate(${X0} ${ry(4) + 14})`}>
+      <rect class="m full" x="0" y="0" width="12" height="12" rx="2" /><text class="lab" x="17" y="10">Full</text>
+      <rect class="m reindex" x="62" y="0" width="12" height="12" rx="2" /><text class="lab" x="79" y="10">Reindex</text>
+      <rect class="m reuse" x="146" y="0" width="12" height="12" rx="2" /><text class="lab" x="163" y="10">Reuse</text>
+      <rect class="m swa" x="218" y="0" width="12" height="12" rx="2" /><text class="lab" x="235" y="10">纯滑窗</text>
+      <rect class="c w" x="310" y="-2" width="16" height="16" rx="3" /><text class="lab" x="332" y="10">这一层生成并写入</text>
+      <rect class="c r" x="456" y="-2" width="16" height="16" rx="3" /><text class="lab" x="478" y="10">这一层读取</text>
+    </g>
+  </svg>
+  {caption && <figcaption>{caption}</figcaption>}
+</figure>
+
+<style>
+  .pool41 { margin: 2rem 0; padding: 0.9rem 0.7rem 0.5rem; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); overflow-x: auto; }
+  .pool41 svg { display: block; width: 100%; min-width: 860px; height: auto; font-family: var(--font-sans); }
+  .tick { fill: var(--muted); font-size: 10px; }
+  .lab { fill: var(--text-2); font-size: 10.5px; }
+  .name { fill: var(--text); font-size: 12px; font-weight: 600; }
+  .code { fill: var(--muted); font-size: 9.5px; font-family: var(--font-mono, monospace); }
+  .m.full { fill: var(--cat-indigo); }
+  .m.reindex { fill: var(--cat-amber); }
+  .m.reuse { fill: color-mix(in srgb, var(--cat-cyan) 70%, var(--bg-2)); }
+  .m.swa { fill: color-mix(in srgb, var(--muted) 55%, var(--bg-2)); }
+  .sep { stroke: var(--border-2); stroke-dasharray: 3 3; }
+  .sep.big { stroke: var(--text-2); stroke-dasharray: 5 4; stroke-width: 1.3; }
+  .c.none { fill: color-mix(in srgb, var(--muted) 7%, var(--bg-2)); }
+  .c.w { fill: var(--cat-indigo); }
+  .c.r { fill: color-mix(in srgb, var(--cat-cyan) 22%, var(--bg-2)); stroke: var(--cat-cyan); stroke-width: 1; }
+  .o { font-size: 10.5px; font-weight: 600; }
+  .o.w { fill: #fff; }
+  .o.r { fill: var(--text); }
+  figcaption { margin-top: 0.6rem; font-size: 0.88rem; color: var(--text-2); text-align: center; line-height: 1.6; }
+</style>

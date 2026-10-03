@@ -1,0 +1,55 @@
+---
+/**
+ * head-wise Muon 把 query 的权重按头切开再做正交化。
+ * 左：整个矩阵 [64 × 512, 1280] 做一次 Newton–Schulz，64 个头共用一个预条件矩阵。
+ * 右：切成 64 块 [512, 1280]，每块各做一次，每个头有自己的预条件矩阵。
+ * 行是输出维（按头分段），列是输入维。只画 6 段示意 64 个头。
+ */
+import SvgTex from '../figures/SvgTex.astro';
+interface Props { caption?: string }
+const { caption } = Astro.props;
+const NH = 6, RH = 22, MW = 170, Y0 = 56;
+const LX = 60, RX = 520;
+---
+
+<figure class="hws">
+  <svg viewBox="0 0 880 250" role="img" aria-label="Muon 与 head-wise Muon 对 query 权重的处理">
+    <text class="ttl" x={LX} y="26">Muon：整个矩阵做一次正交化</text>
+    <text class="ttl" x={RX} y="26">head-wise Muon：每个头各做一次</text>
+    <line class="div" x1="450" y1="12" x2="450" y2="238" />
+
+    <!-- 左：一整块 -->
+    <rect class="blk whole" x={LX} y={Y0} width={MW} height={NH * RH} rx="4" />
+    {Array.from({ length: NH - 1 }, (_, i) => <line class="hl" x1={LX} y1={Y0 + (i + 1) * RH} x2={LX + MW} y2={Y0 + (i + 1) * RH} />)}
+    <text class="s" x={LX + MW / 2} y={Y0 + NH * RH + 18} text-anchor="middle">输入 1280 维</text>
+    <text class="s" x={LX - 8} y={Y0 + 14} text-anchor="end">头 1</text>
+    <text class="s" x={LX - 8} y={Y0 + NH * RH - 6} text-anchor="end">头 64</text>
+    <SvgTex x={LX + MW + 18} y={Y0 + 30} size={11.5} align="start" src="$G \in \mathbb{R}^{32768 \times 1280}$" />
+    <SvgTex x={LX + MW + 18} y={Y0 + 56} size={11} align="start" color="var(--text-2)" src="更新 $= (GG^{\top})^{\dagger/2}\, G$" />
+    <text class="s" x={LX + MW + 18} y={Y0 + 82}>所有的头共用一个预条件矩阵</text>
+    <text class="s" x={LX + MW + 18} y={Y0 + 98}>梯度大的头决定它</text>
+
+    <!-- 右：按头切开 -->
+    {Array.from({ length: NH }, (_, i) => <rect class="blk part" x={RX} y={Y0 + i * RH + 1.5} width={MW} height={RH - 3} rx="3" />)}
+    <text class="s" x={RX + MW / 2} y={Y0 + NH * RH + 18} text-anchor="middle">输入 1280 维</text>
+    <text class="s" x={RX - 8} y={Y0 + 14} text-anchor="end">头 1</text>
+    <text class="s" x={RX - 8} y={Y0 + NH * RH - 6} text-anchor="end">头 64</text>
+    <SvgTex x={RX + MW + 18} y={Y0 + 30} size={11.5} align="start" src="$G_h \in \mathbb{R}^{512 \times 1280}$" />
+    <SvgTex x={RX + MW + 18} y={Y0 + 56} size={11} align="start" color="var(--text-2)" src="更新 $= (G_h G_h^{\top})^{\dagger/2}\, G_h$" />
+    <text class="s" x={RX + MW + 18} y={Y0 + 82}>每个头有自己的预条件矩阵</text>
+    <text class="s" x={RX + MW + 18} y={Y0 + 98}>各头的更新幅度相同</text>
+  </svg>
+  {caption && <figcaption>{caption}</figcaption>}
+</figure>
+
+<style>
+  .hws { margin: 2rem 0; padding: 0.9rem 0.7rem 0.5rem; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); overflow-x: auto; }
+  .hws svg { display: block; width: 100%; min-width: 760px; height: auto; font-family: var(--font-sans); }
+  .ttl { fill: var(--text); font-size: 12.5px; font-weight: 600; }
+  .s { fill: var(--muted); font-size: 10.5px; }
+  .div { stroke: var(--border-2); stroke-dasharray: 5 5; }
+  .blk.whole { fill: color-mix(in srgb, var(--cat-indigo) 22%, var(--bg-2)); stroke: var(--cat-indigo); stroke-width: 1.6; }
+  .hl { stroke: color-mix(in srgb, var(--cat-indigo) 40%, transparent); stroke-dasharray: 3 3; }
+  .blk.part { fill: color-mix(in srgb, var(--cat-emerald) 22%, var(--bg-2)); stroke: var(--cat-emerald); stroke-width: 1.4; }
+  figcaption { margin-top: 0.6rem; font-size: 0.88rem; color: var(--text-2); text-align: center; line-height: 1.6; }
+</style>

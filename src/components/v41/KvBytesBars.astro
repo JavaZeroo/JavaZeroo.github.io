@@ -1,0 +1,74 @@
+---
+/**
+ * 每个 token 的全局 KV 字节数分项：V4-Flash 的 3514 对 V4.1-Flash 的 890。
+ * 第一、二条同一比例尺，看总量差 4 倍；第三条把 V4.1 放大 3.5 倍，看它自己的四个分项。
+ * V4-Flash：CSA main 21 × 1/4 × 584 = 3066，CSA indexer 21 × 1/4 × 68 = 357，HCA main 20 × 1/128 × 584 = 91.25。
+ *   其中 584 里有 1 字节没有公开出处（按官方代码是 583），图注里说明。
+ * V4.1-Flash：encoder main 1.5 × 288 = 432，encoder indexer 1.5 × 68 = 102，decoder main 288，decoder indexer 68。
+ */
+interface Props { caption?: string }
+const { caption } = Astro.props;
+
+const X0 = 150, SC = 0.2;                       // 每字节 0.2px：3514 B → 703px
+const lay = (parts: { b: number; c: string; t: string }[], y: number, k = 1) => {
+  let x = X0;
+  return parts.map((p) => { const o = { ...p, x, y, w: p.b * SC * k }; x += o.w; return o; });
+};
+const v4 = lay([
+  { b: 3066, c: 'main', t: 'CSA 的 main KV，3066' },
+  { b: 357, c: 'idx', t: '357' },
+  { b: 91.25, c: 'hca', t: '' },
+], 40);
+const v41 = lay([
+  { b: 432, c: 'main', t: '' }, { b: 102, c: 'idx', t: '' }, { b: 288, c: 'dmain', t: '' }, { b: 68, c: 'didx', t: '' },
+], 112);
+const zoom = lay([
+  { b: 432, c: 'main', t: 'encoder main KV，432' },
+  { b: 102, c: 'idx', t: '102' },
+  { b: 288, c: 'dmain', t: 'decoder main KV，288' },
+  { b: 68, c: 'didx', t: '68' },
+], 184, 3.5);
+const BH = 30;
+---
+
+<figure class="kvb">
+  <svg viewBox="0 0 900 270" role="img" aria-label="V4-Flash 与 V4.1-Flash 每 token 全局 KV 字节数的分项">
+    <text class="lab" x={X0 - 12} y={40 + 14} text-anchor="end">V4-Flash</text>
+    <text class="tot" x={X0 - 12} y={40 + 28} text-anchor="end">3514 B / token</text>
+    <text class="lab" x={X0 - 12} y={112 + 14} text-anchor="end">V4.1-Flash</text>
+    <text class="tot" x={X0 - 12} y={112 + 28} text-anchor="end">890 B / token</text>
+    <text class="lab" x={X0 - 12} y={184 + 14} text-anchor="end">V4.1-Flash</text>
+    <text class="tot" x={X0 - 12} y={184 + 28} text-anchor="end">放大 3.5 倍</text>
+    {[...v4, ...v41, ...zoom].map((s) => (
+      <g>
+        <rect class:list={['seg', s.c]} x={s.x} y={s.y} width={s.w} height={BH} rx="2" />
+        {s.t && <text class="st" x={s.x + s.w / 2} y={s.y + 19} text-anchor="middle">{s.t}</text>}
+      </g>
+    ))}
+    <text class="note" x={v4[2].x + v4[2].w} y={40 - 7} text-anchor="end">HCA 的 main KV，91</text>
+    <text class="note" x={v4[1].x + v4[1].w / 2} y={40 + BH + 14} text-anchor="middle">CSA 的 indexer K</text>
+    <path class="zl" d={`M${X0} ${112 + BH} L ${X0} ${184}`} />
+    <path class="zl" d={`M${v41[3].x + v41[3].w} ${112 + BH} L ${zoom[3].x + zoom[3].w} ${184}`} />
+    <text class="note" x={zoom[1].x + zoom[1].w / 2} y={184 + BH + 14} text-anchor="middle">encoder indexer K</text>
+    <text class="note" x={zoom[3].x + zoom[3].w / 2} y={184 + BH + 14} text-anchor="middle">decoder indexer K</text>
+    <text class="note" x={X0} y={258}>前两条同一比例尺。V4.1 里 encoder 3 份、每 2 个 token 一条；decoder 1 份、每个 token 一条。</text>
+  </svg>
+  {caption && <figcaption>{caption}</figcaption>}
+</figure>
+
+<style>
+  .kvb { margin: 2rem 0; padding: 0.9rem 0.7rem 0.5rem; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); overflow-x: auto; }
+  .kvb svg { display: block; width: 100%; min-width: 760px; height: auto; font-family: var(--font-sans); }
+  .lab { fill: var(--text); font-size: 12px; font-weight: 600; }
+  .tot { fill: var(--text-2); font-size: 10.5px; }
+  .note { fill: var(--muted); font-size: 10.5px; }
+  .st { fill: var(--text); font-size: 11px; }
+  .seg { stroke-width: 1.2; }
+  .seg.main { fill: color-mix(in srgb, var(--cat-indigo) 32%, var(--bg-2)); stroke: var(--cat-indigo); }
+  .seg.idx { fill: color-mix(in srgb, var(--cat-rose) 32%, var(--bg-2)); stroke: var(--cat-rose); }
+  .seg.hca { fill: color-mix(in srgb, var(--cat-cyan) 40%, var(--bg-2)); stroke: var(--cat-cyan); }
+  .seg.dmain { fill: color-mix(in srgb, var(--cat-emerald) 32%, var(--bg-2)); stroke: var(--cat-emerald); }
+  .seg.didx { fill: color-mix(in srgb, var(--cat-amber) 40%, var(--bg-2)); stroke: var(--cat-amber); }
+  .zl { stroke: var(--border-2); stroke-dasharray: 4 4; fill: none; }
+  figcaption { margin-top: 0.6rem; font-size: 0.88rem; color: var(--text-2); text-align: center; line-height: 1.6; }
+</style>

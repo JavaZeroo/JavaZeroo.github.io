@@ -1,0 +1,79 @@
+---
+/**
+ * 并行草稿的问题和 Markov head 的修正，用 DSpark 论文 §3.1 的例子：上下文允许 "of course" 和 "no problem" 两种续写。
+ * 左：两个位置各自输出边缘分布，独立采样，四种组合各 1/4，其中两种不通。
+ * 右：位置 1 采到 "of" 之后，Markov head 给位置 2 的 logits 加偏置，"course" 占主导。
+ * 概率是为说明机制取的理想值。
+ */
+interface Props { caption?: string }
+const { caption } = Astro.props;
+
+const BAR = 120;                 // 概率 1 对应的条长
+const bar = (x: number, y: number, p: number, word: string, cls: string) => ({ x, y, w: Math.max(p * BAR, 2), p, word, cls });
+const L = 40, R = 480;
+const left = [
+  bar(L + 70, 70, 0.5, 'of', 'ca'), bar(L + 70, 94, 0.5, 'no', 'cb'),
+  bar(L + 70, 150, 0.5, 'course', 'ca'), bar(L + 70, 174, 0.5, 'problem', 'cb'),
+];
+const right = [
+  bar(R + 70, 70, 0.5, 'of', 'ca'), bar(R + 70, 94, 0.5, 'no', 'cb'),
+  bar(R + 70, 150, 1, 'course', 'ca'), bar(R + 70, 174, 0, 'problem', 'cb'),
+];
+const combosL = [['of course', '1/4', true], ['of problem', '1/4', false], ['no course', '1/4', false], ['no problem', '1/4', true]] as const;
+---
+
+<figure class="mkf">
+  <svg viewBox="0 0 900 250" role="img" aria-label="并行草稿的位置独立问题与 Markov head 的修正">
+    <line class="div" x1="450" y1="14" x2="450" y2="236" />
+    <text class="ttl" x={L} y="28">只有并行草稿：两个位置各采各的</text>
+    <text class="ttl" x={R} y="28">加上 Markov head：位置 1 采到 "of" 之后</text>
+
+    {[{ bars: left, x: L }, { bars: right, x: R }].map((p) => (
+      <g>
+        <text class="pos" x={p.x} y="62">位置 1</text>
+        <text class="pos" x={p.x} y="142">位置 2</text>
+        {p.bars.map((b) => (
+          <g>
+            <text class="w" x={b.x - 8} y={b.y + 12} text-anchor="end">{b.word}</text>
+            <rect class:list={['b', b.cls]} x={b.x} y={b.y} width={b.w} height="16" rx="2" />
+            <text class="p" x={b.x + b.w + 6} y={b.y + 12}>{b.p === 0 ? '≈ 0' : b.p === 1 ? '≈ 1' : b.p}</text>
+          </g>
+        ))}
+      </g>
+    ))}
+
+    <text class="pos" x={L + 240} y="62">独立采样的结果</text>
+    {combosL.map(([w, p, ok], i) => (
+      <g>
+        <text class:list={['c', { bad: !ok }]} x={L + 240} y={84 + i * 24}>{w}</text>
+        <text class="p" x={L + 334} y={84 + i * 24}>{p}</text>
+        <text class:list={['mk', { bad: !ok }]} x={L + 366} y={84 + i * 24}>{ok ? '通' : '不通'}</text>
+      </g>
+    ))}
+    <text class="note" x={L} y="222">位置 2 不知道位置 1 采到了什么，只能给出平均后的分布。</text>
+
+    <text class="pos" x={R + 240} y="62">采样的结果</text>
+    <text class="c" x={R + 240} y="84">of course</text>
+    <text class="mk" x={R + 334} y="84">通</text>
+    <text class="note" x={R + 240} y="116">如果位置 1 采到 "no"，</text>
+    <text class="note" x={R + 240} y="132">偏置会改成抬高 "problem"。</text>
+    <text class="note" x={R} y="222">偏置只由前一个 token 决定，加在位置 2 的 logits 上。</text>
+  </svg>
+  {caption && <figcaption>{caption}</figcaption>}
+</figure>
+
+<style>
+  .mkf { margin: 2rem 0; padding: 0.9rem 0.7rem 0.5rem; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); overflow-x: auto; }
+  .mkf svg { display: block; width: 100%; min-width: 760px; height: auto; font-family: var(--font-sans); }
+  .div { stroke: var(--border-2); stroke-dasharray: 5 5; }
+  .ttl { fill: var(--text); font-size: 12.5px; font-weight: 600; }
+  .pos { fill: var(--text-2); font-size: 11px; font-weight: 600; }
+  .w, .c { fill: var(--text); font-size: 12px; font-family: var(--font-mono, monospace); }
+  .c.bad { fill: var(--cat-rose); text-decoration: line-through; }
+  .p, .note { fill: var(--muted); font-size: 10.5px; }
+  .mk { fill: var(--cat-emerald); font-size: 11px; font-weight: 600; }
+  .mk.bad { fill: var(--cat-rose); }
+  .b.ca { fill: color-mix(in srgb, var(--cat-indigo) 55%, var(--bg-2)); }
+  .b.cb { fill: color-mix(in srgb, var(--cat-amber) 60%, var(--bg-2)); }
+  figcaption { margin-top: 0.6rem; font-size: 0.88rem; color: var(--text-2); text-align: center; line-height: 1.6; }
+</style>

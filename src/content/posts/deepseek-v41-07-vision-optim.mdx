@@ -1,0 +1,309 @@
+---
+title: "DeepSeek-V4.1 模型结构（7）：输入端与优化器"
+pubDate: 2026-10-02 13:10:00
+description: "主干之外的两头。输入端：从零训练的 DeepSeek-ViT，一张 1302 × 1302 的图怎么变成 994 个位置，文本和图像 token 为什么要各用一套负载均衡偏置。优化器：head-wise Muon 把 query 权重按头切开再正交化，用一个秩 1 的例子说明它改变了什么；Sinkhorn-balanced update 用行列交替归一化代替 Adam，只存一份动量就能训练 196B 参数的 Engram 表。"
+categories:
+  - "📝学习"
+tags:
+  - "大模型"
+  - "DeepSeek-V4.1"
+  - "模型结构"
+series: deepseek-v41
+part: "输入端与优化器"
+order: 7
+draft: false
+---
+
+import V41ArchDiagram from '../../components/v41/V41ArchDiagram.astro';
+import VisionPath41 from '../../components/v41/VisionPath41.astro';
+import HeadwiseSplit from '../../components/v41/HeadwiseSplit.astro';
+import SinkhornBalance from '../../components/v41/SinkhornBalance.astro';
+
+对应论文 §2.1.1 "Multimodal Architecture"、§2.5 "Optimization"，训练配方的数字在 §4.2.2。这一篇讲两件互不相关的事：图像怎么进入主干，优化器改了什么。它们都不在主干的层里，所以放在一起。Muon 本身在 [V4 连载的第 6 篇](/2026/09/05/deepseek-v4-06-muon/)讲过，这里只讲 V4.1 的两处改动。
+
+<V41ArchDiagram highlight={['vision', 'moe']} caption="你现在在这里：顶部的视觉通路，以及 MoE 里和图像 token 有关的那一处改动。" />
+
+## 视觉通路：图像变成序列里的一段 token
+
+V4.1-Flash 能直接读图，V4 不能。做法是常见的三段：视觉编码器把图切成 patch 并编码，一个投影层把视觉特征变到主干的宽度，得到的向量和文本 token 的 embedding 排成同一条序列。
+
+<VisionPath41 caption="一张图进入主干的过程。例子是一张缩放后 1302 × 1302 的方图，这是方图能取的最大尺寸。" />
+
+### DeepSeek-ViT
+
+论文说它是从零训练的，在标准 ViT 上改了四处，每一处都是向语言模型的做法靠拢。对着官方代码 `inference/vision.py` 看：
+
+| | 标准 ViT | DeepSeek-ViT |
+|---|---|---|
+| 位置编码 | 可学习的绝对位置 embedding | 2D-RoPE |
+| patch embedding | 卷积 | 线性层，588 → 1024 |
+| 归一化 | LayerNorm | RMSNorm，pre-norm |
+| FFN 的激活 | GELU | SwiGLU，1024 → 2816 → 1024 |
+
+其余的尺寸：32 层，隐藏维 1024，16 个头，每头 64 维。一个 block 约 12.9M 参数，全模型约 0.41B。
+
+**2D-RoPE 让它能吃任意分辨率。** 绝对位置 embedding 的数量是固定的，换一个分辨率就要插值。RoPE 是按相对位置旋转 query 和 key，不需要一张固定大小的表。二维的做法是把每个头的 64 维分成两半：一半按 patch 所在的行号旋转，另一半按列号旋转。
+
+**线性的 patch embedding 是为了 Muon。** 步长等于核大小的卷积，和「把每个 patch 拉平再乘一个矩阵」在数学上是同一件事。$3 \times 14 \times 14 = 588$ 个数乘一个 $588 \times 1024$ 的矩阵。论文说换成线性层是为了和 Muon 兼容：Muon 是对矩阵做正交化的，参数要以矩阵的形式存在。
+
+**注意力是图内双向的。** 一张图的所有 patch 互相都看得见，没有因果掩码。不同的图之间不互相看。
+
+### 3 × 3 pixel-unshuffle 把 token 数除以 9
+
+ViT 的输出是每个 patch 一个 1024 维向量。直接送进主干的话，一张 1302 × 1302 的图有 8649 个 patch，太多了。
+
+pixel-unshuffle 的做法是把相邻 $3 \times 3$ 个 patch 的向量沿通道拼起来，9 个 1024 维变成 1 个 9216 维。位置数除以 9，信息一点不丢，只是从空间维搬到了通道维。行数或列数不是 3 的倍数时，在边上补零。
+
+之后是一个两层的 MLP：9216 → 5120，过 GELU，再 5120 → 5120。论文把它叫 MLP projector，代码里叫 `Aligner`。
+
+### 一张图占多少个位置
+
+主干看到的不只是视觉 token。代码里一张图在序列里的排法是：
+
+```
+[起始符] + ( [视觉 token] × 每行个数 + [换行符] ) × 行数 + [结束符]
+```
+
+起始符、换行符、结束符各是一个可学习的 5120 维向量。换行符让主干知道一行在哪里结束，否则它从一维的序列里看不出图的宽高。
+
+一张 $h \times w$ 个视觉 token 的图占 $h(w+1) + 2$ 个位置。config 的 `max_image_tokens = 1024` 限制的是这个总数。
+
+论文说支持的分辨率大约到 1344 × 1344。$1344 / 14 = 96$ 个 patch，除以 3 是 32，$32 \times 32 = 1024$。但按代码算，把换行符和起止符也计入之后，方图的上限要小一点：
+
+| 尺寸 | patch | 视觉 token | 占的位置 |
+|---|---|---|---|
+| 1344 × 1344 | 96 × 96 | 32 × 32 | $32 \times 33 + 2 = 1058$，超过 1024 |
+| 1302 × 1302 | 93 × 93 | 31 × 31 | $31 \times 32 + 2 = 994$ |
+
+超过上限的图会按比例缩小到能放下为止。这是我照着 `image_processor.py` 算出来的，论文没有这个细节。
+
+另外两个预处理的事实：
+
+- 像素数少于 $544 \times 544$（config 的 `min_pixels = 295936`）的图会先放大。
+- 尺寸对不上 14 的整数倍时，先等比缩放，再用灰色补边，不改变宽高比。
+
+### 图像 token 在主干里的三处特殊对待
+
+进了主干以后，图像 token 和文本 token 走同样的层。只有三处不同：
+
+- **Engram 不处理它。** n-gram 不跨过图像，图像位置的门是 0。[第 5 篇](/2026/10/02/deepseek-v41-05-engram/)讲过。
+- **MoE 的路由用另一套偏置。** 下一节。
+- **所有图像位置在 token id 序列里是同一个 id**（129264）。它们靠另一个标记区分是视觉 token、换行符还是起止符。
+
+### 视觉编码器怎么训练
+
+DeepSeek-ViT 在接入主干之前，自己先训练了两个阶段：
+
+1. **对比学习。** 用 SigLIP 的 sigmoid 对比损失，约 470 亿个图文对，图像最大 224 × 224。论文说这一阶段用更高的分辨率有收益，但对最终模型帮助很小，因为高分辨率由下一阶段负责。
+2. **自回归微调。** 把 ViT 接到一个 4B 的 MoE 语言模型上，用预测下一个 token 的目标训练 2360 亿 token，数据是图像描述、图表、OCR 这一类。分辨率在 544 × 544 到 1344 × 1344 之间。训完之后语言模型扔掉，只留 ViT。
+
+然后才是主干的预训练。多模态数据从第一步就在里面，文本和多模态的 token 比例是 7 : 1。ViT 在主干预训练的大部分时间里是冻结的，只有它最后的归一化层和 projector 在训练。到学习率开始下降的时候，ViT 解冻，用更小的学习率和主干一起训练。
+
+Kimi K3 的 MoonViT-V2 走的是另一条路：完全不做对比学习，直接用预测下一个 token 从零训练，见 [K3 连载的第 6 篇](/2026/09/05/kimi-k3-06-vision-and-parts/)。两个编码器的规模接近，都是 0.4B 左右、patch 14。K3 用 $2 \times 2$ 的下采样，V4.1 用 $3 \times 3$。
+
+## 文本和图像 token 各用一套负载均衡偏置
+
+DeepSeekMoE 的负载均衡不靠辅助损失，靠一组偏置。每个 expert 有一个偏置 $b_i$，选 expert 时加在分数上：
+
+$$
+\text{选中的 expert} = \operatorname{top-6}_i\,(s_i + b_i).
+$$
+
+每个训练步之后，负载偏高的 expert 把 $b_i$ 调低一点，偏低的调高一点。偏置只影响选谁，不影响权重：选中之后的权重仍然用不加偏置的 $s_i$ 算。这是 V3 起就有的做法，[V4 连载的第 5 篇](/2026/09/05/deepseek-v4-05-moe/)讲过。
+
+加了图像以后，论文指出一个问题：图像 token 和文本 token 的表示分布不一样，可能偏好不同的 expert。把两种 token 的负载加在一起去平衡，会把各自模态内部的不均衡盖住。
+
+下面的例子是我编的，用来说明「盖住」是什么意思。假设文本 token 占 7/8，图像 token 占 1/8。文本 token 在所有 expert 上分得很均匀。图像 token 全部挤在 1/4 的 expert 上。
+
+- 那 1/4 的 expert，总负载是平均值的 $\frac{7}{8} + 4 \times \frac{1}{8} = 1.375$ 倍。
+- 其余的 expert 是 $\frac{7}{8} = 0.875$ 倍。
+
+从总负载看只是轻微不均。但对图像 token 来说，3/4 的 expert 完全没有用上。而且只有一套偏置时，为了压低那 1/4 的 expert 的负载，偏置会下调，文本 token 也被一起推开了，尽管文本本来没有问题。
+
+V4.1 的做法是维护两套偏置：
+
+$$
+\text{选中的 expert} = \operatorname{top-6}_i\,\big(s_i + b_i^{\text{模态}}\big), \qquad \text{模态} \in \{\text{文本},\ \text{图像}\}.
+$$
+
+每个 token 用自己那个模态的偏置。训练时两套偏置各按自己模态的负载更新，互不影响。代码里是 `Gate` 的 `bias` 和 `bias_vl` 两个向量：
+
+```python
+bias = self.bias
+if image_mask is not None and self.bias_vl is not None:
+    bias = torch.where(image_mask.unsqueeze(-1), self.bias_vl, bias)
+# the bias picks experts but does not scale them: weights come from the raw scores
+indices = (scores + bias).topk(self.topk, dim=-1)[1]
+weights = scores.gather(1, indices)
+```
+
+两套偏置的更新速度都是 0.001。V4 里那个权重 0.0001 的序列级平衡损失也保留着。
+
+## head-wise Muon：query 的权重按头分别正交化
+
+下面换到优化器。先用一句话回顾 Muon：它不直接用梯度，而是把带动量的梯度矩阵 $G$ 的所有奇异值都换成 1，再当作更新量。设 $G = U \Sigma V^{\top}$，更新量是 $U V^{\top}$。
+
+论文建议把 Muon 看成一种带预条件的梯度下降，没有给式子。下面的推导是我补的。$G$ 一般不是行满秩的（query 的 $G$ 有 32768 行、1280 列），所以逆要换成伪逆：只对非零的奇异值取倒数，记作 $(G G^{\top})^{\dagger/2}$。
+
+$$
+\begin{aligned}
+G G^{\top} &= U \Sigma V^{\top} V \Sigma U^{\top} = U \Sigma^2 U^{\top} \\
+(G G^{\top})^{\dagger/2} &= U \Sigma^{\dagger} U^{\top} \qquad \text{只对非零奇异值取倒数} \\
+(G G^{\top})^{\dagger/2}\, G &= U \Sigma^{\dagger} U^{\top} U \Sigma V^{\top} = U V^{\top}.
+\end{aligned}
+$$
+
+最后一步用了 $\Sigma^{\dagger} \Sigma$ 在非零奇异值对应的方向上是单位矩阵，而 $U$、$V$ 只取这些方向。所以 Muon 的更新等于梯度左乘一个矩阵 $(G G^{\top})^{\dagger/2}$。这个矩阵就是预条件矩阵。它由整个 $G$ 决定。
+
+query 的投影矩阵有一个特点：它的输出是 64 个头拼起来的。$G$ 的行按头分成 64 段，每段 512 行。对整个 $G$ 做正交化，64 个头共用一个预条件矩阵。**head-wise Muon** 把 $G$ 按头切成 64 块，每块单独做正交化，每个头有自己的预条件矩阵。
+
+<HeadwiseSplit caption="左：标准的 Muon。右：head-wise Muon。行是输出维，按头分段。" />
+
+### 一个秩 1 的例子
+
+差别在哪，用最小的例子看。假设只有两个头，每个头只有一行，两个头的梯度指向同一个输入方向 $u$（单位向量），只是大小不同：
+
+$$
+G = \begin{bmatrix} a\, u^{\top} \\ b\, u^{\top} \end{bmatrix}, \qquad a \gg b > 0 .
+$$
+
+**整个矩阵一起正交化。** $G$ 的秩是 1，只有一个非零奇异值 $\sqrt{a^2 + b^2}$。把它换成 1：
+
+$$
+U V^{\top} = \frac{1}{\sqrt{a^2 + b^2}} \begin{bmatrix} a\, u^{\top} \\ b\, u^{\top} \end{bmatrix}.
+$$
+
+第一个头的更新幅度是 $a / \sqrt{a^2 + b^2} \approx 1$，第二个头是 $b / \sqrt{a^2 + b^2} \approx b/a$。梯度小的头，更新也小。正交化抹平的是整个矩阵各个方向之间的差异，两个头落在同一个方向上时，它们之间的大小关系原样保留。
+
+**按头分别正交化。** 每一行自己是一个秩 1 的矩阵，各自把奇异值换成 1：
+
+$$
+\begin{bmatrix} u^{\top} \\ u^{\top} \end{bmatrix}.
+$$
+
+两个头的更新幅度相同，和各自梯度的大小无关。
+
+论文的解释就是这个意思：各个注意力头的梯度性质差别很大，head-wise Muon 给不同的头不同的预条件矩阵，能更好地处理这种差别。论文说它实测比标准的 Muon 好，并提到 GLM-5 和 Kimi K3 也验证过。K3 的做法见 [K3 连载的第 6 篇](/2026/09/05/kimi-k3-06-vision-and-parts/)，那里叫 Per-Head Muon。
+
+如果各个头的梯度落在互相正交的输入方向上，两种做法给出的结果相同。差别只出现在不同的头共用输入方向的时候。
+
+### 用在哪些权重上
+
+论文 §2.5 开头说 query 的权重按头切分，后面的基本配置里说 head-wise Muon 用于 query 和 key 的权重。V4.1 的注意力里，query 的展开矩阵 `wq_b` 是 $1280 \to 64 \times 512$，按头切成 64 块 $512 \times 1280$。KV 只有一条 512 维的向量，K 和 V 是同一个东西，没有头可分。论文说的 key 权重具体指哪个矩阵，没有展开。
+
+## Sinkhorn-balanced update：只存一份动量来训练大表
+
+### Adam 的状态放不下
+
+V4 里 embedding 和 LM head 用 AdamW。Adam 要为每个参数存两个数：一阶动量和二阶动量。V4.1 多了 196B 参数的 Engram 表，再配两份同样大的状态，显存吃不消。
+
+Muon 只存一份动量。论文没有说为什么不直接把 Muon 用在这些表上。这是我的解读：Muon 的正交化是为线性层的权重矩阵设计的，embedding 表不是这种矩阵：它的一行是一个 token，一步里只有出现过的 token 那几行有梯度。
+
+V4.1 的做法保留 Muon 的流程，只把中间的正交化换成另一种归一化。它用在三类参数上：Engram 的表、token embedding、LM head。
+
+### 算法
+
+记权重 $W \in \mathbb{R}^{m \times n}$，$m$ 是行数（词表大小，或者表的行数），$n$ 是隐藏维。论文的 Algorithm 1：
+
+1. **动量。** $M_t = \beta M_{t-1} + (1 - \beta) G_t$，再取 Nesterov 形式 $\hat G_t = \beta M_t + (1 - \beta) G_t$。和 Muon 相同。
+2. **屏蔽近零的行。** 算每一行的 $\ell_2$ 范数 $\rho_i$ 和它们的平均值 $\bar\rho$。$\rho_i \le \tau \bar\rho$ 的行整行置 0。
+3. **交替归一化 $K$ 次。** 第奇数次，每一行除以自己的 $\ell_2$ 范数。第偶数次，每一列除以自己的 $\ell_2$ 范数。$K$ 是奇数，所以最后一次是行归一化。
+4. **换算成 RMS。** $\Delta_t = \sqrt{n}\ U^{(K)}$。
+5. **更新。** $W_{t+1} = W_t - \gamma\, \eta_t\, \Delta_t$。
+
+超参：$K = 11$，$\tau = 10^{-3}$，$\gamma = 0.18$，动量 0.95，不加权重衰减。Engram 的学习率是别处的 5 倍（论文的原话是 Engram，没有细分表和投影层）。
+
+<SinkhornBalance />
+
+拖动 K 可以看到每一步在做什么。K = 0 时各行的幅度相差几十倍，还有一行几乎是 0。第 1 步行归一化之后，每行的 RMS 都是 1，但各列还不均匀。第 2 步列归一化把列拉平，行又有一点偏。来回几次之后两边都接近 1。演示的矩阵很小，偶数步刚做完列归一化时，列的 RMS 恒为 $\sqrt{6/8} \approx 0.87$；K 取奇数，最后停在行归一化上，列的 RMS 是 0.94，因为 8 行里有 1 行被屏蔽了，$\sqrt{7/8} \approx 0.94$。取消「屏蔽近零的行」再拖到 K = 1，可以看到那一行本来几乎全是 0，被硬生生放大到和别的行一样大。
+
+### 它配平的是行和列的幅度
+
+交替归一化收敛之后，相当于给原来的矩阵左右各乘了一个对角矩阵（论文式 (7)）：
+
+$$
+\Delta_t = \sqrt{n}\ D_r\, \hat G_t\, D_c, \qquad
+\frac{1}{n} \sum_{j=1}^{n} (\Delta_t)_{ij}^2 \approx 1, \qquad
+\frac{1}{m} \sum_{i=1}^{m} (\Delta_t)_{ij}^2 \approx 1 .
+$$
+
+第二个式子说每一行的 RMS 约为 1，第三个说每一列的 RMS 约为 1。
+
+**为什么乘 $\sqrt{n}$。** 最后一步是行归一化，所以每一行的 $\ell_2$ 范数正好是 1，即 $\sum_j U_{ij}^2 = 1$。乘 $\sqrt{n}$ 之后 $\sum_j \Delta_{ij}^2 = n$，除以 $n$ 是 1。$\sqrt{n}$ 把「范数为 1」换成了「RMS 为 1」。
+
+**行和列能同时为 1 吗。** 能。每行的平方和是 $n$，一共 $m$ 行，全部元素的平方和是 $mn$。如果各列是均匀的，每列的平方和是 $mn / n = m$，除以 $m$ 是 1。两个条件不冲突。
+
+**行和列各代表什么。** 一行是一个 token，或者一个 n-gram。一列是隐藏态的一个特征。行归一化的意思是：不管一个 token 出现得多还是少、梯度大还是小，它的 embedding 这一步的更新幅度都一样。列归一化的意思是：每个特征维度得到的总更新量一样。论文的说法是它利用了这种「token × 特征」的结构。
+
+**和 Adam 比。** Adam 给每个元素一个二阶动量，让每个元素的更新幅度都在 1 附近。Sinkhorn 只保证每一行、每一列的平均幅度在 1 附近，行内各元素之间的相对大小保留着。它不需要存二阶动量。
+
+**$\gamma = 0.18$。** 归一化后的更新 RMS 是 1，Adam 的更新 RMS 没有这么大。乘 0.18 是为了让幅度和 Adam 对齐，这样可以直接用同一个学习率。这个数和 Muon 用的缩放相同。
+
+**为什么要屏蔽近零的行。** 论文只说是为了数值稳定。我的解读是：一个很久没出现的 token，它那一行的动量已经衰减到接近 0，剩下的基本是噪声。行归一化会把这行噪声放大到和别的行一样大，再写进权重里。
+
+### 这里的 Sinkhorn 和 mHC 里的不是一回事
+
+两处都叫 Sinkhorn，都是行列交替归一化，容易混：
+
+| | mHC 的混合矩阵 | 这里的更新矩阵 |
+|---|---|---|
+| 矩阵 | $4 \times 4$，非负 | $m \times n$，有正有负 |
+| 归一化的量 | 行的和、列的和 | 行的 $\ell_2$ 范数、列的 $\ell_2$ 范数 |
+| 目标 | 双随机矩阵 | 行和列的 RMS 都约为 1 |
+| 作用于 | 前向计算里的一个矩阵 | 优化器的更新量 |
+
+论文说这种归一化此前在 SinkGD 里用于线性层的权重，V4.1 把它推广到了这几类大矩阵。
+
+### 3.84 亿行的表怎么做归一化
+
+每一步都把一张 3.84 亿行的矩阵来回重写 11 遍是不现实的。论文 §3.1.3 说实现上只维护两个向量：行的缩放系数和列的缩放系数。迭代更新的是这两个向量，不重写矩阵。行归一化和列的统计量累加还被融合进了一个 kernel。
+
+## 哪些参数用哪个优化器
+
+把 V4.1 的分工列成一张表：
+
+| 参数 | 优化器 | 备注 |
+|---|---|---|
+| 主干里线性层的矩阵、Engram 的投影 `wkv`、视觉 projector | Muon | Nesterov 动量 0.95，权重衰减 0.1，更新的 RMS 缩放到 0.18 |
+| 注意力里 query 和 key 的权重 | head-wise Muon | 同上，按头切开 |
+| Engram 的表、token embedding、LM head | Sinkhorn-balanced update | Nesterov 动量 0.95，不加权重衰减，$K = 11$ |
+| RMSNorm 的权重 | AdamW | $\beta_1 = 0.9$，$\beta_2 = 0.95$，$\epsilon = 10^{-20}$，权重衰减 0.1 |
+| 偏置、缩放系数这类非矩阵参数 | AdamW | 不加权重衰减 |
+
+V4 里用 AdamW 的 embedding 和 LM head，在 V4.1 里换成了 Sinkhorn-balanced update。AdamW 只剩下向量和标量。
+
+## 预训练配方的数字
+
+放在这里方便查。V4.1 一列来自 §4.2.2，7 : 1 来自 §4.1；V4-Flash 一列来自 V4 的论文：
+
+| | V4-Flash | V4.1-Flash |
+|---|---|---|
+| 预训练 token | 32T | 45T |
+| batch 大小 | 最大 75.5M token | 固定 100.6M token |
+| 峰值学习率 | $2.7 \times 10^{-4}$ | $2.6 \times 10^{-4}$ |
+| 学习率的安排 | — | 前 2000 步线性升上去，保持到 28T；28T 到 40T 余弦下降到 $2.6 \times 10^{-5}$；之后保持到 45T |
+| 稀疏注意力 | 先稠密训 1T，再引入稀疏 | 从第一步起就是稀疏，序列长度 64K |
+| 扩到 1M 上下文 | 分几步，从 4K 起 | 在 34T 处从 64K 扩到 1M |
+| 数据 | 文本 | 文本和多模态，token 比例 7 : 1 |
+
+论文说 45T token 的训练过程没有出现不稳定。V4 为稳定训练用过的 Anticipatory Routing，在 V4.1 的论文里没有再提。
+
+## 容易混淆的几点
+
+- **1024 不是视觉 token 的上限，是位置数的上限。** 它包括换行符和起止符。方图最多 961 个视觉 token。
+- **ViT 的注意力是双向的，主干是因果的。** 图像 token 进入主干之后，后面的看得见前面的，前面的看不见后面的。
+- **两套偏置不是两套 expert。** expert 是共用的，只是选 expert 时加的偏置按模态分开。
+- **head-wise Muon 不改变模型结构。** 它只改变训练时更新量的算法。推理时没有任何区别。
+- **Sinkhorn-balanced update 不是 Muon 的变体。** 它借用了 Muon 的流程和缩放系数，核心的那一步完全不同：一个把奇异值变成 1，一个把行和列的范数变成 1。
+
+## 下一篇
+
+最后一篇回到 KV cache，讲它在部署系统里怎么管理：哪些存磁盘，哪些放内存，丢了之后怎么用 128 个 token 补回来，以及 CSA2 的跨层共享在流水线并行的训练里是怎么实现的。
+
+## 资料
+
+- DeepSeek-V4.1-Flash 技术报告 §2.1.1、§2.5、§3.1.3、§4.2.2：[arXiv 2609.19969](https://arxiv.org/abs/2609.19969)
+- 代码：Hugging Face [deepseek-ai/DeepSeek-V4.1-Flash](https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash) 的 `inference/vision.py`、`inference/image_processor.py`，`inference/model.py` 的 `Gate`
+- Muon 与它的缩放：Moonlight，[arXiv 2502.16982](https://arxiv.org/abs/2502.16982)；本站 [DeepSeek-V4 模型结构（6）](/2026/09/05/deepseek-v4-06-muon/)
+- SinkGD：Scetbon et al.，2025，V4.1 引它作为 Sinkhorn 归一化用于优化器的出处
+- SigLIP：Zhai et al.，2023，视觉编码器第一阶段用的对比损失

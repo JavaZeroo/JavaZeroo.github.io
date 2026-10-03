@@ -1,0 +1,100 @@
+---
+/**
+ * mHC 在一个子层边界上的访存量，三种实现各一行。每个方块是一个 kernel（或一遍扫描），
+ * 宽度正比于它读写的激活个数（以 d 为单位，n = 4）。回答的问题：访存量从 20d 降到 10d，每一步省掉的是哪一段。
+ *  - V4：残差更新、系数预测、输入混合三个 kernel，加上子层的 pre-norm，共 (4n+4)d；
+ *  - 两遍：残差更新和系数预测合成一遍，输入混合要等 A_l，只能再读一遍 X_l，共 (3n+2)d；
+ *  - Single-Pass：输入混合改用 A_{l-1}，全部合成一遍，(2n+2)d，等于下界。
+ * 无 props 之外的状态；caption 可选。
+ */
+import SvgTex from '../figures/SvgTex.astro';
+import { texMix } from '../figures/tex';
+interface Props { caption?: string }
+const { caption } = Astro.props;
+
+const U = 31, X0 = 176, LANE_H = 112, Y0 = 34, BH = 50;
+interface K { name: string; rw: string; d: number; kind: string }
+const lanes: { title: string[]; total: string; ks: K[]; note?: string }[] = [
+  {
+    title: ['V4 的实现', '三个 kernel + pre-norm'],
+    total: '$(4n+4)d = 20d$',
+    ks: [
+      { name: '残差更新', rw: '读 5d · 写 4d', d: 9, kind: 'res' },
+      { name: '系数预测', rw: '读 4d', d: 4, kind: 'coef' },
+      { name: '输入混合', rw: '读 4d · 写 d', d: 5, kind: 'mix' },
+      { name: 'pre-norm', rw: '读 d · 写 d', d: 2, kind: 'norm' },
+    ],
+  },
+  {
+    title: ['合并成两遍', '读权重仍用本子层的'],
+    total: '$(3n+2)d = 14d$',
+    ks: [
+      { name: '残差更新 + 系数预测', rw: '读 5d · 写 4d', d: 9, kind: 'res' },
+      { name: '输入混合 + pre-norm', rw: '读 4d · 写 d', d: 5, kind: 'mix' },
+    ],
+    note: '第一遍扫完才有读权重，所以残差流要再读一遍',
+  },
+  {
+    title: ['Single-Pass mHC', '读权重用上一个子层的'],
+    total: '$(2n+2)d = 10d$',
+    ks: [
+      { name: '残差更新 + 输入混合 + 系数预测 + pre-norm', rw: '读 5d · 写 5d', d: 10, kind: 'one' },
+    ],
+    note: '残差流读一遍、写一遍，等于下界',
+  },
+];
+const laneY = (i: number) => Y0 + i * LANE_H;
+const W = X0 + 20 * U + 150;
+---
+
+<figure class="mhcp">
+  <svg viewBox={`0 0 ${W} ${Y0 + 3 * LANE_H + 6}`} role="img" aria-label="mHC 三种实现在一个子层边界上的访存量">
+    <!-- 刻度 -->
+    {[0, 5, 10, 15, 20].map((t) => (
+      <g>
+        <line class="tickln" x1={X0 + t * U} y1={Y0 - 10} x2={X0 + t * U} y2={Y0 + 3 * LANE_H - 30} />
+        <text class="tick" x={X0 + t * U} y={Y0 - 16} text-anchor="middle">{t === 0 ? '0' : `${t}d`}</text>
+      </g>
+    ))}
+    {lanes.map((ln, i) => {
+      let x = X0;
+      return (
+        <g>
+          <text class="ttl" x="14" y={laneY(i) + 22}>{ln.title[0]}</text>
+          <text class="sub" x="14" y={laneY(i) + 40}>{ln.title[1]}</text>
+          {ln.ks.map((k) => {
+            const w = k.d * U, bx = x; x += w;
+            return (
+              <g class={`k ${k.kind}`}>
+                <rect x={bx + 1.5} y={laneY(i)} width={w - 3} height={BH} rx="6" />
+                <text class="kn" x={bx + w / 2} y={laneY(i) + 21} text-anchor="middle">{k.name}</text>
+                <text class="kr" x={bx + w / 2} y={laneY(i) + 38} text-anchor="middle">{k.rw}</text>
+              </g>
+            );
+          })}
+          <SvgTex x={X0 + ln.ks.reduce((a, k) => a + k.d, 0) * U + 12} y={laneY(i) + BH / 2} size={12.5} align="start" weight={600} src={ln.total} />
+          {ln.note && <text class="note" x={X0 + 4} y={laneY(i) + BH + 18}>{ln.note}</text>}
+        </g>
+      );
+    })}
+  </svg>
+  {caption && <figcaption set:html={texMix(caption)} />}
+</figure>
+
+<style>
+  .mhcp { margin: 2rem 0; padding: 0.9rem 0.7rem 0.5rem; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); overflow-x: auto; }
+  .mhcp svg { display: block; width: 100%; min-width: 720px; height: auto; font-family: var(--font-sans); }
+  .tickln { stroke: var(--border-2); stroke-dasharray: 3 4; }
+  .tick { fill: var(--muted); font-size: 10.5px; }
+  .ttl { fill: var(--text); font-size: 13px; font-weight: 600; }
+  .sub, .note { fill: var(--muted); font-size: 11px; }
+  .k rect { fill: color-mix(in srgb, var(--c) 18%, var(--bg-2)); stroke: var(--c); stroke-width: 1.4; }
+  .k .kn { fill: var(--text); font-size: 12px; font-weight: 600; }
+  .k .kr { fill: var(--text-2); font-size: 10.5px; }
+  .k.res { --c: var(--cat-amber); }
+  .k.coef { --c: var(--cat-indigo); }
+  .k.mix { --c: var(--cat-cyan); }
+  .k.norm { --c: var(--muted); }
+  .k.one { --c: var(--cat-emerald); }
+  figcaption { margin-top: 0.6rem; font-size: 0.88rem; color: var(--text-2); text-align: center; line-height: 1.6; }
+</style>

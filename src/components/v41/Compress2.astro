@@ -1,0 +1,74 @@
+---
+/**
+ * CSA2 的压缩算子。左：encoder 的 m = 2，每 2 个 token 的 KV 按逐通道的 softmax 权重加权求和成一条，
+ * 相邻条目不共用 token，也没有块内位置偏置。右：decoder 的 m = 1，一个 token 一条，softmax 只有一项，
+ * 权重恒为 1，压缩权重 Z 用不上。和 v4/CompressCell（重叠窗口）放在一起看。
+ */
+import SvgTex from '../figures/SvgTex.astro';
+interface Props { caption?: string }
+const { caption } = Astro.props;
+
+const CW = 62, CH = 38, GAP = 6, PAIR_GAP = 18;
+const rowT = 56, rowE = 176;
+// 左栏：6 个 token，3 条
+const LX = 30;
+const tx = (t: number) => LX + t * (CW + GAP) + Math.floor(t / 2) * PAIR_GAP;
+const ex = (i: number) => (tx(2 * i) + tx(2 * i + 1) + CW) / 2;
+// 右栏：4 个 token，4 条
+const RX = tx(5) + CW + 70;
+const rx = (t: number) => RX + t * (CW + 16);
+const W = rx(3) + CW + 30;
+---
+
+<figure class="cmp2">
+  <svg viewBox={`0 0 ${W} 262`} role="img" aria-label="CSA2 的压缩算子">
+    <defs>
+      <marker id="cmp2-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" /></marker>
+    </defs>
+    <text class="ttl" x={LX} y="24">encoder：m = 2，每 2 个 token 一条</text>
+    <text class="ttl" x={RX} y="24">decoder：m = 1，每个 token 一条</text>
+    <line class="div" x1={RX - 36} y1="10" x2={RX - 36} y2="250" />
+
+    {[0, 1, 2, 3, 4, 5].map((t) => (
+      <g>
+        <rect class="tok" x={tx(t)} y={rowT} width={CW} height={CH} rx="6" />
+        <SvgTex x={tx(t) + CW / 2} y={rowT + CH / 2} size={11.5} src={`$C_{${t}},\\ Z_{${t}}$`} />
+        <line class="edge" x1={tx(t) + CW / 2} y1={rowT + CH} x2={ex(Math.floor(t / 2)) + (t % 2 ? 12 : -12)} y2={rowE - 3} marker-end="url(#cmp2-arrow)" />
+      </g>
+    ))}
+    {[0, 1, 2].map((i) => (
+      <g>
+        <rect class="ent" x={ex(i) - 62} y={rowE} width={124} height={44} rx="7" />
+        <SvgTex x={ex(i)} y={rowE + 14} size={11.5} weight={600} src={`条目 ${i}`} />
+        <SvgTex x={ex(i)} y={rowE + 31} size={10} color="var(--text-2)" src={`$S_{${2 * i}} \\odot C_{${2 * i}} + S_{${2 * i + 1}} \\odot C_{${2 * i + 1}}$`} />
+      </g>
+    ))}
+    <SvgTex x={LX} y={rowE + 66} size={10.5} align="start" color="var(--muted)" src="$[S_{2i};\ S_{2i+1}] = \mathrm{Softmax}([Z_{2i};\ Z_{2i+1}])$，512 个通道各做一次" />
+
+    {[0, 1, 2, 3].map((t) => (
+      <g>
+        <rect class="tok" x={rx(t)} y={rowT} width={CW} height={CH} rx="6" />
+        <SvgTex x={rx(t) + CW / 2} y={rowT + CH / 2} size={11.5} src={`$C_{${t}}$`} />
+        <line class="edge" x1={rx(t) + CW / 2} y1={rowT + CH} x2={rx(t) + CW / 2} y2={rowE - 3} marker-end="url(#cmp2-arrow)" />
+        <rect class="ent" x={rx(t)} y={rowE} width={CW} height={44} rx="7" />
+        <SvgTex x={rx(t) + CW / 2} y={rowE + 14} size={11.5} weight={600} src={`条目 ${t}`} />
+        <SvgTex x={rx(t) + CW / 2} y={rowE + 31} size={10} color="var(--text-2)" src={`$C_{${t}}$`} />
+      </g>
+    ))}
+    <text class="note" x={RX} y={rowE + 70}>只有一项时 softmax 的权重恒为 1，不需要 Z</text>
+  </svg>
+  {caption && <figcaption>{caption}</figcaption>}
+</figure>
+
+<style>
+  .cmp2 { margin: 2rem 0; padding: 0.9rem 0.7rem 0.5rem; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); overflow-x: auto; }
+  .cmp2 svg { display: block; width: 100%; min-width: 760px; height: auto; font-family: var(--font-sans); }
+  .cmp2 marker path { fill: var(--text-2); }
+  .ttl { fill: var(--text); font-size: 12.5px; font-weight: 600; }
+  .note { fill: var(--muted); font-size: 10.5px; }
+  .div { stroke: var(--border-2); stroke-dasharray: 5 5; }
+  .tok { fill: var(--bg-2); stroke: var(--text-2); stroke-width: 1.3; }
+  .ent { fill: color-mix(in srgb, var(--cat-cyan) 18%, var(--bg-2)); stroke: var(--cat-cyan); stroke-width: 1.5; }
+  .edge { stroke: var(--text-2); stroke-width: 1.3; }
+  figcaption { margin-top: 0.6rem; font-size: 0.88rem; color: var(--text-2); text-align: center; line-height: 1.6; }
+</style>

@@ -1,0 +1,93 @@
+---
+/**
+ * DeepSeek-V4.1-Flash 的层怎么排。43 格 = 40 层主干 + 3 个 DSpark 草稿层，层号 0 起，
+ * 数据直接来自 config：compress_ratios、kv_source_layer_ids（Full）、index_source_layer_ids（Full + Reindex）、
+ * engram_layer_ids、dspark_target_layer_ids。
+ * 格子颜色是 CSA2 的模式；格子上方的三角是 Engram 的位置；下方括号标出每组共用一份全局 KV 的范围，
+ * 以及 DSpark 读取的三层。
+ */
+interface Props { caption?: string }
+const { caption } = Astro.props;
+
+const ratios = [0, 0, ...Array(18).fill(2), ...Array(20).fill(1), 0, 0, 0];
+const kvSrc = new Set([2, 8, 14, 20]);
+const idxSrc = new Set([2, 8, 14, 20, 24, 28, 32, 36]);
+const engram = [1, 14];
+const N = 40;
+const kind = (l: number) =>
+  l >= N ? 'dspark' : ratios[l] === 0 ? 'swa' : kvSrc.has(l) ? 'full' : idxSrc.has(l) ? 'reindex' : 'reuse';
+const desc = (l: number) =>
+  l >= N ? 'DSpark 草稿层：纯滑窗注意力 + MoE（128 选 3）'
+  : ratios[l] === 0 ? '纯滑窗注意力，窗口 128'
+  : kvSrc.has(l) ? `Full，m = ${ratios[l]}：自己生成 main KV 和 indexer K，选 top-512${l === 20 ? '，并建候选池' : ''}`
+  : idxSrc.has(l) ? 'Reindex：读共享的 indexer K，在候选池里重新选 top-512'
+  : 'Reuse：读共享的 main KV 和 top-512 索引';
+
+const X0 = 30, CELL = 14, STEP = 16.4, Y0 = 44, H = 30;
+const cx = (l: number) => X0 + l * STEP + (l >= N ? 12 : 0);
+const XB = cx(20) - (STEP - CELL) / 2;
+const W = cx(42) + CELL + X0;
+const ticks = [0, 2, 8, 14, 20, 24, 28, 32, 36, 39];
+// 共用一份全局 KV 的四个范围
+const pools = [[2, 7], [8, 13], [14, 19], [20, 39]];
+const BR = Y0 + H + 6;
+---
+
+<figure class="strip41">
+  <svg viewBox={`0 0 ${W} 196`} role="img" aria-label="DeepSeek-V4.1-Flash 层排布">
+    <!-- encoder / decoder -->
+    <line class="bound" x1={XB} y1={10} x2={XB} y2={Y0 + H + 4} />
+    <text class="side" x={XB - 8} y={18} text-anchor="end">encoder（第 0 – 19 层）</text>
+    <text class="side" x={XB + 8} y={18}>decoder（第 20 – 39 层）</text>
+
+    {ratios.map((_, l) => (
+      <g>
+        <title>{`第 ${l} 层：${desc(l)}${engram.includes(l) ? '；入口处有一个 Engram' : ''}`}</title>
+        <rect class:list={['cell', kind(l)]} x={cx(l)} y={Y0} width={CELL} height={H} rx="1.5" />
+      </g>
+    ))}
+    {ticks.map((l) => <text class="tick" x={cx(l) + CELL / 2} y={Y0 - 14} text-anchor="middle">{l}</text>)}
+    <text class="tick" x={cx(41) + CELL / 2} y={Y0 - 14} text-anchor="middle">40 – 42</text>
+
+    <!-- Engram -->
+    {engram.map((l) => <path class="eng" d={`M${cx(l) + CELL / 2 - 4} ${Y0 - 9} h8 l-4 7 z`} />)}
+
+    <!-- 共用全局 KV 的范围 -->
+    {pools.map(([a, b]) => <path class="br" d={`M${cx(a)} ${BR} v5 H${cx(b) + CELL} v-5`} />)}
+    <text class="side" x={(cx(2) + cx(19) + CELL) / 2} y={BR + 20} text-anchor="middle">3 组，每组共用一份全局 KV（m = 2）</text>
+    <text class="side" x={(cx(20) + cx(39) + CELL) / 2} y={BR + 20} text-anchor="middle">20 层共用一份全局 KV（m = 1）</text>
+    <!-- DSpark 读取的层 -->
+    <path class="br ds" d={`M${cx(37)} ${Y0 - 4} v-4 H${cx(39) + CELL} v4`} />
+    <path class="br ds" d={`M${cx(40)} ${BR} v5 H${cx(42) + CELL} v-5`} />
+    <text class="side" x={cx(42) + CELL} y={BR + 20} text-anchor="end">DSpark</text>
+
+    <!-- 图例 -->
+    <g transform={`translate(${X0} ${BR + 44})`}>
+      <rect class="cell full" x="0" y="0" width="10" height="10" rx="2" /><text class="side" x="15" y="9">Full ×4：自己生成全局 KV（第 2、8、14、20 层）</text>
+      <rect class="cell reindex" x="310" y="0" width="10" height="10" rx="2" /><text class="side" x="325" y="9">Reindex ×4：只重新选 top-512（第 24、28、32、36 层）</text>
+      <rect class="cell reuse" x="0" y="20" width="10" height="10" rx="2" /><text class="side" x="15" y="29">Reuse ×30：KV 和索引都用现成的</text>
+      <rect class="cell swa" x="310" y="20" width="10" height="10" rx="2" /><text class="side" x="325" y="29">纯滑窗 ×2（第 0、1 层）</text>
+      <rect class="cell dspark" x="500" y="20" width="10" height="10" rx="2" /><text class="side" x="515" y="29">DSpark 草稿层 ×3</text>
+      <path class="eng" d="M0 41 h8 l-4 7 z" /><text class="side" x="15" y="49">Engram：第 1、14 层入口</text>
+      <path class="br ds" d="M310 46 v-4 h12 v4" /><text class="side" x="328" y="49">DSpark 读第 37 – 39 层入口的残差流</text>
+    </g>
+  </svg>
+  {caption && <figcaption>{caption}</figcaption>}
+</figure>
+
+<style>
+  .strip41 { margin: 2rem 0; padding: 0.8rem 0.6rem 0.4rem; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); overflow-x: auto; }
+  .strip41 svg { display: block; width: 100%; min-width: 700px; height: auto; font-family: var(--font-sans); }
+  .cell.full { fill: var(--cat-indigo); }
+  .cell.reindex { fill: var(--cat-amber); }
+  .cell.reuse { fill: color-mix(in srgb, var(--cat-cyan) 70%, var(--bg-2)); }
+  .cell.swa { fill: color-mix(in srgb, var(--muted) 55%, var(--bg-2)); }
+  .cell.dspark { fill: color-mix(in srgb, var(--muted) 20%, var(--bg-2)); stroke: var(--muted); stroke-width: 0.9; stroke-dasharray: 2 1.5; }
+  .eng { fill: var(--cat-rose); }
+  .tick { fill: var(--muted); font-size: 9.5px; }
+  .side { fill: var(--text-2); font-size: 10.5px; }
+  .bound { stroke: var(--text-2); stroke-width: 1.2; stroke-dasharray: 5 4; }
+  .br { fill: none; stroke: var(--text-2); stroke-width: 1.2; }
+  .br.ds { stroke: var(--muted); stroke-dasharray: 3 2; }
+  figcaption { margin-top: 0.6rem; font-size: 0.88rem; color: var(--text-2); text-align: center; line-height: 1.6; }
+</style>

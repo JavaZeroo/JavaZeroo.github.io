@@ -1,0 +1,389 @@
+---
+title: "DeepSeek-V4.1 模型结构（6）：解码，DSpark"
+pubDate: 2026-10-02 13:00:00
+description: "主干一次前向只出一个 token。DSpark 是挂在主干后面的三层草稿模块：一次前向给出 5 个位置的 logits，用一个秩 256 的 Markov head 补上草稿 token 之间的依赖，再由 confidence head 和调度器按当前负载决定送几个给主干验证。这一篇从投机解码的接受规则讲起，推出并行草稿为什么越往后越不准，调度器的阈值为什么随负载变，以及按置信度截断在什么条件下不改变输出分布。"
+categories:
+  - "📝学习"
+tags:
+  - "大模型"
+  - "DeepSeek-V4.1"
+  - "模型结构"
+series: deepseek-v41
+part: "记忆与解码"
+order: 6
+draft: false
+---
+
+import V41ArchDiagram from '../../components/v41/V41ArchDiagram.astro';
+import DsparkRound from '../../components/v41/DsparkRound.astro';
+import MarkovFix from '../../components/v41/MarkovFix.astro';
+import SchedulerDemo from '../../components/v41/SchedulerDemo.astro';
+
+对应论文 §2.4.3 "DSpark"。这一节只有两段，细节在 DSpark 自己的论文里：[DSpark: Confidence-Scheduled Speculative Decoding with Semi-Autoregressive Generation](https://arxiv.org/abs/2607.05147)，下面叫它 DSpark 论文。V4.1 的官方代码里有 DSpark 的前向，没有验证和调度的循环，那一部分只能看论文。
+
+<V41ArchDiagram highlight="dspark" caption="你现在在这里：挂在主干出口的三层草稿模块。" />
+
+## 投机解码：让小的先猜，大的一次验一串
+
+主干生成一个 token 要跑一次 40 层的前向。投机解码（speculative decoding）的想法是：找一个便宜的草稿模型先往后猜几个 token，主干用**一次**前向同时检查这几个猜得对不对。猜对的直接收下。主干验 $\gamma$ 个 token 和生成 1 个 token 的耗时差不多，所以猜对得越多，平均每个 token 的耗时越低。
+
+要紧的是验证规则不能改变输出的分布。记主干在某个位置的分布是 $p$，草稿的分布是 $q$。标准的规则（Leviathan et al.，2023）是：
+
+1. 草稿采一个 token $x \sim q$。
+2. 以概率 $\min\big(1,\ p(x)/q(x)\big)$ 接受它。
+3. 如果拒绝，从修正后的分布 $\operatorname{norm}\big(\max(0,\ p - q)\big)$ 里重新采一个。
+
+多个 token 时从左到右逐个检查，第一个被拒绝的位置之后全部作废。每一轮至少产出 1 个 token：全部接受时主干顺带给出下一个，被拒绝时主干给出重采的那一个。DSpark 论文把这个由主干给出的 token 叫 anchor，它是下一轮草稿的起点。
+
+:::details[这条规则为什么不改变分布，以及接受率等于什么]
+
+**接受并输出 $x'$ 的概率。** 先采到 $x'$，再接受：
+
+$$
+q(x') \cdot \min\Big(1,\ \frac{p(x')}{q(x')}\Big) = \min\big(q(x'),\ p(x')\big).
+$$
+
+**总的接受率。** 对所有 $x'$ 求和：
+
+$$
+\beta = \sum_x \min\big(p(x),\ q(x)\big).
+$$
+
+**拒绝后输出 $x'$ 的概率。** 拒绝的概率是 $1 - \beta$。修正分布的归一化常数是 $\sum_x \max(0,\ p(x) - q(x)) = \sum_x \big(p(x) - \min(p(x), q(x))\big) = 1 - \beta$。所以
+
+$$
+(1 - \beta) \cdot \frac{\max(0,\ p(x') - q(x'))}{1 - \beta} = p(x') - \min\big(p(x'),\ q(x')\big).
+$$
+
+**两项相加。** $\min(q(x'), p(x')) + p(x') - \min(p(x'), q(x')) = p(x')$。输出的分布就是 $p$，对任意的 $q$ 都成立。
+
+**接受率的另一种写法。** 用 $\min(a, b) = \frac{a + b - |a - b|}{2}$，对 $x$ 求和，$\sum p = \sum q = 1$：
+
+$$
+\beta = \sum_x \min\big(p(x), q(x)\big) = 1 - \tfrac{1}{2} \lVert p - q \rVert_1 .
+$$
+
+接受率就是两个分布重合的部分。后面 DSpark 的训练目标和 confidence head 的监督信号都用这个式子。
+:::
+
+## 一轮的耗时由三项决定
+
+DSpark 论文用一个式子组织全文。每生成一个 token 的平均耗时是
+
+$$
+L = \frac{T_{\text{draft}} + T_{\text{verify}}}{\tau},
+$$
+
+$T_{\text{draft}}$ 是出草稿的时间，$T_{\text{verify}}$ 是主干验证的时间，$\tau$ 是这一轮被接受的 token 数。要让 $L$ 小，有三件事可以做：草稿出得快，草稿猜得准，验证花得省。已有的草稿结构各占一头。
+
+**自回归草稿的问题是出得慢。** 草稿自己一个一个地生成，每个 token 都能看到前面采到了什么。代价是 $T_{\text{draft}}$ 正比于猜的个数。DeepSeek-V3 的 MTP 是这一类：每多猜一个 token 就要多串一个 Transformer block。所以这类草稿只能用很浅的网络、猜很少的 token。
+
+**并行草稿的问题是越往后越不准。** 给草稿模型输入一个起点 token 和几个占位 token，一次前向同时给出后面所有位置的 logits。$T_{\text{draft}}$ 几乎不随猜的个数变，可以用更深的网络。问题在下一节。
+
+DSpark 的三个部件对应三项：并行的三层主干负责快，Markov head 负责准，confidence head 和调度器负责省。
+
+<DsparkRound caption="DSpark 的一轮。3 个 block 只跑一次，Markov head 是一个很小的串行循环。" />
+
+## 并行草稿的各个位置互相不知道对方采到了什么
+
+并行草稿的每个位置只输出自己的边缘分布，各采各的。DSpark 论文的例子：上下文允许 "of course" 和 "no problem" 两种续写。
+
+<MarkovFix caption="DSpark 论文 §3.1 的例子。左边是纯并行的草稿，右边是加了 Markov head 之后。概率是为说明机制取的理想值。" />
+
+把这个例子算出来。设两种续写各占一半：
+
+- 位置 1 的边缘分布是 of 和 no 各 0.5。
+- 位置 2 的边缘分布是 course 和 problem 各 0.5。位置 2 不知道位置 1 采到了什么，只能给出对两种情况平均后的结果。
+- 独立采样，四种组合各 1/4，其中 "of problem" 和 "no course" 不通。
+
+再看位置 2 的接受率。假设位置 1 采到了 of 并且被接受。主干在已知 of 的条件下，位置 2 的分布是 $p = (1, 0)$。草稿的分布是 $q = (0.5, 0.5)$。接受率
+
+$$
+\beta = \min(1, 0.5) + \min(0, 0.5) = 0.5 .
+$$
+
+位置 1 自己没有问题，坏的是它后面的位置。越往后，前面可能出现的前缀越多，平均出来的分布越平，接受率越低。DSpark 论文测到的数字是：纯并行的草稿在对话数据上，条件接受率从第 1 个位置的 0.72 掉到第 7 个位置的 0.63。同一个实验里自回归的草稿是反过来的，从 0.53 升到 0.74。
+
+并行草稿第一个位置更准，是因为同样的时间预算下它能用更深的网络。第一个位置最要紧：它一旦被拒，整块作废。
+
+## DSpark 的并行部分：三层，一次出 5 个位置
+
+V4.1 的草稿主干是 3 个 Transformer block，结构和主干的 block 相同，有自己的 mHC，尺寸小一些。下面的细节来自官方代码。
+
+**从主干读什么。** 取主干第 37、38、39 层入口处的 4 条残差流，每层各自对 4 条流取算术平均，得到 3 个 5120 维向量。拼成 15360 维，过一个线性层 `main_proj` 和 RMSNorm，变回 5120 维。这个向量是草稿看到的「上下文」。
+
+这里读的是层的入口，等于第 36、37、38 层的输出。第 39 层的输出没有被读。论文和代码都没有解释为什么这样选。
+
+**上下文只当 KV 用。** 每个 DSpark block 的注意力只有滑窗分支。上下文向量过这一层自己的 KV 投影，写进一个 128 格的滑窗缓存。它不当 query，也不过草稿层的 MoE。
+
+**草稿的输入是 5 个位置。** 第一个位置是主干刚生成的 anchor，后面 4 个是同一个占位 token（config 里的 `dspark_noise_token_id`）。它们过主干的 embedding。占位 token 只是占位，没有任何去噪的过程。
+
+**注意力看什么。** 5 个草稿位置当 query。KV 是 128 条上下文加上 5 个草稿位置自己，最多 133 条。5 个位置用的是同一份可见范围，互相都看得见，包括自己右边的。
+
+```python
+# 有删节
+def get_dspark_topk_idxs(window_size, bsz, block_size, start_pos):
+    matrix = torch.cat([torch.arange(min(window_size, start_pos + 1)),
+                        window_size + torch.arange(block_size)])
+    return matrix.int().view(1, 1, -1).expand(bsz, block_size, -1).contiguous()
+```
+
+这段代码从另一个角度说明了上一节的问题：5 个位置的输入里只有 anchor 和占位 token，没有任何已采样的草稿 token，三层算完之后，它们的隐藏态里没有任何「前面采到了什么」的信息。
+
+**MoE 小一些。** 每层 128 个 routed expert，每个 token 选 3 个。主干是 384 选 6。
+
+**输出。** 最后一个 block 有自己的 RMSNorm，LM head 用主干的那一个。5 个位置各得到一组 logits，记作 $U_1, \dots, U_5$，DSpark 论文叫它 base logits。
+
+5 个输入位置给出 5 个草稿 token。anchor 所在的位置本身就是第一个预测位置：它的输出预测 anchor 的下一个 token。
+
+三层加起来约 14B 参数。checkpoint 里它们存在 `mtp.*` 这个名字下面，config 里层数的字段叫 `num_nextn_predict_layers`。名字是从 MTP 沿用下来的，结构已经不是 MTP。
+
+## Markov head：让每个位置知道前一个 token 是什么
+
+要修的是「位置 $k$ 不知道位置 $k-1$ 采到了什么」。最彻底的修法是让草稿自回归，那就回到了慢的那一类。DSpark 的做法是只在最后加一个很小的串行步骤：采样时，给位置 $k$ 的 logits 加上一个由前面的 token 决定的偏置 $B_k$：
+
+$$
+p_k(v \mid x_0, x_{<k}) = \frac{\exp\big(U_k(v) + B_k(x_0, x_{<k}, v)\big)}{\sum_{u \in \mathcal{V}} \exp\big(U_k(u) + B_k(x_0, x_{<k}, u)\big)} . \tag{4}
+$$
+
+$x_0$ 是 anchor。采样从左到右进行，每个位置仍然是一次普通的 softmax。这一点有用：接受规则要用到草稿在每个 token 上的确切概率 $q(x_k)$，而一次 softmax 能直接给出它。
+
+**Markov head** 是 $B_k$ 最简单的形式：只依赖前一个 token。
+
+$$
+B(x_{k-1}, \cdot) = W_1[x_{k-1}]\ W_2 . \tag{5}
+$$
+
+完整地存「前一个 token 是 $a$ 时，下一个 token 是 $b$ 的偏置」需要一张 $V \times V$ 的表。$V = 129280$ 时有 $1.7 \times 10^{10}$ 项。DSpark 把它分解成两个低秩的矩阵：$W_1 \in \mathbb{R}^{V \times r}$ 是一张 embedding 表，$W_2 \in \mathbb{R}^{r \times V}$ 是一个投影，$r = 256$。参数是 $2 \times 129280 \times 256 \approx 6.6 \times 10^7$。
+
+串行的循环在代码里只有几行：
+
+```python
+logits = self.head(self.norm(x), full_logits=True)      # 5 个位置的 base logits，只算一次
+output_ids[:, 0] = input_ids                            # anchor
+for i in range(self.block_size):
+    logits_bias, markov_embed = self.markov_head(output_ids[:, i])
+    logits[:, i].add_(logits_bias)                      # 加上由前一个 token 决定的偏置
+    markov_embeds.append(markov_embed)
+    output_ids[:, i + 1] = sample(logits[:, i], self.temperature)
+```
+
+每一步是一次查表、一次 $256 \to 129280$ 的投影、一次采样。三层 Transformer 和主干的 LM head 都在循环外面。投影一次是 $256 \times 129280 \approx 3.3 \times 10^7$ 次乘加，是 LM head 的 1/20。DSpark 论文测到的开销是：加上这个串行头，一整轮的延迟只增加 0.2% 到 1.3%。
+
+回到例子：位置 1 采到 of 之后，$W_1[\text{of}]\, W_2$ 在位置 2 抬高 course、压低 problem。
+
+两点从式子里能直接看出来：
+
+- $B$ 和位置 $k$ 无关，5 个位置共用同一对 $W_1$、$W_2$。它存的是「哪两个 token 常挨在一起」，和上下文无关。和上下文有关的部分在 $U_k$ 里。
+- 第一个位置也加偏置，它的前一个 token 是 anchor。
+
+DSpark 论文还试过把 Markov head 换成一个小的 RNN，让偏置依赖更长的前缀。结果只好一点点，实现更复杂，所以默认用 Markov head。V4.1 的 config 里只有 `dspark_markov_rank`。
+
+## confidence head：估计每个位置能不能通过验证
+
+草稿有 5 个，不一定都值得送去验证。要做这个决定，先得知道每个位置有多大把握。
+
+confidence head 给每个位置输出一个标量：
+
+$$
+c_k = \sigma\Big( w^{\top} \big[\, h_k;\ W_1[x_{k-1}] \,\big] \Big). \tag{7}
+$$
+
+$h_k$ 是位置 $k$ 的隐藏态，$W_1[x_{k-1}]$ 是前一个草稿 token 在 Markov head 里的 embedding。它是一个 5376 维到 1 维的线性层。
+
+$c_k$ 的含义要说清楚。它是一个**条件概率**：在前面的草稿都被接受的前提下，位置 $k$ 通过验证的概率。训练时的监督信号就是开头折叠块里推出的接受率：
+
+$$
+c_k^{*} = 1 - \tfrac{1}{2} \lVert p_k^{d} - p_k^{t} \rVert_1 . \tag{8}
+$$
+
+$p_k^d$ 是草稿的分布，$p_k^t$ 是主干的分布。
+
+验证是从左到右的，一个位置被拒，后面全作废。所以位置 $j$ 的草稿最终被收下的概率是连乘：
+
+$$
+a_j = \prod_{i \le j} c_i .
+$$
+
+论文把 $a_j$ 叫前缀存活概率。
+
+注意式 (7) 的输入有 $x_{k-1}$，没有 $x_k$。$c_k$ 估计的是「这个位置上草稿的分布和主干的分布重合多少」，不是「采出来的这个 token 会不会被接受」。这个区别在后面讲无损性时会用到。
+
+调度器要拿 $a_j$ 的数值去算期望，光是大小顺序对还不够。DSpark 论文在留出的数据上给每个位置找一个温度，把 $a_j$ 校准到和实测的接受率一致，校准后误差约 1%。这些温度不在公开的权重里。
+
+## 调度器：送几个去验证，取决于现在有多忙
+
+### 多验一个 token 不是免费的
+
+最早的投机解码分析假设：主干并行验证 $\gamma$ 个 token，不比验证 1 个多花时间。单个请求时这大致成立。
+
+线上不是这样。一台机器同时服务很多请求，所有请求要验证的 token 拼成一个批次一起过主干。批次越大，每秒能跑的步数越少。一个请求多送一个把握不大的草稿去验证，占的是别的请求的算力。DSpark 论文给了一个来自生产的事实：V4 上线时用的草稿是只猜 1 个 token 的 MTP，因为猜 3 个或 5 个的静态配置在高并发下会降低总吞吐。
+
+所以问题变成：给定所有请求的置信度，每个请求各送几个，总吞吐最大。
+
+### 目标函数
+
+设一个批次里有 $R$ 个请求，请求 $r$ 送验 $\ell_r$ 个草稿，$\ell_r \in \{0, \dots, 5\}$。
+
+**批次里一共多少 token。** 每个请求的 anchor 占 1 个，再加送验的草稿：
+
+$$
+B = \sum_{r=1}^{R} (1 + \ell_r).
+$$
+
+**这一步期望产出多少 token。** 请求 $r$ 被接受的草稿数记作 $N_r$。一个非负整数随机变量的期望等于 $\sum_{j \ge 1} P(N_r \ge j)$，而 $N_r \ge j$ 正好是「前 $j$ 个草稿都被接受」，概率是 $a_{r,j}$。再加上每轮必出的 1 个：
+
+$$
+\tau = \sum_{r=1}^{R} \Big( 1 + \sum_{j=1}^{\ell_r} a_{r,j} \Big).
+$$
+
+**每秒能跑多少步。** 记作 $\operatorname{SPS}(B)$，是批次大小的函数。推理引擎启动时实测一次，存成一张表。
+
+**吞吐。** 每步产出的 token 数乘每秒的步数：
+
+$$
+\Theta = \tau \cdot \operatorname{SPS}(B).
+$$
+
+### 贪心就能解
+
+把请求 $r$ 的送验长度从 $j-1$ 加到 $j$，批次多 1 个 token，期望产出多 $a_{r,j}$。所以每个 (请求, 位置) 有一个固定的「收益」$a_{r,j}$，成本都是 1。
+
+$a_{r,j}$ 随 $j$ 只会变小，因为它是不超过 1 的数连乘。把所有请求的所有 $a_{r,j}$ 放在一起从大到小排，同一个请求里靠前的位置一定排在靠后的位置前面。于是给定批次大小，最优的选法就是取排在最前面的那些。剩下只要沿着这个顺序一个一个加，看 $\Theta$ 什么时候到顶。
+
+论文的 Algorithm 1 就是这样：按 $a$ 从大到小逐个收进批次，每收一个算一次 $\Theta$，一旦 $\Theta$ 不再上升就停。
+
+### 阈值随负载变化
+
+把「再收一个值不值」的条件解出来。这一步是我补的。当前期望产出是 $\tau$，批次大小是 $B$，下一个候选的存活概率是 $a$。收下它值得，当且仅当
+
+$$
+(\tau + a) \cdot \operatorname{SPS}(B+1) > \tau \cdot \operatorname{SPS}(B)
+\quad\Longleftrightarrow\quad
+a > \tau \Big( \frac{\operatorname{SPS}(B)}{\operatorname{SPS}(B+1)} - 1 \Big).
+$$
+
+右边是两个量的乘积：批次多一个 token 让每一步慢多少，乘上已经到手的期望产出。它不是常数。
+
+- 机器闲的时候，批次大一点速度几乎不变，右边接近 0。存活概率很低的草稿也值得一试。
+- 机器忙的时候，批次每多一个 token 都明显变慢，右边变大。只有把握很大的草稿留得下来。
+
+用一个固定的置信度阈值来截断，相当于把右边当成常数，在负载变化时一定有一头是错的。
+
+<SchedulerDemo />
+
+拖动滑块可以看到切点怎么移动。滑块在最左边时批次变大不减速，15 个草稿全部送验。往右拖，先被切掉的是 B5，接着是 C5 和 B4，它们的存活概率最低。图里的置信度和减速比例都是示意用的数字，论文没有公布真实的 SPS 表。
+
+## 按置信度截断在什么条件下不改变分布
+
+接受规则本身是标准的，不改变分布。新的风险出在截断上：调度器决定送几个去验证，这个决定会不会让输出有偏？
+
+DSpark 论文给的条件叫 **non-anticipating**：「第 $k$ 个草稿送不送验」必须由采样 $x_k$ **之前**就有的信息决定，不能依赖 $x_k$ 采到了什么。
+
+$c_k$ 的输入是 $x_{k-1}$，不含 $x_k$，所以用 $c_k$ 决定第 $k$ 个的去留是合法的。不合法的是用 $c_{k+1}$ 回头决定第 $k$ 个的去留，因为 $c_{k+1}$ 依赖 $x_k$。
+
+论文附录 A 有一个反例，数字很小，可以完整走一遍。
+
+:::details[附录 A 的反例：回头取全局最优会让分布从 (0.7, 0.3) 变成 (0.85, 0.15)]
+
+**设定。** 一个请求，草稿 2 个位置。词表只有 A、B。位置 1 上主干的分布是 $p_t = (0.7,\ 0.3)$，草稿的分布是 $p_d = (0.5,\ 0.5)$。接受率 $\min(0.7, 0.5) + \min(0.3, 0.5) = 0.8$，所以 $a_1 = 0.8$。速度表：$\operatorname{SPS}(1) = 1.0$，$\operatorname{SPS}(2) = 0.5$，$\operatorname{SPS}(3) = 0.45$。
+
+**不送验。** $\Theta_0 = 1 \times 1.0 = 1.0$。
+
+**送验 1 个。** $\Theta_1 = (1 + 0.8) \times 0.5 = 0.9$。
+
+**送验 2 个。** 取决于 $c_2$，而 $c_2$ 取决于位置 1 采到了什么。假设：
+
+- 位置 1 采到 A 时 $c_2 = 0.9$。$\Theta_2 = (1 + 0.8 + 0.72) \times 0.45 = 1.134$。三者里最大，于是送验 2 个。
+- 位置 1 采到 B 时 $c_2 = 0$。$\Theta_2 = 1.8 \times 0.45 = 0.81$。最大的是 $\Theta_0$，于是一个都不送。
+
+**如果调度器算完三个 $\Theta$ 再取最大的。** 草稿在位置 1 以各 0.5 的概率采到 A 或 B。
+
+- 采到 A：送验。接受概率 $\min(1,\ 0.7 / 0.5) = 1$，输出 A。
+- 采到 B：不送验，主干自己从 $p_t$ 采，以 0.7 的概率输出 A。
+
+$$
+P(\text{输出 A}) = 0.5 \times 1 + 0.5 \times 0.7 = 0.85 \ne 0.7 .
+$$
+
+分布变了。原因是「送不送验位置 1」这件事偷看了位置 1 采到的是什么。
+
+**一旦下降就停的做法。** $\Theta_1 = 0.9 < \Theta_0 = 1.0$，立刻停，返回「一个都不送」。它根本不会去算依赖 $x_1$ 的 $c_2$。无论位置 1 采到什么，决定都一样，输出分布保持 $(0.7, 0.3)$。
+:::
+
+Algorithm 1 里「一旦 $\Theta$ 不再上升就停」的那一步，作用就在这里：决定只依赖到当前为止的前缀。它的代价是只有在 $\Theta$ 先升后降、只有一个峰的时候才能拿到全局最优。
+
+DSpark 论文还描述了线上实际用的版本。真实的 SPS 曲线是锯齿形的台阶，不止一个峰，早停会卡在局部。线上的调度器是异步的：用**两步之前**的置信度来估计这一步能验多少个，再在这个容量里按当前的存活概率挑。论文的说法是，截断长度只依赖两步之前的信息，和当前正在决定去留的 token 隔开了，所以仍然保持输出分布。这一段论文只有文字说明，没有给出形式化的证明。
+
+## 训练：直接优化接受率
+
+DSpark 的训练目标有三项，位置 $k$ 的权重是 $w_k = e^{-(k-1)/\gamma}$，$\gamma$ 是块的大小，靠前的位置权重大：
+
+$$
+\mathcal{L} = 0.1 \sum_k w_k \big({-\log p_k^d(x_k^*)}\big) + 0.9 \sum_k w_k \lVert p_k^d - p_k^t \rVert_1 + 1.0 \sum_k w_k \operatorname{BCE}(c_k,\ c_k^*).
+$$
+
+第一项是对真实 token 的交叉熵。第二项是草稿分布和主干分布的 $L_1$ 距离，权重最大。接受率等于 $1 - \frac12 \lVert p^d - p^t \rVert_1$，所以最小化这一项就是直接最大化接受率。第三项训练 confidence head。这些权重是 DSpark 论文离线实验的默认值，V4.1 是否沿用没有说明。
+
+V4.1 论文说的是训练的安排：
+
+- 主干预训练时**不带** MTP，也不带 DSpark。
+- 预训练结束后有一个单独的阶段：主干冻结，只训练 DSpark。
+- post-training 时 DSpark 跟着主干一起继续训练，但 DSpark 的损失不向主干回传梯度。
+
+最后一条的目的是让草稿跟上不断变化的主干。这样 DSpark 不只加速线上服务，也加速强化学习阶段的采样。
+
+## 和 MTP、EAGLE 的对照
+
+| | DeepSeek-V3 / V4 的 MTP | EAGLE-3 风格的草稿 | DSpark |
+|---|---|---|---|
+| 多个 token 怎么出 | 每多猜一个，多串一个 block | 一层的草稿模型自回归跑几步 | 三层只跑一次，出 5 个位置 |
+| 草稿 token 之间的依赖 | 完整 | 完整 | 只看前一个 token |
+| 从主干读什么 | 最后一层的输出 | 低、中、高三层的特征 | 第 37、38、39 层入口的三层特征 |
+| 训练 | 和主干一起预训练，交叉熵 | 主干冻结后单独训练 | 主干冻结后单独训练，以 $L_1$ 距离为主 |
+| 送验几个 | 固定 | 固定 | 按置信度和负载动态决定 |
+
+Kimi K3 用的是中间这一种，见 [K3 连载的第 6 篇](/2026/09/05/kimi-k3-06-vision-and-parts/)。K3 的草稿用 LK 损失，DSpark 用 $L_1$ 距离，两者优化的是同一个量 $\sum_x \min(p, q)$。EAGLE-3 也是 DSpark 论文里自回归草稿的对照组。
+
+[V4 连载的第 6 篇](/2026/09/05/deepseek-v4-06-muon/)讲 MTP 时，V4 的论文还没有说它在部署时怎么用。DSpark 论文补上了这一点：V4 预览版上线时的草稿是只猜 1 个 token 的 MTP，两周后被 DSpark 取代。
+
+## 论文报告的效果
+
+V4.1 的论文没有给 DSpark 的数字。下面都来自 DSpark 论文，条件各不相同。
+
+**离线实验。** 主干是 Qwen3 的 4B、8B、14B，每块 7 个 token，关闭调度，只比草稿质量。每轮接受的 token 数，DSpark 比自回归的 EAGLE-3 高 27% 到 31%，比纯并行的 DFlash 高 16% 到 18%。2 层的 DSpark 超过了 5 层的 DFlash。块越长，Markov head 的作用越大。
+
+**线上实验。** 在 V4 预览版的真实流量上，和只猜 1 个 token 的 MTP 比：总吞吐相同时，每个用户的生成速度在 Flash 上提高 60% 到 85%，在 Pro 上提高 57% 到 78%。每个请求每步过主干的 token 数（含 anchor）从固定的 2 个变成 4 到 6 个，并发升高后平滑地降下来。
+
+论文里还有一个 +661% 的数字。那是在一个很严的速度要求下，对照组几乎撑不住时算出来的比值。论文自己说它不是有代表性的加速倍数。
+
+## 官方代码里有什么，没有什么
+
+`inference/model.py` 的注释写得很直白：只实现了前向，生成流程里没有地方调用它，投机解码的循环不在这个仓库的范围内。文件末尾只有一段冒烟测试调用过它。具体说：
+
+- **有的**：三个 DSpark block、从主干读特征、Markov head 的串行采样、confidence head。
+- **没有的**：验证和接受、置信度的 sigmoid 和校准、调度器、一轮接受多个 token 之后怎么补草稿层的滑窗缓存。
+
+代码里 confidence head 返回的是 sigmoid 之前的值。
+
+## 容易混淆的几点
+
+- **DSpark 不是加深的 MTP。** MTP 是串行的、和主干一起预训练的。DSpark 是并行的、主干冻结后单独训练的。名字 `mtp.*` 只是沿用。
+- **「一次前向出 5 个 token」只说了一半。** logits 的主体是并行算的，采样是串行的 5 步。论文叫它半自回归。
+- **占位 token 不是扩散模型的噪声。** 没有迭代去噪，只有一次前向。
+- **$c_k$ 不是草稿 token 的概率，也不是它的最大概率。** 它是一个单独的线性头，估计两个分布的重合度。
+- **$c_k$ 是条件概率。** 位置 $k$ 最终被收下的概率是连乘 $a_k$。
+- **按置信度截断不等于有损。** 满足 non-anticipating 就不改变分布。反过来，随便怎么截也不行，附录 A 的反例就是有偏的。
+- **DSpark 不是一个独立的小模型。** 它不自己读上下文。上下文全部来自主干的隐藏态，embedding 和 LM head 也是主干的。
+
+## 下一篇
+
+主干、记忆和解码都讲完了。下一篇讲剩下的两头：图像怎么变成 token 进入主干，以及优化器的两处改动，head-wise Muon 和 Sinkhorn-balanced update。
+
+## 资料
+
+- DeepSeek-V4.1-Flash 技术报告 §2.4.3：[arXiv 2609.19969](https://arxiv.org/abs/2609.19969)
+- DSpark 论文：Cheng et al.，[arXiv 2607.05147](https://arxiv.org/abs/2607.05147)。§3.1 是 Markov head，§3.2 是 confidence head 和调度器，附录 A 是反例，§5 是线上部署
+- 投机解码的接受规则：Leviathan et al.，"Fast Inference from Transformers via Speculative Decoding"，[arXiv 2211.17192](https://arxiv.org/abs/2211.17192)
+- DeepSeek-V3 的 MTP：[arXiv 2412.19437](https://arxiv.org/abs/2412.19437) §2.2
+- 代码：Hugging Face [deepseek-ai/DeepSeek-V4.1-Flash](https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash) 的 `inference/model.py`，搜 `DSparkBlock`、`forward_spec`、`DSparkMarkovHead`

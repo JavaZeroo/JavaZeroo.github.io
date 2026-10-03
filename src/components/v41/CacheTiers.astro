@@ -1,0 +1,77 @@
+---
+/**
+ * KV 缓存放在哪一层存储，V4 与 V4.1 对比。三行是三种存储：GPU 显存、主机内存、SSD；两列是两代的做法。
+ * V4：全局 KV 和滑窗 KV 的 checkpoint 都进 SSD 上的 persistent KV cache（72 小时以上）。
+ * V4.1：SSD 上只留全局 KV；encoder 的滑窗 KV 放进主机内存里的一个池（每台机器 10% 的 DRAM，TTL 几分钟）；
+ *       decoder 的滑窗 KV 从不缓存，每次靠回放 128 个 token 重建。
+ */
+interface Props { caption?: string }
+const { caption } = Astro.props;
+
+const tiers = [
+  { name: 'GPU 显存', sub: '正在处理的请求' },
+  { name: '主机内存', sub: '分钟级' },
+  { name: 'SSD', sub: '72 小时以上' },
+];
+const X = [190, 540], CW = 310, Y0 = 52, RH = 82;
+type Chip = { t: string; s: string; c: string };
+const cells: Chip[][][] = [
+  // V4
+  [
+    [{ t: '全局 KV', s: '3514 B / token', c: 'g' }, { t: '滑窗 KV', s: '每层 128 条', c: 's' }],
+    [],
+    [{ t: '全局 KV', s: '整条前缀都存', c: 'g' }, { t: '滑窗 KV', s: '每轮存两处，各 128 条', c: 's' }],
+  ],
+  // V4.1
+  [
+    [{ t: '全局 KV', s: '890 B / token', c: 'g' }, { t: '滑窗 KV', s: '40 层，每层 128 条', c: 's' }],
+    [{ t: 'encoder 的滑窗 KV', s: '每台机器 10% 的内存，几分钟后过期', c: 's' }],
+    [{ t: '全局 KV', s: '整条前缀都存', c: 'g' }],
+  ],
+];
+---
+
+<figure class="ct">
+  <svg viewBox="0 0 870 318" role="img" aria-label="V4 与 V4.1 的 KV 缓存分别放在哪一层存储">
+    <text class="col" x={X[0] + CW / 2} y="30" text-anchor="middle">V4</text>
+    <text class="col" x={X[1] + CW / 2} y="30" text-anchor="middle">V4.1</text>
+    {tiers.map((t, i) => (
+      <g>
+        <text class="tier" x="20" y={Y0 + i * RH + 32}>{t.name}</text>
+        <text class="sub" x="20" y={Y0 + i * RH + 50}>{t.sub}</text>
+        <line class="sep" x1="16" y1={Y0 + i * RH} x2="856" y2={Y0 + i * RH} />
+        {[0, 1].map((v) => {
+          const cs = cells[v][i];
+          if (!cs.length) return <text class="none" x={X[v] + CW / 2} y={Y0 + i * RH + 44} text-anchor="middle">不放 KV</text>;
+          const w = cs.length === 1 ? CW : (CW - 10) / 2;
+          return cs.map((c, k) => (
+            <g>
+              <rect class:list={['chip', c.c]} x={X[v] + k * (w + 10)} y={Y0 + i * RH + 12} width={w} height={RH - 24} rx="7" />
+              <text class="ct1" x={X[v] + k * (w + 10) + w / 2} y={Y0 + i * RH + 36} text-anchor="middle">{c.t}</text>
+              <text class="ct2" x={X[v] + k * (w + 10) + w / 2} y={Y0 + i * RH + 53} text-anchor="middle">{c.s}</text>
+            </g>
+          ));
+        })}
+      </g>
+    ))}
+    <line class="sep" x1="16" y1={Y0 + 3 * RH} x2="856" y2={Y0 + 3 * RH} />
+    <text class="sub" x="856" y={Y0 + 3 * RH + 18} text-anchor="end">decoder 的滑窗 KV 不进任何缓存，每次 prefill 后回放 128 个 token 重建</text>
+  </svg>
+  {caption && <figcaption>{caption}</figcaption>}
+</figure>
+
+<style>
+  .ct { margin: 2rem 0; padding: 0.9rem 0.7rem 0.5rem; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); overflow-x: auto; }
+  .ct svg { display: block; width: 100%; min-width: 780px; height: auto; font-family: var(--font-sans); }
+  .col { fill: var(--text); font-size: 13.5px; font-weight: 700; }
+  .tier { fill: var(--text); font-size: 12.5px; font-weight: 600; }
+  .sub, .none { fill: var(--muted); font-size: 10.5px; }
+  .none { font-size: 11.5px; }
+  .sep { stroke: var(--border-2); }
+  .chip { stroke-width: 1.4; }
+  .chip.g { fill: color-mix(in srgb, var(--cat-cyan) 20%, var(--bg-2)); stroke: var(--cat-cyan); }
+  .chip.s { fill: color-mix(in srgb, var(--cat-amber) 20%, var(--bg-2)); stroke: var(--cat-amber); }
+  .ct1 { fill: var(--text); font-size: 12px; font-weight: 600; }
+  .ct2 { fill: var(--text-2); font-size: 10px; }
+  figcaption { margin-top: 0.6rem; font-size: 0.88rem; color: var(--text-2); text-align: center; line-height: 1.6; }
+</style>

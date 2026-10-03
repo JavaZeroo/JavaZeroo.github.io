@@ -1,0 +1,39 @@
+---
+/**
+ * DSpark 的一轮：主干刚生成一个 token 之后，草稿模块怎么给出后面 5 个 token，再交给主干验证。
+ * 粗的一步是并行的（3 个 block 只跑一次，5 个位置一起出 base logits），细的一步是串行的（Markov head 逐位置加偏置、采样）。
+ * 数字都是 V4.1-Flash 的：读主干第 37–39 层入口、滑窗 128、5 个位置。
+ */
+import FlowDiagram from '../figures/FlowDiagram.astro';
+interface Props { caption?: string }
+const { caption } = Astro.props;
+
+const nodes = [
+  { id: 'm', x: 20, y: 20, w: 230, h: 50, kind: 'in', lines: ['主干第 37、38、39 层的入口', '4 条残差流取平均，三层拼成 15360 维'] },
+  { id: 'mp', x: 290, y: 20, w: 200, h: 50, lines: ['main_proj + RMSNorm', '得到 5120 维的上下文向量'] },
+  { id: 'win', x: 530, y: 14, w: 196, h: 62, kind: 'main', lines: ['上下文的滑窗 KV', '最近 128 个位置', '每个 DSpark 层各存一份'] },
+  { id: 'inp', x: 20, y: 138, w: 230, h: 62, kind: 'in', lines: ['草稿输入，5 个位置', '刚生成的 token + 4 个占位 token', '用主干的 embedding'] },
+  { id: 'blk', x: 290, y: 130, w: 260, h: 78, kind: 'mla', strong: true, lines: ['3 个 DSpark block，只跑一次', 'query：5 个草稿位置', 'KV：128 条上下文 + 5 个草稿位置', '5 个位置互相都看得见'] },
+  { id: 'u', x: 590, y: 144, w: 200, h: 50, lines: ['base logits $U_1, \\dots, U_5$', '过主干的 LM head'] },
+  { id: 'mk', x: 590, y: 270, w: 200, h: 62, kind: 'attnres', strong: true, lines: ['Markov head，串行 5 步', '给 $U_k$ 加上由前一个 token 决定的偏置', '再采样出 $x_k$'] },
+  { id: 'cf', x: 290, y: 276, w: 260, h: 50, kind: 'attnres', lines: ['confidence head', '$c_k$：位置 $k$ 通过验证的条件概率'] },
+  { id: 'sch', x: 20, y: 270, w: 230, h: 62, kind: 'moe', lines: ['调度器', '按置信度和当前的负载', '决定每个请求送验几个 token'] },
+  { id: 'ver', x: 20, y: 372, w: 230, h: 44, kind: 'moe', strong: true, lines: ['主干验证', '一次前向检查所有送验的 token'] },
+];
+const edges = [
+  { from: 'm', to: 'mp' },
+  { from: 'mp', to: 'win', label: '写入' },
+  { from: 'win', to: 'blk', dashed: true, label: '读', lx: 430, ly: 112 },
+  { from: 'inp', to: 'blk', path: 'M250 169 H 288' },
+  { from: 'blk', to: 'u' },
+  { from: 'u', to: 'mk' },
+  { from: 'blk', to: 'cf', label: '5 个位置的隐藏态', lx: 428, ly: 244 },
+  { from: 'mk', to: 'cf', path: 'M590 301 H 552', label: '前一个 token', lx: 554, ly: 262 },
+  { from: 'cf', to: 'sch', path: 'M290 301 H 252' },
+  { from: 'sch', to: 'ver' },
+  { from: 'mk', to: 'ver', path: 'M690 332 V 394 H 252', label: '5 个草稿 token 和它们的概率', lx: 420, ly: 384 },
+];
+---
+
+<FlowDiagram id="dsparkround" viewBox="0 0 810 430" minWidth={760} label="DSpark 的一轮：并行草稿、串行修正、置信度调度、主干验证"
+  nodes={nodes} edges={edges} caption={caption} />

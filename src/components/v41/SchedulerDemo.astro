@@ -1,0 +1,113 @@
+---
+/**
+ * 交互：DSpark 的调度器在不同负载下把验证的 token 切在哪里。
+ * 三个请求各有 5 个草稿 token，存活概率 a = 条件接受概率的连乘。把 15 个 (请求, 位置) 按 a 降序排成一行，
+ * 从左往右一个个收进验证批次；每收一个，期望产出 τ 加 a，但批次变大、每秒能跑的步数 SPS 下降。
+ * 吞吐 Θ = τ · SPS 一开始下降就停。拖动滑块改变「批次每多一个 token，每步耗时增加多少」（SPS = 1/(1 + l·n)），切点跟着移动。
+ * 置信度和 SPS 曲线都是示意用的数字：论文没有公布真实的 SPS 表。
+ */
+---
+
+<div class="demo dsp-sched">
+  <div class="ctl">
+    <label>批次每多 1 个 token，每步耗时增加（相对只验 anchor 时）
+      <input type="range" min="0" max="80" value="20" step="1" data-lam />
+      <output data-lam-out>2.0%</output>
+    </label>
+  </div>
+  <svg viewBox="0 0 760 356" data-plot role="img" aria-label="调度器在不同负载下的切点"></svg>
+  <div class="res" data-res></div>
+  <div class="legend">
+    <span class="ra">请求 A：置信度高，衰减慢</span>
+    <span class="rb">请求 B：置信度低，衰减快</span>
+    <span class="rc">请求 C：介于两者之间</span>
+  </div>
+</div>
+
+<style is:global>
+  .dsp-sched { border: 1px solid var(--border); border-radius: var(--r); padding: 1rem 1.1rem; background: var(--surface); margin: 1.5rem 0; overflow-x: auto; }
+  .dsp-sched .ctl { font-size: 0.9rem; color: var(--text-2); }
+  .dsp-sched .ctl input { vertical-align: middle; width: 200px; margin: 0 0.6rem; }
+  .dsp-sched .ctl output { font-variant-numeric: tabular-nums; color: var(--text); font-weight: 600; }
+  .dsp-sched svg { display: block; width: 100%; min-width: 640px; height: auto; margin-top: 0.6rem; font-family: var(--font-sans); }
+  .dsp-sched .bar { stroke-width: 1.2; }
+  .dsp-sched .bar.ra { fill: color-mix(in srgb, var(--cat-indigo) 50%, var(--bg-2)); stroke: var(--cat-indigo); }
+  .dsp-sched .bar.rb { fill: color-mix(in srgb, var(--cat-amber) 55%, var(--bg-2)); stroke: var(--cat-amber); }
+  .dsp-sched .bar.rc { fill: color-mix(in srgb, var(--cat-emerald) 50%, var(--bg-2)); stroke: var(--cat-emerald); }
+  .dsp-sched .bar.off { opacity: 0.25; }
+  .dsp-sched .lb { fill: var(--muted); font-size: 10px; }
+  .dsp-sched .ax { fill: var(--text-2); font-size: 11px; font-weight: 600; }
+  .dsp-sched .grid { stroke: var(--border-2); stroke-width: 1; }
+  .dsp-sched .cut { stroke: var(--cat-rose); stroke-width: 1.8; stroke-dasharray: 5 4; }
+  .dsp-sched .cutlb { fill: var(--cat-rose); font-size: 11px; font-weight: 600; }
+  .dsp-sched .th { fill: none; stroke: var(--cat-cyan); stroke-width: 2.2; }
+  .dsp-sched .dot { fill: var(--cat-cyan); }
+  .dsp-sched .dot.best { fill: var(--cat-rose); }
+  .dsp-sched .res { margin-top: 0.5rem; font-size: 0.88rem; color: var(--text-2); line-height: 1.7; }
+  .dsp-sched .res b { color: var(--text); }
+  .dsp-sched .legend { display: flex; flex-wrap: wrap; gap: 0.3rem 1.4rem; margin-top: 0.4rem; font-size: 0.82rem; color: var(--text-2); }
+  .dsp-sched .legend span::before { content: ''; display: inline-block; width: 12px; height: 12px; margin-right: 6px; vertical-align: -2px; border-radius: 2px; }
+  .dsp-sched .legend .ra::before { background: var(--cat-indigo); }
+  .dsp-sched .legend .rb::before { background: var(--cat-amber); }
+  .dsp-sched .legend .rc::before { background: var(--cat-emerald); }
+</style>
+
+<script>
+  const init = () => document.querySelectorAll<HTMLElement>('.dsp-sched').forEach((root) => {
+    if (root.dataset.ready) return;
+    root.dataset.ready = '1';
+    const q = <T extends Element>(s: string) => root.querySelector<T>(s)!;
+    const lam = q<HTMLInputElement>('[data-lam]'), lamOut = q<HTMLOutputElement>('[data-lam-out]');
+    const svg = q<SVGSVGElement>('[data-plot]'), res = q<HTMLElement>('[data-res]');
+    // 三个请求的条件接受概率 c_{r,1..5}（示意）
+    const reqs = [
+      { id: 'A', cls: 'ra', c: [0.95, 0.93, 0.92, 0.9, 0.88] },
+      { id: 'B', cls: 'rb', c: [0.72, 0.66, 0.6, 0.55, 0.5] },
+      { id: 'C', cls: 'rc', c: [0.88, 0.8, 0.7, 0.6, 0.5] },
+    ];
+    const items = reqs.flatMap((r) => { let a = 1; return r.c.map((c, j) => ({ r: r.id, cls: r.cls, j: j + 1, a: (a *= c) })); })
+      .sort((x, y) => y.a - x.a);
+    const R = reqs.length, N = items.length;
+    const X0 = 70, STEP = 44, BW = 30, BASE = 150, BH = 104, TB = 326, TH = 120;
+    const render = () => {
+      const l = Number(lam.value) / 1000;
+      lamOut.textContent = `${(l * 100).toFixed(1)}%`;
+      const sps = (n: number) => 1 / (1 + l * n);                  // 相对 n = 0 时的 SPS
+      const tau = [R]; items.forEach((it, i) => tau.push(tau[i] + it.a));
+      const th = tau.map((t, n) => t * sps(n));
+      let best = 0;                                                // 一下降就停
+      for (let n = 1; n <= N; n++) { if (th[n] > th[best]) best = n; else break; }
+      const tmax = R + items.reduce((s, it) => s + it.a, 0);
+      const ty = (v: number) => TB - (v / (tmax * 1.05)) * TH;
+      const bx = (i: number) => X0 + i * STEP;
+      const px = (n: number) => (n === 0 ? X0 - STEP / 2 : bx(n - 1) + BW / 2);
+      const cutX = best === 0 ? X0 - 8 : bx(best - 1) + BW + (STEP - BW) / 2;
+      const len: Record<string, number> = { A: 0, B: 0, C: 0 };
+      items.slice(0, best).forEach((it) => { len[it.r] = Math.max(len[it.r], it.j); });
+      svg.innerHTML =
+        `<text class="ax" x="10" y="22">存活概率 a，从大到小</text>` +
+        `<line class="grid" x1="${X0 - 30}" x2="${bx(N - 1) + BW + 10}" y1="${BASE}" y2="${BASE}"/>` +
+        items.map((it, i) => {
+          const h = it.a * BH;
+          return `<rect class="bar ${it.cls}${i >= best ? ' off' : ''}" x="${bx(i)}" y="${BASE - h}" width="${BW}" height="${h}" rx="2"/>` +
+            `<text class="lb" x="${bx(i) + BW / 2}" y="${BASE - h - 5}" text-anchor="middle">${it.a.toFixed(2)}</text>` +
+            `<text class="lb" x="${bx(i) + BW / 2}" y="${BASE + 14}" text-anchor="middle">${it.r}${it.j}</text>`;
+        }).join('') +
+        `<line class="cut" x1="${cutX}" x2="${cutX}" y1="34" y2="${TB + 6}"/>` +
+        `<text class="cutlb" x="${cutX + 6}" y="46">${best === 0 ? '一个都不送验' : '切在这里'}</text>` +
+        `<text class="ax" x="10" y="${TB - TH - 10}">期望吞吐 Θ = τ · SPS</text>` +
+        `<line class="grid" x1="${X0 - 30}" x2="${bx(N - 1) + BW + 10}" y1="${TB}" y2="${TB}"/>` +
+        `<path class="th" d="${th.map((v, n) => `${n ? 'L' : 'M'}${px(n).toFixed(1)} ${ty(v).toFixed(1)}`).join(' ')}"/>` +
+        th.map((v, n) => `<circle class="dot${n === best ? ' best' : ''}" cx="${px(n)}" cy="${ty(v)}" r="${n === best ? 5 : 2.6}"/>`).join('') +
+        `<text class="lb" x="${px(0)}" y="${TB + 16}" text-anchor="middle">只验 anchor</text>` +
+        `<text class="lb" x="${bx(N - 1) + BW / 2}" y="${TB + 16}" text-anchor="middle">全部送验</text>`;
+      res.innerHTML = `送验长度：请求 A <b>${len.A}</b> 个，B <b>${len.B}</b> 个，C <b>${len.C}</b> 个。` +
+        `批次里共 <b>${R + best}</b> 个 token，期望每步产出 <b>${tau[best].toFixed(2)}</b> 个 token。` +
+        `吞吐是不做投机时的 <b>${(th[best] / th[0]).toFixed(2)}</b> 倍；全部送验是 <b>${(th[N] / th[0]).toFixed(2)}</b> 倍。`;
+    };
+    lam.addEventListener('input', render);
+    render();
+  });
+  document.addEventListener('astro:page-load', init);
+  if (document.readyState !== 'loading') init(); else document.addEventListener('DOMContentLoaded', init);
+</script>

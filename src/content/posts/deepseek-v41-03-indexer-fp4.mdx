@@ -1,0 +1,319 @@
+---
+title: "DeepSeek-V4.1 模型结构（3）：序列维度（下），Hierarchical Sparse Indexer 与 FP4 KV cache"
+pubDate: 2026-10-02 12:30:00
+description: "decoder 的 Reindex 层每生成一个 token 都要给 100 万条 KV 打分。Hierarchical Sparse Indexer 让第 20 层先圈出 16384 个候选位置，后面的层只在里面打分，把这部分计算变成常数。FP4 把每条 main KV 从 584 字节压到 288 字节：E2M1 能表示哪些数，为什么 22.6 是幅度的上界，scale 为什么选 E4M3。最后把 890 字节和 V4-Flash 的 3514 字节逐项对比。"
+categories:
+  - "📝学习"
+tags:
+  - "大模型"
+  - "DeepSeek-V4.1"
+  - "模型结构"
+series: deepseek-v41
+part: "序列"
+order: 3
+draft: false
+---
+
+import V41ArchDiagram from '../../components/v41/V41ArchDiagram.astro';
+import CandidatePool from '../../components/v41/CandidatePool.astro';
+import Fp4Format from '../../components/v41/Fp4Format.astro';
+import KvBytesBars from '../../components/v41/KvBytesBars.astro';
+
+对应论文 §2.3.2 "Hierarchical Sparse Indexer" 和 §2.4.4 "FP4 Main KV Cache"。[上一篇](/2026/10/02/deepseek-v41-02-csa2/)讲了 CSA2 怎么把全局 KV 从每层一份减到 4 份。这一篇处理剩下的两件事：decoder 里重新打分的计算量，和每一条 KV 自己的字节数。最后把论文标题里的 890 字节拆开。
+
+<V41ArchDiagram highlight={['pool', 'csa2']} caption="你现在在这里：decoder 共享池里的候选池，以及全局 KV 的存储格式。" />
+
+## Reindex 层每个 token 要给 100 万条打分
+
+先算 indexer 的计算量。indexer 的打分公式是
+
+$$
+I_{t,s} = \sum_{j=1}^{32} w^I_{t,j} \cdot \operatorname{ReLU}\big(\mathbf{q}^I_{t,j} \cdot \mathbf{k}^I_s\big),
+$$
+
+32 个头，每头 128 维。给一条 KV 打分要做 $32 \times 128 = 4096$ 次乘加。
+
+decode 时每生成一个 token，自己跑 indexer 的 8 层各打一遍分。上下文 1M 时：
+
+| 层 | 看得见的条目数 | 每个 token 的乘加次数 |
+|---|---|---|
+| encoder 的 3 个 Full 层，$m = 2$ | 各 52 万 | $3 \times 2.1 \times 10^9$ |
+| 第 20 层，Full，$m = 1$ | 105 万 | $4.3 \times 10^9$ |
+| 4 个 Reindex 层，$m = 1$ | 各 105 万 | $4 \times 4.3 \times 10^9$ |
+
+合计约 $2.8 \times 10^{10}$ 次，其中 4 个 Reindex 层占了六成。作为对照，一层的核心注意力只读 640 条，64 个头、每头 512 维，算分数和加权求和各一遍是 $2 \times 64 \times 640 \times 512 \approx 4.2 \times 10^7$ 次，和上下文长度无关。
+
+所以 CSA2 之后，decode 的计算里随长度线性增长的只剩 indexer 的打分。上一篇说 Reindex 不占存储、只付一次 indexer 的计算。这笔计算在长上下文下并不小。
+
+## 用浅层的打分结果限制深层的打分范围
+
+Reindex 层和第 20 层给**同一份** indexer K 打分，只是用的 indexer query 不同。4 个 Reindex 层各自从头扫一遍 100 万条，大部分是重复劳动。论文的说法是，浅层 indexer 的信息可以用来限制深层 indexer 的候选范围；我的理解是，一条 KV 如果在第 20 层的分数很低，它在第 24 层被选进前 512 的可能性也不大。
+
+Hierarchical Sparse Indexer 利用这一点。它分两级。
+
+**第一级：第 20 层建候选池。** 第 20 层照常给全部看得见的位置打分，选出自己的 top-512。同时它多做一件事：
+
+1. 把位置按顺序每 8 个分成一块。
+2. 每块的分数取块内 8 个位置的最高分。
+3. 留下分数最高的 2048 块。
+4. 这些块覆盖的全部位置，就是候选池。最多 $2048 \times 8 = 16384$ 个位置。
+
+**第二级：Reindex 层只在池内打分。** 第 24、28、32、36 层用自己的 indexer query，只给候选池里的位置打分，在里面选自己的 top-512。Reuse 层不受影响，照旧用最近一次选出的索引。
+
+<CandidatePool caption="两级选择的示意。真实配置是每块 8 个位置、留 2048 块；这里画成每块 4 个、留 6 块。绿框是每一层最终选中的位置：第 24 层选的和第 20 层不同，但都在候选池内。" />
+
+三个集合是套在一起的：
+
+$$
+\underbrace{\text{每层的 top-512}}_{512} \ \subset\ \underbrace{\text{候选池}}_{\le 16384} \ \subset\ \underbrace{\text{全部看得见的位置}}_{\text{随上下文增长}} .
+$$
+
+候选池是最终选择的 32 倍大。它限制的是「在哪里找」，不是「选哪些」：4 个 Reindex 层在同一个池里可以选出各不相同的 512 条。
+
+有了候选池，Reindex 层每个 token 的打分量变成
+
+$$
+16384 \times 4096 \approx 6.7 \times 10^7,
+$$
+
+和上下文长度无关。1M 上下文下它是原来的 $1/64$。4 个 Reindex 层合计从 $1.7 \times 10^{10}$ 降到 $2.7 \times 10^8$。
+
+论文强调这个做法**不增加任何状态**。它对比的是另一类方法：先给每块算一个池化后的表示，对块打分、剪枝，再在留下的块里按 token 打分。那需要额外存每块的表示。这里的块分数直接从第 20 层已经算出的分数里取最大值，候选池只是当前 query 的一张临时的表。
+
+## 候选池的三个细节在代码里
+
+论文 §2.3.2 没有写实现。官方代码里建候选池的函数是这样的：
+
+```python
+def select_candidate_blocks(logits, compress_lens, topk_blocks, block_size):
+    width = logits.size(-1)
+    # score each block by its best position; -inf pads the last one out to block_size
+    scores = F.pad(logits, (0, -width % block_size), value=-torch.inf)
+    scores = scores.unflatten(-1, (-1, block_size)).amax(dim=-1)
+    num_blocks = scores.size(-1)
+
+    # the block with this query's newest position is only partly filled, so pin it in
+    last = (compress_lens - 1) // block_size
+    scores = scores.masked_fill(torch.arange(num_blocks, device=logits.device) == last, torch.inf)
+
+    top = scores.topk(min(topk_blocks, num_blocks), dim=-1)
+    keep = torch.zeros_like(scores, dtype=torch.bool).scatter_(-1, top.indices, top.values > -torch.inf)
+    return keep.repeat_interleave(block_size, dim=-1)[..., :width]
+```
+
+从里面读出三件事：
+
+- **最新的一块强制保留。** 当前 query 最新的那个位置所在的块，分数被直接设成正无穷。代码注释给的理由是：这一块还没填满，可能被一个更早的、填满的块比下去，但它装的是最近的 token。
+- **候选池是一张布尔表。** 函数返回的是和分数同形状的 0/1 表，每个 query 一张。用它的层只做一件事：把池外位置的分数设成负无穷，再取 top-512。
+
+  ```python
+  elif self.uses_candidates:
+      index_score = index_score.masked_fill(~shared_attn.candidates, -torch.inf)
+  ```
+
+- **上下文短的时候它不起作用。** 块数不到 2048 时，全部的块都被留下，候选池就是全部位置。上下文超过 16384 个 token 之后，它才真的开始剪。
+
+这份参考实现里，Reindex 层仍然先算出全部位置的分数再用表盖掉，计算量没有省。省计算要靠部署用的 kernel 只取池内的 indexer K 来算。
+
+## 它只在 decoder 里，而且只管住了一半
+
+论文明确说 Hierarchical Sparse Indexer 只用在 decoder，目的是减少 decode 时的重复打分。两个边界要清楚。
+
+**第 20 层自己仍然全扫。** 候选池是它扫完才有的。论文的原话是：分层索引降低了后面各次 indexer 计算的开销，同时保留了最开始的一次全范围扫描。
+
+**encoder 的 3 个 Full 层也仍然全扫。** encoder 里没有 Reindex 层，每个 Full 层面对的是自己新生成的一份 KV。
+
+所以 1M 上下文下，每个 token 的打分量是
+
+$$
+\underbrace{3 \times 2.1 \times 10^9}_{\text{encoder 的 Full}} + \underbrace{4.3 \times 10^9}_{\text{第 20 层}} + \underbrace{2.7 \times 10^8}_{\text{4 个 Reindex}} \approx 1.1 \times 10^{10},
+$$
+
+是没有候选池时的四成。这些乘加都是 FP4 的。
+
+论文 Figure 2 给的是整体结果：上下文从 4K 增加到 1M，V4.1-Flash 单 token 的 decode FLOPs 只增加 1/4。那张图的 FLOPs 是按精度加权的，BF16、FP8、FP4 的运算分别乘 1、0.5、0.25。上面的 $1.1 \times 10^{10}$ 次 FP4 乘加按这种算法要再乘 0.25。
+
+候选池在训练时也生效。论文说这个机制是 training-aware 的，在 post-training 阶段引入：训练和推理用同样的候选范围，深层的 indexer 是在它推理时面对的那个范围里被优化的。
+
+论文没有说块分数为什么取最大值。这是我的解读：取最大值意味着一块里只要有一个位置很相关，整块就会被留下。换成平均值的话，一个高分位置会被同块的 7 个低分位置拉低。
+
+## FP4：把每条 main KV 的字节数减半
+
+计算的问题到此为止。下面是存储的最后一个因子：每条多少字节。
+
+V4 的 main KV 是混合精度：448 维用 FP8，带 RoPE 的 64 维用 BF16，每条约 584 字节。indexer K 从 V4 起就是 FP4，每条 68 字节。V4.1 把 main KV 也换成 FP4。
+
+论文先解释了两处 FP4 的目的不同：
+
+- **indexer 的 FP4 是为了算得快。** indexer query 和 indexer K 直接用 4 bit 做矩阵乘法。这要求硬件原生支持这种格式的乘法，所以论文选了 OCP 标准的 MXFP4，「尽管别的格式在实验里精度更高」。
+- **main KV 的 FP4 是为了存得少。** 读出来先反量化，再做注意力。乘法不在 4 bit 上做，所以格式不需要硬件支持，可以挑精度更高的。
+
+### E2M1 只能表示 15 个值
+
+两处用的 4 bit 数是同一种，叫 E2M1：1 位符号，2 位指数，1 位尾数。它能表示的绝对值只有 8 个：
+
+$$
+0,\ 0.5,\ 1,\ 1.5,\ 2,\ 3,\ 4,\ 6 .
+$$
+
+加上符号一共 15 个值。间距不均匀，越大越稀。
+
+真实的激活值不在这个范围里，所以要配一个 **scale**。把一条向量分成小组，每组存一个 scale $s$。量化和反量化是
+
+$$
+q_c = \operatorname{round}_{\text{E2M1}}\Big(\frac{x_c}{s}\Big), \qquad \hat x_c = q_c \cdot s, \qquad s = \frac{\max_c |x_c|}{6} .
+$$
+
+scale 取成组内最大绝对值除以 6，这样组里最大的那个数正好落在 E2M1 的最大值 6 上，整个范围都用上了。
+
+<Fp4Format caption="上：E2M1 的 15 个可表示的值。下：一条全局 KV 在缓存里占多少字节，橙色是 scale。" />
+
+### scale 的格式决定了精度
+
+4 bit 的数本身没得选，能选的是 scale 怎么存。V4.1 里两处的选择不同：
+
+| | 每组几个数 | scale 的格式 | 每个数平均占几 bit |
+|---|---|---|---|
+| indexer K、indexer query | 32 | E8M0，只能是 2 的整数次幂 | $4 + 8/32 = 4.25$ |
+| main KV | 16 | E4M3，一个普通的 FP8 数 | $4 + 8/16 = 4.5$ |
+
+main KV 的格式参照的是 NVFP4：每 16 个数一个 E4M3 的 scale。NVFP4 原本还有第二级的全局 scale，V4.1 去掉了。
+
+论文说这种格式更准，没有展开。下面是我的解读，说明差别在哪。
+
+E8M0 的 scale 只能取 2 的整数次幂。理想的 scale 是 $\max|x|/6$，它一般不是 2 的幂，只能向上取到最近的一个。最坏的情况下取到的值接近理想值的 2 倍。scale 大了 2 倍，组里最大的数除以它之后只有 3，E2M1 里 4 和 6 这两档就用不上了，相当于白白丢掉一档分辨率。
+
+E4M3 的 scale 有 3 位尾数，相邻两个可取的值最多差 12.5%。它几乎能正好等于 $\max|x|/6$，E2M1 的 8 档全都用得上。
+
+组的大小也有影响。16 个数一组比 32 个数一组更细，一个很大的数只会连累同组的 15 个邻居。
+
+代价是每个数多 0.25 bit。一条 512 维的 main KV，负载 256 字节，scale 32 字节，共 288 字节。
+
+### 去掉全局 scale 之后范围仍然够用
+
+NVFP4 的第二级 scale 是为了扩大动态范围。V4.1 论证了不需要它。论证分三步，每一步都很短。
+
+**格式能表示多大。** E4M3 的最大值是 448，E2M1 的最大值是 6，两者相乘：
+
+$$
+448 \times 6 = 2688 .
+$$
+
+**main KV 的每个数最大能有多大。** main KV 在量化前过了一次 RMSNorm。记归一化前的向量是 $u \in \mathbb{R}^{512}$，RMSNorm 的权重是 $g$：
+
+$$
+x_c = g_c \cdot \frac{u_c}{\operatorname{rms}(u)}, \qquad \operatorname{rms}(u) = \frac{\lVert u \rVert_2}{\sqrt{512}} .
+$$
+
+把 $g$ 先放一边，$u / \operatorname{rms}(u)$ 的长度是
+
+$$
+\Big\lVert \frac{u}{\operatorname{rms}(u)} \Big\rVert_2 = \frac{\lVert u \rVert_2}{\lVert u \rVert_2 / \sqrt{512}} = \sqrt{512} \approx 22.6 .
+$$
+
+论文说训练后 RMSNorm 权重的最大绝对值约为 1。于是 $\lVert x \rVert_2 \le \sqrt{512}$。一个向量的任何一个分量的绝对值都不超过它的长度，所以每个 $|x_c| \le 22.6$。
+
+**RoPE 不改变这个界。** RoPE 把相邻的两维当作一个复数做旋转，旋转不改变长度。所以加了 RoPE 之后，上面的界仍然成立。
+
+22.6 离 2688 差两个数量级。论文还补了一个实测值：训练中观察到的最大幅度在 10 左右。所以去掉全局 scale 不影响精度，缓存的布局也更简单。
+
+### 三个实现上的选择
+
+- **RoPE 之后再量化。** 论文试过在 RoPE 之前量化，精度只高一点点，但 decode 时会多出开销，所以选了之后。带 RoPE 的 64 维和其余 448 维用同一种格式，V4 里 RoPE 维单独用 BF16 的做法没有了。
+- **滑窗 KV 留在 FP8。** 论文说它对量化敏感。V4.1 的滑窗 KV 是整条 512 维 FP8，每 32 维一个 scale（后半句来自代码）。
+- **靠量化感知训练。** 论文说 main KV 的 FP4 是在 post-training 阶段通过 QAT 引入的，性能只有很小的下降。
+
+官方的参考实现里，缓存实际上是 BF16 的张量。量化是「量化后立刻反量化、把结果写回去」，只模拟数值效果：
+
+```python
+apply_rotary_emb(latent[..., -self.rope_head_dim :], freqs)
+# Compressed KV uses groups of 16 with E4M3 scales; the indexer uses 32 with E8M0.
+fp4_act_quant(latent, 16, True, scale_dtype=torch.float8_e4m3fn)
+self.compress_kv_cache[:bsz, start_pos // ratio : ...] = latent
+```
+
+288 字节是部署时的存储格式，不是这份代码的实际占用。
+
+## 890 字节的分项，和 V4-Flash 的 3514 字节对比
+
+现在三个因子都齐了，回到[上一篇](/2026/10/02/deepseek-v41-02-csa2/)开头的式子：
+
+$$
+\text{字节 / token} = \sum_{\text{存 KV 的层}} (\text{每条多少字节}) \times (\text{每个 token 几条}).
+$$
+
+**V4.1-Flash。** 每个 Full 层存一条 main KV 配一条 indexer K，$288 + 68 = 356$ 字节。
+
+| 来源 | 每 token 几条 | main KV | indexer K |
+|---|---|---|---|
+| encoder 的 3 个 Full 层，$m = 2$ | $3 \times \frac12 = 1.5$ | $1.5 \times 288 = 432$ | $1.5 \times 68 = 102$ |
+| decoder 的第 20 层，$m = 1$ | 1 | 288 | 68 |
+| 合计 | 2.5 | 720 | 170 |
+
+$$
+720 + 170 = 890\ \text{字节 / token}.
+$$
+
+和论文摘要、§6、Figure 1(b) 的 890 完全一致。
+
+**V4-Flash。** 21 层 CSA（$m = 4$）有 main KV 和 indexer K，20 层 HCA（$m = 128$）只有 main KV。
+
+| 来源 | 每 token 几条 | main KV | indexer K |
+|---|---|---|---|
+| 21 层 CSA，$m = 4$ | $21 \times \frac14 = 5.25$ | $5.25 \times 584 = 3066$ | $5.25 \times 68 = 357$ |
+| 20 层 HCA，$m = 128$ | $20 \times \frac{1}{128} \approx 0.16$ | $0.16 \times 584 \approx 91$ | 无 |
+| 合计 | 5.41 | 3157 | 357 |
+
+$$
+3157 + 357 = 3514\ \text{字节 / token}.
+$$
+
+:::note{type="warning"}
+**V4-Flash 的 584 里有 1 个字节没有出处。** 按 V4 的官方代码，一条 main KV 是 448 维 FP8（448 字节）加 64 维 BF16（128 字节）加 7 个 1 字节的 scale，共 583 字节。用 583 算出来是 3508.84，和 Figure 1(b) 的 3514 差 5 个字节。只有取 584 才能对上。多出的这 1 个字节可能是第 8 个 scale 的位置，也可能是对齐，论文和代码都没有写。V4.1 的 890 没有这个问题。
+:::
+
+<KvBytesBars caption="每个 token 的全局 KV 字节数。V4-Flash 几乎全部花在 CSA 的 main KV 上；V4.1-Flash 里 decoder 的那一份占了四成。" />
+
+把 3514 到 890 的 3.9 倍拆成两步，看每一步各出了多少力：
+
+| 步骤 | 每 token 几条 | 每条字节 | 字节 / token | 相对上一步 |
+|---|---|---|---|---|
+| V4-Flash | 5.41 | 584 + 68 | 3514 | — |
+| 只换层的排布和压缩率 | 2.5 | 584 + 68 | 1630 | ÷ 2.16 |
+| 再把 main KV 换成 FP4 | 2.5 | 288 + 68 | 890 | ÷ 1.83 |
+
+第二行是一个假想的中间状态，用来分离两个因素：CSA2 的排布，配 V4 的存储格式。跨层共享贡献了 2.16 倍，FP4 贡献了 1.83 倍。
+
+单看条数从 5.41 到 2.5 会低估跨层共享的作用，因为 V4.1 同时把压缩率从 4 调细到了 2 和 1。如果 V4.1 的 38 层各存一份，条数是 $18 \times \frac12 + 20 \times 1 = 29$ 条，每 token 约 10 KB。跨层共享把 29 条减到 2.5 条，是 11.6 倍。这 11.6 倍里的一大半被用来换更细的压缩率了。
+
+换算成 1M 上下文的总量：
+
+| | 字节 / token | 1M 上下文 |
+|---|---|---|
+| V4-Flash | 3514 | 3.4 GiB |
+| V4.1-Flash | 890 | 0.87 GiB |
+
+## 890 字节不包括的东西
+
+- **滑窗 KV。** 每层 128 条，每条 512 字节加 16 字节 scale，40 层合计约 2.7 MB。它不随上下文增长，所以不摊到每个 token 上。
+- **top-512 索引和候选池。** 每个 query 现算，不进缓存。
+- **磁盘上的那一份。** 论文说 persistent KV cache 是 V4-Flash 的 1/8。其中 1/4 来自这里的 890 对 3514，另外将近一半来自滑窗 KV 不再存盘，那是第 8 篇的内容。
+
+## 容易混淆的几点
+
+- **候选池不省存储。** 它省的是 decode 时深层 indexer 的打分计算。
+- **候选池不是全局共用的。** 每个 query 有自己的一张。它只在这个 token 的这次前向里，从第 20 层传给后面 4 个 Reindex 层。
+- **FP4 不是所有缓存都用。** main KV 和 indexer K 是 FP4，但两者的 scale 格式不同。滑窗 KV 是 FP8。
+- **「FP4」不等于 4 bit 每个数。** 算上 scale，main KV 是每个数 4.5 bit，indexer K 是 4.25 bit。
+- **FP4 的 main KV 不参与 4 bit 的乘法。** 它读出来先反量化成更高的精度，再进注意力。4 bit 直接相乘的只有 indexer。
+
+## 下一篇
+
+序列维度到这里讲完：CED 减了 prefill 的计算，CSA2 减了全局 KV 的份数，候选池减了 decode 的打分，FP4 减了每条的字节。下一篇换到深度维度，讲 Single-Pass mHC 怎么把读写残差流的次数减半。
+
+## 资料
+
+- DeepSeek-V4.1-Flash 技术报告 §2.3.2、§2.4.4，Figure 1(b)、Figure 2、Figure 5：[arXiv 2609.19969](https://arxiv.org/abs/2609.19969)
+- 代码：Hugging Face [deepseek-ai/DeepSeek-V4.1-Flash](https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash)，`inference/model.py` 的 `select_candidate_blocks`、`Indexer.forward`，`inference/kernel.py` 的 `fp4_quant_kernel`
+- 格式：OCP 的 MXFP4（Rouhani et al.，2023），NVIDIA 的 NVFP4（Alvarez et al.，2025）
+- 各代 DeepSeek 模型的 KV 字节数对比见本站 [DeepSeek 注意力结构对比](/2026/09/23/deepseek-attention-structures/)

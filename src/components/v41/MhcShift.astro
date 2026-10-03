@@ -1,0 +1,63 @@
+---
+/**
+ * mHC 的读权重由谁产生、给谁用。上下两栏各画相邻两个子层（l 和 l+1）：
+ *  - V4：系数预测 H(X_l) 的三样结果都给本子层用，读算子必须等它算完；
+ *  - Single-Pass mHC：B_l、C_l 仍给本子层的写算子，A_l 留给下一个子层的读算子，
+ *    本子层的读算子用上一个子层留下的 A_{l-1}，所以不用等。
+ * 回答的问题：论文式 (6) 相对式 (2) 只改了一条边，是哪一条。
+ */
+import FlowDiagram from '../figures/FlowDiagram.astro';
+interface Props { caption?: string }
+const { caption } = Astro.props;
+
+const D = 190;
+const chain = (p: string, y: number, v41: boolean) => {
+  const A0 = v41 ? 'A_{l-1}' : 'A_l', A1 = v41 ? 'A_l' : 'A_{l+1}';
+  return [
+    { id: `${p}x0`, x: 20, y, w: 50, kind: 'in', lines: ['$X_l$'] },
+    { id: `${p}r0`, x: 88, y, w: 100, kind: 'main', lines: ['读算子', `$\\hat X_l = ${A0} X_l$`] },
+    { id: `${p}f0`, x: 206, y, w: 60, lines: ['$\\mathcal{F}_l$'] },
+    { id: `${p}w0`, x: 284, y, w: 124, kind: 'attnres', lines: ['写算子与混合矩阵', '$B_l X_l + C_l Y_l$'] },
+    { id: `${p}x1`, x: 426, y, w: 50, kind: 'in', lines: ['$X_{l+1}$'] },
+    { id: `${p}r1`, x: 494, y, w: 100, kind: 'main', lines: ['读算子', `$\\hat X_{l+1} = ${A1} X_{l+1}$`] },
+    { id: `${p}f1`, x: 612, y, w: 60, lines: ['$\\mathcal{F}_{l+1}$'] },
+    { id: `${p}w1`, x: 690, y, w: 124, kind: 'attnres', lines: ['写算子与混合矩阵', '$B_{l+1} X_{l+1} + C_{l+1} Y_{l+1}$'] },
+    { id: `${p}x2`, x: 832, y, w: 50, kind: 'in', lines: ['$X_{l+2}$'] },
+    { id: `${p}h0`, x: 160, y: y + 80, w: 170, kind: 'mla', lines: ['系数预测 $\\mathcal{H}(X_l)$', '得到 $A_l,\\ B_l,\\ C_l$'] },
+    { id: `${p}h1`, x: 566, y: y + 80, w: 170, kind: 'mla', lines: ['系数预测 $\\mathcal{H}(X_{l+1})$', '得到 $A_{l+1},\\ B_{l+1},\\ C_{l+1}$'] },
+  ];
+};
+const seq = (p: string) => ['x0', 'r0', 'f0', 'w0', 'x1', 'r1', 'f1', 'w1', 'x2'].slice(0, -1).map((a, i, arr) => ({
+  from: `${p}${a}`, to: `${p}${['r0', 'f0', 'w0', 'x1', 'r1', 'f1', 'w1', 'x2'][i]}`,
+}));
+
+const y1 = 40, y2 = 40 + D;
+const nodes = [
+  ...chain('a', y1, false),
+  ...chain('b', y2, true),
+  { id: 'bprev', x: 20, y: y2 + 80, w: 100, kind: 'in', lines: ['上一个子层', '留下的 $A_{l-1}$'] },
+  { id: 'bnext', x: 780, y: y2 + 80, w: 102, kind: 'in', lines: ['留给下一个子层', '$A_{l+1}$'] },
+];
+const up = (x: number, y: number) => `M${x} ${y + 80} V ${y + 46}`;
+const edges = [
+  ...seq('a'), ...seq('b'),
+  // V4：三样系数都回到本子层
+  { from: 'ah0', to: 'ar0', path: up(172, y1), label: '$A_l$', lx: 178, ly: y1 + 64 },
+  { from: 'ah0', to: 'aw0', path: up(316, y1), label: '$B_l,\\ C_l$', lx: 322, ly: y1 + 64 },
+  { from: 'ah1', to: 'ar1', path: up(580, y1), label: '$A_{l+1}$', lx: 586, ly: y1 + 64 },
+  { from: 'ah1', to: 'aw1', path: up(722, y1), label: '$B_{l+1},\\ C_{l+1}$', lx: 728, ly: y1 + 64 },
+  // Single-Pass：A 给下一个子层
+  { from: 'bprev', to: 'br0', path: `M120 ${y2 + 102} H 138 V ${y2 + 46}`, label: '$A_{l-1}$', lx: 100, ly: y2 + 64, dashed: true },
+  { from: 'bh0', to: 'bw0', path: up(316, y2), label: '$B_l,\\ C_l$', lx: 322, ly: y2 + 64 },
+  { from: 'bh0', to: 'br1', path: `M330 ${y2 + 102} H 540 V ${y2 + 46}`, label: '$A_l$ 给下一个子层', lx: 400, ly: y2 + 92 },
+  { from: 'bh1', to: 'bw1', path: up(722, y2), label: '$B_{l+1},\\ C_{l+1}$', lx: 728, ly: y2 + 64 },
+  { from: 'bh1', to: 'bnext' },
+];
+const groups = [
+  { x: 8, y: 8, w: 884, h: 170, label: 'V4 的 mHC（式 2）：读算子用本子层刚算出的 $A_l$' },
+  { x: 8, y: 8 + D, w: 884, h: 170, label: 'Single-Pass mHC（式 6）：读算子用上一个子层留下的 $A_{l-1}$' },
+];
+---
+
+<FlowDiagram id="mhcshift" viewBox="0 0 900 376" minWidth={760} label="mHC 与 Single-Pass mHC 的读权重来源对比"
+  nodes={nodes} edges={edges} groups={groups} caption={caption} />

@@ -1,0 +1,102 @@
+---
+/**
+ * Hierarchical Sparse Indexer 的两级选择，示意图：40 个位置、每块 4 个（真实配置是每块 8 个、留 2048 块）。
+ * 四行从上到下：
+ *  1. 第 20 层的 indexer 给全部可见位置打分，选出自己的 top-k；
+ *  2. 每块取块内最高分，留下分数最高的几块，最新的一块强制保留；
+ *  3. 留下的块覆盖的位置就是候选池；
+ *  4. 后面的 Reindex 层只在池内打分，选出自己的 top-k，可以和第 1 行不同。
+ * 分数是固定的伪随机数，只为画图。回答的问题：候选池限制的是打分范围，不是最终选择。
+ */
+interface Props { caption?: string }
+const { caption } = Astro.props;
+
+// KEEP - 1 >= TOPK：保证第 20 层自己的 top-k 一定落在候选池里，和真实配置（2048 块对 512 条）一致
+const NB = 10, BS = 4, N = NB * BS, KEEP = 6, TOPK = 5;
+// 固定种子的线性同余，生成两组分数
+const lcg = (seed: number) => () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
+const r1 = lcg(7), r2 = lcg(91);
+const sA = Array.from({ length: N }, () => Math.pow(r1(), 2.2));
+const sD = Array.from({ length: N }, () => Math.pow(r2(), 1.6));
+const blk = Array.from({ length: NB }, (_, b) => Math.max(...sA.slice(b * BS, b * BS + BS)));
+const order = blk.map((v, b) => [b === NB - 1 ? 2 : v, b] as [number, number]).sort((a, b) => b[0] - a[0]);
+const kept = new Set(order.slice(0, KEEP).map((x) => x[1]));
+const inPool = (i: number) => kept.has(Math.floor(i / BS));
+const top = (s: number[], ok: (i: number) => boolean) =>
+  new Set(s.map((v, i) => [ok(i) ? v : -1, i] as [number, number]).sort((a, b) => b[0] - a[0]).slice(0, TOPK).map((x) => x[1]));
+const topA = top(sA, () => true);
+const topD = top(sD, inPool);
+
+const X0 = 250, CW = 15, GAP = 2, BG = 8;
+const px = (i: number) => X0 + i * (CW + GAP) + Math.floor(i / BS) * BG;
+const bx = (b: number) => px(b * BS);
+const BW = BS * (CW + GAP) - GAP;
+const rows = [46, 110, 164, 224];
+const W = px(N - 1) + CW + 24;
+---
+
+<figure class="cand">
+  <svg viewBox={`0 0 ${W} 290`} role="img" aria-label="Hierarchical Sparse Indexer 的两级选择">
+    <text class="tick" x={px(0)} y="26">最早的位置</text>
+    <text class="tick" x={px(N - 1) + CW} y="26" text-anchor="end">最新的位置</text>
+
+    <!-- 1. 第 20 层的分数 -->
+    <text class="name" x={X0 - 14} y={rows[0] + 12} text-anchor="end">第 20 层的 indexer 分数</text>
+    <text class="sub" x={X0 - 14} y={rows[0] + 26} text-anchor="end">给全部可见位置打分</text>
+    {sA.map((v, i) => (
+      <rect class:list={['cell', { top: topA.has(i) }]} x={px(i)} y={rows[0]} width={CW} height="22" rx="2" style={`--v:${(12 + v * 78).toFixed(0)}%`} />
+    ))}
+
+    <!-- 2. 块分数 -->
+    <text class="name" x={X0 - 14} y={rows[1] + 12} text-anchor="end">每块取块内最高分</text>
+    <text class="sub" x={X0 - 14} y={rows[1] + 26} text-anchor="end">留下分数最高的几块</text>
+    {blk.map((v, b) => (
+      <g>
+        {[0, 1, 2, 3].map((j) => <line class="fan" x1={px(b * BS + j) + CW / 2} y1={rows[0] + 24} x2={bx(b) + BW / 2} y2={rows[1] - 2} />)}
+        <rect class:list={['cell', 'b', { keep: kept.has(b) }]} x={bx(b)} y={rows[1]} width={BW} height="22" rx="3" style={`--v:${(12 + v * 78).toFixed(0)}%`} />
+      </g>
+    ))}
+    <text class="pin" x={bx(NB - 1) + BW / 2} y={rows[1] + 38} text-anchor="middle">最新一块</text>
+    <text class="pin" x={bx(NB - 1) + BW / 2} y={rows[1] + 50} text-anchor="middle">强制保留</text>
+
+    <!-- 3. 候选池 -->
+    <text class="name" x={X0 - 14} y={rows[2] + 12} text-anchor="end">候选池</text>
+    <text class="sub" x={X0 - 14} y={rows[2] + 26} text-anchor="end">留下的块覆盖的全部位置</text>
+    {sA.map((_, i) => <rect class:list={['cell', 'p', { on: inPool(i) }]} x={px(i)} y={rows[2]} width={CW} height="22" rx="2" />)}
+
+    <!-- 4. Reindex 层 -->
+    <text class="name" x={X0 - 14} y={rows[3] + 12} text-anchor="end">第 24 层的 indexer 分数</text>
+    <text class="sub" x={X0 - 14} y={rows[3] + 26} text-anchor="end">只给池内的位置打分</text>
+    {sD.map((v, i) => (
+      inPool(i)
+        ? <rect class:list={['cell', { top: topD.has(i) }]} x={px(i)} y={rows[3]} width={CW} height="22" rx="2" style={`--v:${(12 + v * 78).toFixed(0)}%`} />
+        : <rect class="cell skip" x={px(i)} y={rows[3]} width={CW} height="22" rx="2" />
+    ))}
+
+    <!-- 图例 -->
+    <g transform={`translate(${X0} 266)`}>
+      <rect class="cell top" x="0" y="0" width="14" height="14" rx="2" style="--v:70%" /><text class="sub" x="20" y="11">这一层最终选中的位置</text>
+      <rect class="cell b keep" x="170" y="0" width="22" height="14" rx="3" style="--v:60%" /><text class="sub" x="198" y="11">留下的块</text>
+      <rect class="cell skip" x="270" y="0" width="14" height="14" rx="2" /><text class="sub" x="290" y="11">不打分</text>
+      <text class="sub" x="356" y="11">颜色越深分数越高</text>
+    </g>
+  </svg>
+  {caption && <figcaption>{caption}</figcaption>}
+</figure>
+
+<style>
+  .cand { margin: 2rem 0; padding: 0.9rem 0.7rem 0.5rem; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); overflow-x: auto; }
+  .cand svg { display: block; width: 100%; min-width: 820px; height: auto; font-family: var(--font-sans); }
+  .name { fill: var(--text); font-size: 12px; font-weight: 600; }
+  .sub, .tick { fill: var(--muted); font-size: 10.5px; }
+  .pin { fill: var(--cat-cyan); font-size: 10px; }
+  .cell { fill: color-mix(in srgb, var(--cat-indigo) var(--v, 20%), var(--bg-2)); stroke: var(--border-2); stroke-width: 0.6; }
+  .cell.top { stroke: var(--cat-emerald); stroke-width: 2.6; }
+  .cell.b { fill: color-mix(in srgb, var(--cat-indigo) var(--v, 20%), var(--bg-2)); }
+  .cell.b.keep { stroke: var(--cat-cyan); stroke-width: 2.6; }
+  .cell.p { fill: color-mix(in srgb, var(--muted) 8%, var(--bg-2)); }
+  .cell.p.on { fill: color-mix(in srgb, var(--cat-cyan) 45%, var(--bg-2)); stroke: var(--cat-cyan); stroke-width: 1; }
+  .cell.skip { fill: color-mix(in srgb, var(--muted) 8%, var(--bg-2)); stroke-dasharray: 2 2; }
+  .fan { stroke: var(--border-2); stroke-width: 0.8; }
+  figcaption { margin-top: 0.6rem; font-size: 0.88rem; color: var(--text-2); text-align: center; line-height: 1.6; }
+</style>

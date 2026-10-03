@@ -1,0 +1,285 @@
+---
+title: "DeepSeek-V4.1 模型结构（4）：深度维度，Single-Pass mHC"
+pubDate: 2026-10-02 12:40:00
+description: "mHC 的计算量很小，开销在读写残差流。这一篇从一个子层边界上最少要读写多少个数推出访存量的下界 (2n+2)d，算出 V4 的实现是下界的两倍，再一步步合并 kernel：先把归一化挪到投影之后，再让读算子改用上一个子层算好的权重。最后对照官方代码看这个改动落在哪三处。"
+categories:
+  - "📝学习"
+tags:
+  - "大模型"
+  - "DeepSeek-V4.1"
+  - "模型结构"
+series: deepseek-v41
+part: "深度"
+order: 4
+draft: false
+---
+
+import V41ArchDiagram from '../../components/v41/V41ArchDiagram.astro';
+import MhcCell from '../../components/v4/MhcCell.astro';
+import MhcPasses from '../../components/v41/MhcPasses.astro';
+import MhcShift from '../../components/v41/MhcShift.astro';
+
+对应论文 §2.4.1 "Single-Pass mHC"，公式 (2) 到 (6)。mHC 本身是 V4 引入的，[V4 连载的第 4 篇](/2026/09/05/deepseek-v4-04-mhc/)讲了它为什么要把混合矩阵约束成双随机矩阵。V4.1 没有动这些约束，只改了一件事：读算子用的权重由上一个子层提前算好。这一篇讲这个改动为什么能把读写残差流的次数减半。
+
+<V41ArchDiagram highlight="mhc" caption="你现在在这里：4 条残差流，以及每个子层前后的读算子、写算子和混合矩阵。" />
+
+## mHC 的一个子层做四件事
+
+先把 V4 的 mHC 摆出来。残差流不是一个 $d$ 维向量，而是 $n = 4$ 个，记作 $X_l \in \mathbb{R}^{n \times d}$。$l$ 是子层的编号，注意力和 MoE 各算一个子层。一个子层的更新是论文的式 (2)：
+
+$$
+X_{l+1} = B_l X_l + C_l\, \mathcal{F}_l(A_l X_l), \qquad (A_l, B_l, C_l) = \mathcal{H}(X_l). \tag{2}
+$$
+
+<MhcCell />
+
+按执行顺序，一个子层做四件事：
+
+1. **系数预测** $\mathcal{H}$。把 $X_l$ 拉平成 $nd$ 维，归一化，乘一个 $24 \times nd$ 的矩阵，得到 24 个数。其中 4 个是读权重 $A_l$，4 个是写权重 $C_l$，16 个排成 $4 \times 4$ 过 Sinkhorn 得到混合矩阵 $B_l$。
+2. **输入混合**。$\hat X_l = A_l X_l$，4 条流加权求和成一个 $d$ 维向量，这是子层的输入。
+3. **子层本身**。$Y_l = \mathcal{F}_l(\hat X_l)$。$\mathcal{F}_l$ 的第一步是 RMSNorm，后面叫它 pre-norm。
+4. **残差更新**。$X_{l+1} = B_l X_l + C_l Y_l$。
+
+第 1、2、4 件事都是 mHC 多出来的。它们的乘法很少：$n = 4$ 时，每个激活值只参与几次乘加。
+
+## mHC 的开销是访存，不是计算
+
+乘法少不代表快。这三件事每件都要把残差流从显存里读一遍，有的还要写回去。残差流有 $nd = 20480$ 个数，一个 token 一个子层就要搬这么多。这种操作的耗时由显存带宽决定，和算力关系不大。
+
+论文用的度量是 **activation memory traffic**，本文写作**访存量**：一个 token 在一个子层边界上，一共读多少个激活值、写多少个激活值，两者相加。单位是 $d$。
+
+24 个系数是标量，相对 $d = 5120$ 可以忽略，下面的计数都不算它们。权重矩阵的读取也不算，论文只数激活。
+
+## 访存量的下界是 $(2n+2)d$
+
+先问最少要多少。站在子层 $l-1$ 和子层 $l$ 之间看：
+
+- 手里有的：旧的残差流 $X_{l-1}$，$n \times d$ 个数；上一个子层的输出 $Y_{l-1}$，$d$ 个数。
+- 要交出去的：新的残差流 $X_l$，$n \times d$ 个数，留给后面用；子层 $l$ 的输入 $\hat X_l$，$d$ 个数。
+
+每个输入至少读一次，每个输出至少写一次：
+
+$$
+\underbrace{(n+1)\,d}_{\text{读 } X_{l-1},\ Y_{l-1}} + \underbrace{(n+1)\,d}_{\text{写 } X_l,\ \hat X_l} = (2n+2)\,d .
+$$
+
+$n = 4$ 时是 $10d$。任何实现都不会比这个数小。
+
+## V4 的实现是下界的两倍
+
+V4 把上面的事情拆成三个 kernel，按顺序跑。论文的式 (3) 到 (5) 把它们写成跨子层边界的形式：
+
+$$
+\begin{aligned}
+X_l &= B_{l-1} X_{l-1} + C_{l-1} Y_{l-1} && \text{残差更新} && (3) \\
+(A_l, B_l, C_l) &= \mathcal{H}(X_l) && \text{系数预测} && (4) \\
+\hat X_l &= A_l X_l && \text{输入混合} && (5)
+\end{aligned}
+$$
+
+逐个数它们读写了什么：
+
+| kernel | 读 | 写 |
+|---|---|---|
+| 残差更新 (3) | $X_{l-1}$ 和 $Y_{l-1}$，$(n+1)d$ | $X_l$，$nd$ |
+| 系数预测 (4) | $X_l$，$nd$ | 24 个数，不计 |
+| 输入混合 (5) | $X_l$，$nd$ | $\hat X_l$，$d$ |
+| pre-norm | $\hat X_l$，$d$ | 归一化后的 $\hat X_l$，$d$ |
+
+读合计 $(3n+2)d$，写合计 $(n+2)d$，总共
+
+$$
+(3n+2)\,d + (n+2)\,d = (4n+4)\,d .
+$$
+
+$n = 4$ 时是 $20d$，正好是下界的两倍。多出来的 $10d$ 里，$8d$ 是把刚写下去的 $X_l$ 又读了两遍，$2d$ 是 pre-norm 把 $\hat X_l$ 读出来再写回去。
+
+这三个 kernel 不能随便合并。式 (4) 要用式 (3) 的结果，式 (5) 要用式 (4) 的结果，有先后依赖。下面看依赖具体卡在哪。
+
+## 第一步：残差更新和系数预测可以合成一遍
+
+kernel 处理一个长向量时，是沿着隐藏维一段一段处理的，每一段叫一个 tile。两个操作能不能合并成一遍，要看前一个操作算完一个 tile 之后，后一个操作能不能立刻用它，不必等其他 tile。
+
+**残差更新是逐通道的。** 把式 (3) 按通道 $c$ 写开：
+
+$$
+X_l[:, c] = B_{l-1}\, X_{l-1}[:, c] + C_{l-1}\, Y_{l-1}[c].
+$$
+
+第 $c$ 个通道的 4 个新值只依赖第 $c$ 个通道的 5 个旧值。论文说它是 "contraction over $n$"，意思是求和只沿着流的方向做，不跨通道。所以每算完一个 tile，这个 tile 的 $X_l$ 就是最终值。
+
+**系数预测要对全部 $nd$ 个数求和。** $\mathcal{H}$ 的定义是先归一化再投影。记 $x \in \mathbb{R}^{nd}$ 是拉平的 $X_l$，$g$ 是 RMSNorm 的权重，$W \in \mathbb{R}^{24 \times nd}$ 是投影矩阵：
+
+$$
+\text{raw} = W \Big( g \odot \frac{x}{\operatorname{rms}(x)} \Big), \qquad \operatorname{rms}(x) = \sqrt{\tfrac{1}{nd} \textstyle\sum_i x_i^2}.
+$$
+
+照这个顺序算，必须先扫一遍 $x$ 得到 $\operatorname{rms}(x)$，再扫一遍做除法和投影。论文的做法是把式子变个形：
+
+$$
+\begin{aligned}
+W \Big( g \odot \frac{x}{\operatorname{rms}(x)} \Big)
+&= \frac{1}{\operatorname{rms}(x)}\, W (g \odot x) && \text{rms 是标量，提到外面} \\
+&= \frac{1}{\operatorname{rms}(x)}\, \big(W \operatorname{diag}(g)\big)\, x && g \odot x = \operatorname{diag}(g)\, x \\
+&= \frac{1}{\operatorname{rms}(x)}\, W' x && W' = W \operatorname{diag}(g) \text{ 离线算好}.
+\end{aligned}
+$$
+
+这就是论文说的两句话：归一化的权重离线折进投影矩阵，除以 rms 放到投影之后。变形以后，要对 $x$ 做的只有两个求和：
+
+$$
+W' x = \sum_{\text{tile } t} W'_t\, x_t, \qquad \sum_i x_i^2 = \sum_{\text{tile } t} \lVert x_t \rVert^2 .
+$$
+
+两个都能按 tile 累加。每来一个 tile，往 24 个累加器里各加一项，往平方和里加一项，全部 tile 过完再做一次除法。
+
+于是残差更新每写出一个 tile 的 $X_l$，系数预测马上拿它去累加，不用等，也不用再从显存里读。式 (3) 和式 (4) 合成一遍。
+
+## 剩下的一次重读：读权重要等整条残差流扫完
+
+输入混合 $\hat X_l = A_l X_l$ 合不进这一遍。它本身也是逐通道的，但它要用的 $A_l$ 是系数预测的结果，而系数预测要到最后一个 tile 过完才出结果。算第一个 tile 的 $\hat X_l$ 时，$A_l$ 还不存在。
+
+所以只能再来一遍：读 $X_l$，乘 $A_l$，写 $\hat X_l$。pre-norm 可以并进这第二遍。两遍合计：
+
+| | 读 | 写 |
+|---|---|---|
+| 第一遍：残差更新 + 系数预测 | $(n+1)d$ | $nd$ |
+| 第二遍：输入混合 + pre-norm | $nd$ | $d$ |
+
+总共 $(3n+2)d$，$n = 4$ 时是 $14d$。和下界 $10d$ 比，多的正是对 $X_l$ 的那一次重读，$nd = 4d$。
+
+## Single-Pass mHC：读算子改用上一个子层的权重
+
+重读的原因只有一个：$A_l$ 来得太晚。V4.1 的做法是不等它。输入混合改用上一个子层已经算好的 $A_{l-1}$（论文式 (6)）：
+
+$$
+X_{l+1} = B_l X_l + C_l\, \mathcal{F}_l(A_{l-1} X_l), \qquad (A_l, B_l, C_l) = \mathcal{H}(X_l). \tag{6}
+$$
+
+和式 (2) 比，只有 $\mathcal{F}_l$ 括号里的下标从 $l$ 变成了 $l-1$。$B_l$ 和 $C_l$ 没有变，写算子和混合矩阵仍然用本子层的系数。
+
+<MhcShift caption="上：V4 的 mHC，读算子要等本子层的系数预测。下：Single-Pass mHC，系数预测算出的三样东西里，$B_l$、$C_l$ 给本子层的写算子，$A_l$ 留给下一个子层的读算子。" />
+
+$A_{l-1}$ 在这一遍开始之前就有了。于是每个 tile 的 $X_l$ 一算出来，可以同时做两件事：乘 $A_{l-1}$ 得到这个 tile 的 $\hat X_l$；累加进系数预测，为下一个子层准备 $A_l$。三个操作合成一遍：
+
+| | 读 | 写 |
+|---|---|---|
+| 一遍：残差更新 + 输入混合 + 系数预测 + pre-norm | $X_{l-1}$ 和 $Y_{l-1}$，$(n+1)d$ | $X_l$ 和 $\hat X_l$，$(n+1)d$ |
+
+总共 $(2n+2)d$，等于下界。
+
+<MhcPasses caption="一个 token 在一个子层边界上的访存量，$n = 4$。方块宽度正比于读写的激活个数。" />
+
+把三种实现放在一起，按 V4.1-Flash 的 $n = 4$、$d = 5120$ 换算：
+
+| 实现 | 访存量 | $n = 4$ | 每 token 每子层的激活个数 |
+|---|---|---|---|
+| V4：三个 kernel + pre-norm | $(4n+4)d$ | $20d$ | 102400 |
+| 两遍，读权重不变 | $(3n+2)d$ | $14d$ | 71680 |
+| Single-Pass mHC | $(2n+2)d$ | $10d$ | 51200 |
+
+这是我的估算：残差流按 BF16 算，每个数 2 字节，$20d$ 就是每 token 每子层 200 KiB。一次 1M token 的 prefill 要过 encoder 的 40 个子层，V4 的实现在 mHC 上读写约 7.8 TiB，Single-Pass 是 3.9 TiB。
+
+## 代码里的三处变化
+
+官方 `inference/model.py` 是可读的参考实现，没有做 kernel 融合，系数预测、输入混合、残差更新仍然是分开的三个函数。但式 (6) 的下标变化在里面看得很清楚：
+
+```python
+def forward(self, x, start_pos, pre_mix, image_mask, *attn_args):
+    residual = x
+    attn_pre, attn_post, attn_comb = self.hc_mixes(x, self.hc_attn_fn, self.hc_attn_scale, self.hc_attn_base)
+    x = self.hc_pre(x, pre_mix)            # 注意力的读算子：用传进来的 pre_mix
+    x = self.attn_norm(x)
+    x = self.attn(x, start_pos, *attn_args)
+    x = self.hc_post(x, residual, attn_post, attn_comb)
+
+    residual = x
+    ffn_pre, ffn_post, ffn_comb = self.hc_mixes(x, self.hc_ffn_fn, self.hc_ffn_scale, self.hc_ffn_base)
+    x = self.hc_pre(x, attn_pre)           # MoE 的读算子：用注意力那一步算出的 attn_pre
+    x = self.ffn_norm(x)
+    x = self.ffn(x, image_mask)
+    x = self.hc_post(x, residual, ffn_post, ffn_comb)
+    return x, ffn_pre                      # MoE 那一步算出的 ffn_pre 交给下一层
+```
+
+`hc_mixes` 是系数预测，返回的三样东西对应 $A$、$C$、$B$。和 V4 的代码对照，有三处不同。
+
+**读权重沿着子层往后传。** V4 的 `hc_pre` 自己算系数、自己用。V4.1 把它拆成 `hc_mixes` 和 `hc_pre`：注意力算出的 `attn_pre` 给同一层的 MoE 用，MoE 算出的 `ffn_pre` 作为返回值交给下一层的注意力。
+
+**第 0 层的注意力没有上一个子层。** 它用一组固定的权重 $(1, 0, 0, 0)$，只读第一条流：
+
+```python
+def make_identity_pre_mix(x, hc_mult):
+    pre_mix = x.new_zeros(x.size(0), x.size(1), hc_mult, dtype=torch.float32)
+    pre_mix[:, :, 0] = 1.0
+    return pre_mix
+```
+
+这不损失信息。embedding 进来时被复制了 4 份，这时 4 条流的内容完全相同，读哪一条都一样。
+
+**输出头不再有自己的系数预测。** V4 在最后有一个 `hc_head`，专门从最终的 4 条流算一组读权重，把它们压成 1 条。V4.1 的最后一次读直接用第 39 层 MoE 留下的 `ffn_pre`：
+
+```python
+h = layer.hc_pre(h, pre_mix)
+logits = self.head(self.norm(h))
+```
+
+每套系数预测的参数形状没有变，仍然是一个 $24 \times 20480$ 的矩阵、24 个偏置和 3 个缩放系数，每层两套。所以第 39 层 MoE 那一套里负责读权重的 4 行没有浪费，它们成了输出头的读权重。
+
+这三处论文都没有写，只在代码里能看到。
+
+## 晚一拍丢掉了什么
+
+论文对效果只有一句话：这个改动带来的性能损失可以忽略。下面是我的解读，说明为什么这个结果不意外。
+
+读权重的生成公式是（[V4 第 4 篇](/2026/09/05/deepseek-v4-04-mhc/)的式子，加上下标）：
+
+$$
+A = \sigma\big(\alpha \cdot (\text{投影}) + S\big).
+$$
+
+$S$ 是不随输入变的静态偏置，$\alpha$ 是一个可学习的标量，投影那一项随当前的残差流变。把两部分分开看。
+
+**静态部分没有任何损失。** 子层 $l$ 的读算子需要一组静态偏置。V4 里这组偏置存在子层 $l$ 的参数里，V4.1 里存在子层 $l-1$ 的参数里。训练会把它学成需要的值，放在哪一套参数里没有区别。
+
+**动态部分少看了一个子层的输出。** V4 里 $A_l$ 由 $X_l$ 算出，V4.1 里子层 $l$ 用的是由 $X_{l-1}$ 算出的 $A_{l-1}$。两者差多少，看 $X_l$ 比 $X_{l-1}$ 多了什么：
+
+$$
+X_l = B_{l-1} X_{l-1} + C_{l-1} Y_{l-1}.
+$$
+
+多的是 $Y_{l-1}$，即上一个子层刚算出来的输出。所以晚一拍的确切含义是：子层 $l$ 决定怎么读 4 条流的时候，看不到子层 $l-1$ 刚写进去的内容，只能看到它写之前的状态。4 条流里更早的内容都还看得到。
+
+mHC 论文说 $\alpha$ 初始化成很小的值，训练开始时读权重几乎完全由静态部分决定。动态部分是在这个基础上的修正，再让修正的依据旧一个子层，影响有限。
+
+训练时不需要新的 kernel。论文说预训练仍然用原来的多 kernel 实现，因为式 (6) 只改变每个子层用哪一组系数，不改变每个 kernel 做什么。
+
+## Mega-mHC：部署时的一个 kernel
+
+部署时，论文把残差更新、输入混合、系数预测融合成一个 kernel，叫 Mega-mHC，放在 DeepGEMM 里。它沿隐藏维按 tile 处理 $X_l$，每个 tile 做两件事：算出这个 tile 的子层输入，累加下一个子层的系数预测要用的量。同一个 kernel 两种模式都支持：
+
+- 跑 V4 的 mHC 时是两遍，访存量 $(3n+2)d$。
+- 跑 Single-Pass mHC 时是一遍，访存量 $(2n+2)d$。
+
+论文说这个 kernel 还包含了 pre-norm 和 FP8 转换，没有展开。pre-norm 同样要对 $\hat X_l$ 的全部 $d$ 个数求平方和，照理也要等整条扫完。我的理解是它用了和系数预测相同的办法：平方和按 tile 累加，除法推迟到下一个线性投影之后。这一点论文没有明说。
+
+残差流读一遍、写一遍，访存量是 V4 四个 kernel 的一半。这就是论文 §1 里 "halves activation memory traffic" 的来历。
+
+## 容易混淆的几点
+
+- **"block" 和子层。** 论文 §2.4.1 说 $l$ 是 "block index"。代码里一个 `Block` 有两套系数预测，注意力和 MoE 各一套，式 (6) 的 $l$ 对应的是子层。40 层是 80 个子层。
+- **"四个 kernel" 和 "三个 kernel"。** 论文 §1 说原来是 four-kernel implementation，§2.4.1 说 three kernels。论文没说差的是哪一个。我的推断是 pre-norm：$(4n+4)d$ 的计数正好把它算了进去。
+- **Single-Pass 改的是模型，不只是实现。** 式 (6) 和式 (2) 算出来的结果不一样，所以要从训练开始就用式 (6)。只把 V4 的权重拿来跑一遍的 kernel 是不行的，Mega-mHC 对 V4 的权重只能跑两遍的模式。
+- **双随机约束没有变。** $B_l$ 仍然过 20 轮 Sinkhorn，$A_l$ 仍然是 sigmoid，$C_l$ 仍然是 2 倍的 sigmoid。V4 第 4 篇关于稳定性的分析全部适用。
+- **参考实现不体现访存量的差别。** `inference/model.py` 里三个函数是分开的，访存量和 V4 一样。减半发生在部署用的 kernel 里。
+
+## 下一篇
+
+第 5 篇讲 Engram。它是另一种往残差流里加东西的模块：不做计算，按 n-gram 查表。它的门控对 4 条残差流各用一个 key，和 mHC 的 4 条流直接相关。
+
+## 资料
+
+- DeepSeek-V4.1-Flash 技术报告 §2.4.1：[arXiv 2609.19969](https://arxiv.org/abs/2609.19969)
+- 代码：Hugging Face [deepseek-ai/DeepSeek-V4.1-Flash](https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash) 的 `inference/model.py`，搜 `hc_mixes`、`make_identity_pre_mix`
+- mHC 论文：[arXiv 2512.24880](https://arxiv.org/abs/2512.24880)，§4.3 讲 V4 那一版的 kernel 融合
+- 本站 [DeepSeek-V4 模型结构（4）：深度维度，mHC](/2026/09/05/deepseek-v4-04-mhc/)

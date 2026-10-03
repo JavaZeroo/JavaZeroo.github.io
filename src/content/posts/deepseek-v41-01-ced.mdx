@@ -1,0 +1,233 @@
+---
+title: "DeepSeek-V4.1 模型结构（1）：序列维度（上），CED"
+pubDate: 2026-10-02 12:10:00
+description: "prompt 里的一个 token 为什么非得过完所有层？从「后面的 token 到底读了它的什么」出发，推出只要上半层的全局 KV 改由中间层的输出投影，上半层就不用为 prompt 算。这是 YOCO 的思路。本篇讲 CED 在它上面改了哪三处，改动为什么让提前退出不再精确，Decoder SWA Bounded Replay 怎么用 128 个 token 的回放把它补上，以及 8B 和 16B 两个激活参数量怎么来的。"
+categories:
+  - "📝学习"
+tags:
+  - "大模型"
+  - "DeepSeek-V4.1"
+  - "模型结构"
+series: deepseek-v41
+part: "序列"
+order: 1
+draft: false
+---
+
+import V41ArchDiagram from '../../components/v41/V41ArchDiagram.astro';
+import CedVsYoco from '../../components/v41/CedVsYoco.astro';
+import PrefillPath from '../../components/v41/PrefillPath.astro';
+
+对应论文 §2.2 "Causal Encoder-Decoder (CED)"，公式 (1)，以及 §3.2.2 里的 Decoder SWA Bounded Replay。[总览](/2026/10/02/deepseek-v41-00-overview/)里说过，V4.1 有 prefill 8B、decode 16B 两个激活参数量。这一篇讲这两个数背后的结构。
+
+<V41ArchDiagram highlight={['ced', 'pool']} caption="你现在在这里：encoder 与 decoder 的分界，以及 decoder 的全局 KV 从哪里来。" />
+
+## agent 场景下，算力主要花在读 prompt 上
+
+一次请求分两段。**prefill** 把 prompt 读进去，给每个 token 建好 KV cache。**decode** 一个一个地生成 token。
+
+agent 的工作方式是反复调用工具。每调用一次，工具返回的内容被拼到上下文后面，再发起一次请求。这些返回内容对模型来说全是输入。前面已经算过的部分可以靠缓存跳过，新拼上去的部分必须老老实实 prefill。所以 agent 场景里输入的 token 数远多于输出，prefill 是算力的大头。
+
+在 V4 里，prompt 的每个 token 都要过全部的层，和生成一个 token 的计算量一样。CED 要把它减掉一半。
+
+## 后面的 token 读了 prompt token 的什么
+
+先问一个问题：prefill 时，为什么一个 prompt token 要算到最后一层？它又不需要输出 logits。
+
+原因在注意力。记 $h_i^{(l)}$ 是第 $i$ 个 token 进入第 $l$ 层时的隐藏态。在普通的 Transformer 里，第 $l$ 层的 K 和 V 是从本层的输入投影出来的：
+
+$$
+k_i^{(l)} = h_i^{(l)} W_K^{(l)}, \qquad v_i^{(l)} = h_i^{(l)} W_V^{(l)}.
+$$
+
+后面的 token $j > i$ 在第 $l$ 层要读 $k_i^{(l)}$ 和 $v_i^{(l)}$。这对每一层都成立。所以 token $i$ 必须把每一层的 $h_i^{(l)}$ 都算出来，不然后面的 token 在那一层就没东西可读。prefill 的全部计算，都是在为后面的 token 准备 KV。
+
+把这句话反过来读：**如果某几层的 KV 不依赖 token $i$ 在这几层的隐藏态，token $i$ 就不用算这几层。**
+
+## YOCO：上半层共用下半层投影出的一份 KV
+
+YOCO（You Only Cache Once，2024）就是照这个想法设计的。它把 $L$ 层分成两半。
+
+**下半层叫 self-decoder。** 每层用一种缓存大小不随长度增长的自注意力，论文给了两种选择：滑窗注意力，或 gated retention。
+
+**上半层叫 cross-decoder。** 下半层的最终输出记作 $X^{L/2}$。先由它投影出一份 K 和 V：
+
+$$
+\hat K = \operatorname{LN}(X^{L/2})\, W_K, \qquad \hat V = \operatorname{LN}(X^{L/2})\, W_V.
+$$
+
+上半层的每一层只有一个 cross-attention。query 由本层的隐藏态投影，K 和 V 就读这一份 $\hat K$、$\hat V$：
+
+$$
+Y^l = \operatorname{Attention}\big(\operatorname{LN}(X^l)\, W_Q^l,\ \hat K,\ \hat V\big) + X^l .
+$$
+
+两个细节要看清，后面和 CED 对比时会用到：
+
+- $W_K$、$W_V$ 没有层号，全体上半层共用一份。只有 $W_Q^l$ 是每层一个。
+- 上半层没有自注意力。一个 token 在上半层不产生任何新的 KV。
+
+套用上一节的结论：上半层的 KV 只依赖 $X^{L/2}$，不依赖 token 在上半层的隐藏态。所以 prefill 时，prompt token 算完下半层就可以停。YOCO 的论文强调这个提前退出**不改变最终输出**，因为被跳过的计算本来就没有人读。KV cache 也只剩一份全局的，论文标题里的 "cache once" 指的就是它。
+
+## CED 在 YOCO 上改了三处
+
+CED 的论文说自己受 YOCO 启发，并且「提高了 KV cache 的总容量，加深了生成 KV 的计算深度」。把两边的结构摆在一起，这句话对应三处改动。
+
+<CedVsYoco caption="YOCO 与 CED。两边都把下半层的最终输出投影成上半层的全局 KV。青色方块是随上下文长度增长的全局 KV。" />
+
+| | YOCO | CED |
+|---|---|---|
+| 上半层的注意力 | 只有 cross-attention，读共享的全局 KV | 滑窗注意力加全局注意力。滑窗 KV 由本层自己的隐藏态生成 |
+| 下半层的注意力 | 只有滑窗注意力或 gated retention，没有全局 KV | 滑窗注意力加全局注意力，encoder 有自己的全局 KV |
+| 全局 KV 一共几份 | 1 份 | V4.1-Flash 里 4 份：encoder 3 份，decoder 1 份 |
+| 上半层怎么读全局 KV | 稠密注意力，全读 | 稀疏，每个 query 读 512 条 |
+| prefill 提前退出 | 精确，输出不变 | 要补 decoder 的滑窗 KV，实际做法是近似的 |
+
+表里 YOCO 一列来自 YOCO 论文的公式，CED 一列来自 V4.1 论文 §2.2 和 §4.2.1。两列之间的逐项对照是我做的，V4.1 论文只有上面引的那一句概括。
+
+**第一处：decoder 每层保留滑窗注意力。** 这是「加深生成 KV 的计算深度」的意思。YOCO 的上半层读到的一切都来自 $X^{L/2}$，只经过了一半的层。CED 的 decoder 里，最近 128 个 token 的 KV 是每一层用自己的隐藏态现算的，第 39 层读到的滑窗 KV 经过了 39 层的计算。远处的信息深度减半，近处的信息保持全深度。
+
+**第二处：encoder 也有全局注意力。** 这是「提高 KV cache 总容量」的意思。YOCO 的下半层看不到窗口以外的东西。CED 的 encoder 从第 2 层起每层都有全局分支，有自己的 3 份全局 KV。
+
+**第三处：全局 KV 是压缩过、稀疏读的。** CED 沿用 V4 的条目格式：K 和 V 是同一条 512 维向量。读的时候由 indexer 选 512 条。这部分是下一篇 CSA2 的内容。
+
+## 式 (1)：decoder 的全局 KV 由 encoder 的最终输出投影
+
+CED 的定义只有一个公式。记 $H_l$ 是第 $l$ 层的输出，$H_{L/2}$ 是 encoder 最后一层的输出。对 decoder 的每一层 $l > L/2$：
+
+$$
+C_l = H_{L/2}\, W_l^{KV}, \qquad Z_l = H_{L/2}\, W_l^{Z}. \tag{1}
+$$
+
+$C_l$ 和 $Z_l$ 是 V4 的压缩算子的两个输入，[V4 第 1 篇](/2026/09/05/deepseek-v4-01-kv-compression/)讲过：$C$ 是压缩前的 KV 条目，每个 token 一条。$Z$ 是压缩权重，决定同一组里的几个 token 各占多大比例。式 (1) 说的是，这两样在 decoder 里都不由本层的隐藏态算，而是由 $H_{L/2}$ 算。
+
+滑窗 KV 不受式 (1) 影响。任何一层的滑窗 KV 都由这一层自己的输入生成，和 V4 一样。
+
+:::note{type="info"}
+**式 (1) 在 V4.1-Flash 里实际只有一组投影，$Z$ 也没有用到。** 这两点要对照 §4.2.1 的配置和官方代码才看得出来。
+
+- 式 (1) 给每个 decoder 层都写了一组 $W_l^{KV}$。但和 CSA2 组合以后，decoder 的 20 层里只有第 20 层自己生成全局 KV，其余 19 层都读它的。所以真正存在的投影只有第 20 层的一组。式 (1) 是不带 CSA2 时的一般形式。
+- decoder 的压缩率是 $m = 1$，每个 token 一条，没有东西要压缩，也就不需要压缩权重。官方代码里 $m = 1$ 时压缩算子直接返回 `norm(wkv(x))`，权重文件里第 20 层没有 `compressor.wgate` 这个矩阵。
+- 代码里没有专门的 CED 模块。第 20 层是一个普通的 Full 模式的层，它的输入就是第 19 层的输出。式 (1) 靠层的排布实现。
+:::
+
+关于下标：论文的层号从 1 数，$H_{L/2}$ 是第 20 个层的输出。本连载的层号从 0 数，它是第 19 层的输出，也就是第 20 层的输入。总图上把它标成 $H_{20}$，取的是「第 20 层的输入」这个含义。
+
+## prompt token 在 decoder 里只有滑窗 KV 会被后面读到
+
+把第二节的问题对 CED 再问一遍：后面的 token 会读 prompt token $i$ 在 decoder 里的什么？
+
+- **全局 KV。** 由 $H_{20}$ 投影。token $i$ 算完 encoder 就有了。
+- **滑窗 KV。** 第 $l$ 层的滑窗 KV 由 token $i$ 在第 $l$ 层的隐藏态生成。这个要 token $i$ 真的算到第 $l$ 层才有。
+
+谁会读 token $i$ 在 decoder 里的滑窗 KV？只有它后面 127 个位置以内的 token。生成的新 token 直接读到的，只有 prompt 最后 128 个 token 的滑窗 KV。更早的 prompt token，它们的 decoder 滑窗 KV 只会被别的 prompt token 读到。
+
+所以 **prompt 的最后 128 个 token** 是必须算的。生成第一个新 token 时，decoder 每一层的滑窗里装的就是它们。更早的 token 能不能停在第 19 层，取决于这 128 个 token 的 decoder 隐藏态要不要用到它们，而下面会看到，要。
+
+麻烦在于把它们算出来的代价。要得到最后 128 个 token 在第 39 层的滑窗 KV，需要它们在第 38 层的输出。而它们在第 38 层的输出，依赖第 38 层的注意力读到的滑窗 KV，那是再往前 127 个 token 在第 38 层的隐藏态。一层一层往前推，依赖的范围每层扩大一个窗口。论文给的数字是：精确重建需要让最后 $n_{\text{win}} \times L/2 = 128 \times 20 = 2560$ 个 token 过 decoder。
+
+:::details[精确重建到底要算多少：逐层的递推]
+
+这一段是我补的，论文只给了 2560 这个数。
+
+记 $W = 128$，prompt 的位置是 $0, \dots, N-1$。记 $u_l(t)$ 是 token $t$ 进入第 $l$ 层时的隐藏态。第 $l$ 层的滑窗 KV 由 $u_l$ 投影。
+
+**需求。** 生成第一个 token 时，decoder 的每一层 $l$ 要读最后 $W$ 个 prompt token 的滑窗 KV。所以对每个 $l \in [20, 39]$，都需要 $u_l(t)$，$t \ge N - W$。
+
+**依赖。** $u_{l+1}(t)$ 是第 $l$ 层在位置 $t$ 的输出。算它要做第 $l$ 层的注意力，读位置 $t - W + 1$ 到 $t$ 的滑窗 KV，也就是这些位置的 $u_l$。
+
+**递推。** 记 $a_l$ 是「需要 $u_l$ 的最早位置」。由需求，$a_{39} = N - W$。由依赖，要得到 $t \ge a_{l+1}$ 的 $u_{l+1}(t)$，需要 $t' \ge a_{l+1} - (W-1)$ 的 $u_l(t')$。所以
+
+$$
+a_l = a_{l+1} - (W - 1) \quad\Longrightarrow\quad a_{20} = N - W - 19\,(W-1) = N - 2541 .
+$$
+
+$u_{20}$ 就是 $H_{20}$，每个 prompt token 都有，不用额外算。第 $l$ 层要在 $t \ge a_{l+1}$ 的位置上运行。第 38 层运行 128 个位置，第 37 层 255 个，一直到第 20 层 $128 + 18 \times 127 = 2414$ 个。
+
+**总量。** $\sum_{k=0}^{18} (128 + 127k) = 24149$ 个「层 × token」。第 39 层不在里面：它只需要为最后 128 个 token 投影出滑窗 KV，不用算注意力，另外最后一个 token 要跑完整层出 logits。
+
+论文的说法是让最后 2560 个 token 过完 20 层，按矩形算是 $2560 \times 20 = 51200$。逐层按需算是上面的阶梯形，大约是矩形的一半。两种算法量级相同，结论不变：这笔开销和 $N$ 无关，但比 128 个 token 大得多。
+:::
+
+2560 个 token 过 20 层，放在一个 10 万 token 的 prompt 后面不算什么。但 agent 的典型情况是前缀命中缓存，新拼上的内容很短。假设新内容只有 500 个 token：
+
+- encoder 要算 $500 \times 20 = 10000$ 个「层 × token」。
+- 精确重建 decoder 的滑窗 KV 要 $2560 \times 20 = 51200$ 个。
+
+回放比正事贵 5 倍。论文的原话是，对每轮 prompt 很短的多轮交互，这笔开销不可忽略。
+
+## Decoder SWA Bounded Replay：只回放 128 个 token
+
+V4.1 的做法是不追求精确。每次 prefill 结束后，只取 prompt 的最后 128 个 token，把它们在 encoder 的输出送进 decoder 的 20 层。
+
+只算 128 个 token 的时候，窗口开头那几个 token 的滑窗是残缺的：它们本该看到更早的 token，但那些 token 没有进 decoder。论文的处理是把滑窗截断在回放段以内。设回放从位置 $s$ 开始，位置 $i$ 的 query 在滑窗分支里只看
+
+$$
+[\max(s,\ i - W + 1),\ i\,]
+$$
+
+这个范围。论文只说了滑窗分支的截断。全局分支读到的全局 KV 是完整的，这是我的理解。
+
+于是回放段里越靠前的 token，滑窗越残缺。位置 $s$ 的 token 在每一层的滑窗里只有它自己。位置 $s + 127$ 的 token 在第 20 层能看到完整的 128 个，但它在更深的层读到的滑窗 KV 来自前面那些残缺的 token，所以也不精确。这样重建出来的 decoder 滑窗 KV，和完整前向的结果不相等。
+
+论文给了两条理由说明这样可以接受，外加一条补救措施：
+
+- **有效感受野远小于理论值。** 20 层滑窗叠起来，理论上能看到 2560 个 token 远。但已有的研究表明，叠起来的滑窗实际起作用的范围比这个理论值小得多。论文引的是 PowerAttention（arXiv 2503.03588）。
+- **实验上影响可以忽略。** 论文说这个策略对回答质量只有可忽略的影响，没有给具体数字。
+- **补救：训练时见过。** 论文说为了保险，post-training 阶段模拟了同样的回放，让模型适应这种残缺的状态。
+
+回放得到的 decoder 滑窗 KV 只用于接下来的生成，不存进前缀缓存。下一次请求命中缓存后，会重新回放一次。
+
+<PrefillPath caption="prefill 要算哪些「层 × token」。蓝色是 encoder，橙色是 decoder。横向不按比例。" />
+
+论文把结论写成复杂度：prompt 长度 $N$ 远大于 $n_{\text{win}}$ 时，
+
+$$
+O(NL) \ \longrightarrow\ O\Big(N \frac{L}{2} + n_{\text{win}} \frac{L}{2}\Big) \approx O\Big(N \frac{L}{2}\Big).
+$$
+
+回到 500 个新 token 的例子：encoder 10000，回放 $128 \times 20 = 2560$，合计 12560。40 层全算的话是 $500 \times 40 = 20000$。
+
+## 8B 和 16B 是同一份权重的两种用法
+
+现在可以把两个激活参数量算清楚。一个 token 在一层里用到的参数是 6 个 routed expert、1 个 shared expert 和这一层的注意力，[总览](/2026/10/02/deepseek-v41-00-overview/)里算过，约 374M。
+
+| 阶段 | 一个 token 过几层 | 激活参数 |
+|---|---|---|
+| prefill，不在最后 128 个里 | 20 | $20 \times 374\text{M} + \text{embedding } 0.66\text{B} \approx 8\text{B}$ |
+| prefill，最后 128 个 | 40 | 同 decode，但不出 logits |
+| decode | 40 | $40 \times 374\text{M} + \text{embedding 和 LM head } 1.3\text{B} \approx 16\text{B}$ |
+
+模型只有一份权重，训练时每个 token 都过 40 层。8B 不是一个小模型，是 prefill 时大部分 token 只走了一半的路。
+
+decode 没有任何节省。每个新生成的 token 过全部 40 层。它经过第 20 层时，第 20 层把它的输入投影成一条全局 KV，追加进 decoder 的共享池。它在 20 个 decoder 层里各留下一条滑窗 KV。
+
+## 代价：提前退出不再和完整前向相等
+
+YOCO 的提前退出是精确的。CED 为了让 decoder 保留滑窗注意力，放弃了这一点。这是一个明确的交换：
+
+- **得到的。** decoder 的每一层都能用全深度的局部信息。YOCO 的上半层没有这个能力。
+- **付出的。** 回放得到的 decoder 滑窗 KV 和完整前向的结果不相等，这是论文 §3.2.2 的原话。前缀缓存怎么分段会不会影响结果，是第 8 篇讲 encoder 那一版回放时的事。
+
+论文在 §6 的局限性里专门提了这一点：SWA Bounded Replay 的近似重建，在没有测到的边界情况下可能造成能力下降，他们会继续针对缓存恢复的边界做压力测试。
+
+回放还有一个姊妹版本，叫 Encoder SWA Bounded Replay。它解决的是另一个问题：前缀的全局 KV 命中了缓存，但 encoder 的滑窗 KV 已经被清掉。那属于缓存管理，放到第 8 篇。
+
+## 容易混淆的几点
+
+- **不是 T5 那种 encoder-decoder。** 40 层全部是因果的，encoder 不看后面的 token。也没有 cross-attention 模块，层与层之间只靠残差流相连。「encoder」「decoder」只说明全局 KV 是谁生成的。
+- **CED 不是部署时的技巧。** 模型从预训练第一步起就是这个结构：decoder 的全局 KV 在训练时也由 $H_{20}$ 投影。拿一个普通模型来跳过上半层是不行的。
+- **decoder 的全局 KV 不是「每层一份」。** 式 (1) 这么写，V4.1-Flash 的配置下只有一份。
+- **回放的 128 个 token 不重算 encoder。** 它们在 encoder 的输出是 prefill 本来就算好的，回放只是把这些输出再送进 decoder。这是我的理解，论文只说「把它们在 encoder 的输出送进 decoder」；新内容短于 128 个 token 时，这 128 个里有一部分属于缓存的前缀，它们的 encoder 输出要从哪来，论文没有写。
+- **decoder 的 $m = 1$ 不是因为 CED。** 压缩率是 CSA2 的配置。论文没有解释 encoder 用 2、decoder 用 1 的理由。
+
+## 下一篇
+
+CED 回答了 decoder 的全局 KV 从哪来。下一篇讲 CSA2：encoder 的 18 层怎么只生成 3 份全局 KV，decoder 的 20 层怎么共用 1 份，以及「共用 KV」和「共用选出来的 512 条」为什么是两件可以分开的事。
+
+## 资料
+
+- DeepSeek-V4.1-Flash 技术报告 §2.2、§3.2.2：[arXiv 2609.19969](https://arxiv.org/abs/2609.19969)
+- YOCO：Sun et al.，"You Only Cache Once: Decoder-Decoder Architectures for Language Models"，[arXiv 2405.05254](https://arxiv.org/abs/2405.05254)，§2 是结构，§2.3 是提前退出和复杂度
+- PowerAttention：[arXiv 2503.03588](https://arxiv.org/abs/2503.03588)，V4.1 引它说明叠加滑窗的有效感受野
+- 代码：Hugging Face [deepseek-ai/DeepSeek-V4.1-Flash](https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash) 的 `inference/model.py`。参考实现每个 token 都过 40 层，不含「decoder 只回放 128 个 token」这条部署路径

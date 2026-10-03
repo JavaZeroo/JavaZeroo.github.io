@@ -1,0 +1,102 @@
+---
+/**
+ * Engram 的 n-gram 哈希查表，一个位置、一个 Engram 层。从上到下：
+ *  1. 当前 token 和它前面 3 个 token，先过 tokenizer 压缩表得到压缩 id；
+ *  2. 回看距离为 i 的 id 乘第 i 个乘子 m_i；
+ *  3. 从右往左逐个异或：2-gram 的结果接着异或成 3-gram 的，再异或成 4-gram 的；
+ *  4. 每一阶的结果对 8 个不同的素数取模，得到 8 个行号；
+ *  5. 24 个行号落在同一张表的 24 段里，取出 24 行 × 256 维，拼成 6144 维。
+ * 要表达的机制：同一阶的 8 个头共用一个混合值，只是模数不同；一层只有一张表。
+ */
+import SvgTex from '../figures/SvgTex.astro';
+interface Props { caption?: string }
+const { caption } = Astro.props;
+
+const cols = [150, 330, 510, 690];           // t-3, t-2, t-1, t
+const BW = 150, BH = 40;
+const words = ['Diana', 'Princess', 'of', 'Wales'];
+const yTok = 34, yProd = 112, yMix = 196, yMod = 276, yTab = 356;
+const cx = (i: number) => cols[i] + BW / 2;
+const mixes = [
+  { col: 2, n: 2, lbl: '2-gram 的混合值' },
+  { col: 1, n: 3, lbl: '3-gram 的混合值' },
+  { col: 0, n: 4, lbl: '4-gram 的混合值' },
+];
+const SEG = 18, TX0 = 150;
+const segX = (g: number, k: number) => TX0 + g * (8 * SEG + 36) + k * SEG;   // g = 0: 4-gram（左），2: 2-gram（右）
+---
+
+<figure class="eh">
+  <svg viewBox="0 0 880 452" role="img" aria-label="Engram 的 n-gram 哈希查表流程">
+    <defs>
+      <marker id="eh-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" /></marker>
+    </defs>
+    <text class="row" x="16" y={yTok + 18}>压缩后的 id</text>
+    <text class="row" x="16" y={yProd + 18}>乘各自的乘子</text>
+    <text class="row" x="16" y={yMix + 18}>逐个异或</text>
+    <text class="row" x="16" y={yMod + 18}>对素数取模</text>
+    <text class="row" x="16" y={yTab + 16}>同一张表</text>
+
+    {cols.map((x, i) => (
+      <g>
+        <text class="word" x={cx(i)} y={yTok - 12} text-anchor="middle">{words[i]}</text>
+        <rect class:list={['tok', { cur: i === 3 }]} x={x} y={yTok} width={BW} height={BH} rx="7" />
+        <SvgTex x={cx(i)} y={yTok + BH / 2} size={12} src={i === 3 ? "$x'_t$（当前 token）" : `$x'_{t-${3 - i}}$`} />
+        <line class="e" x1={cx(i)} y1={yTok + BH} x2={cx(i)} y2={yProd - 3} marker-end="url(#eh-arrow)" />
+        <rect class="op" x={x} y={yProd} width={BW} height={BH} rx="7" />
+        <SvgTex x={cx(i)} y={yProd + BH / 2} size={12} src={i === 3 ? "$x'_t \\cdot m_0$" : `$x'_{t-${3 - i}} \\cdot m_${3 - i}$`} />
+      </g>
+    ))}
+
+    {mixes.map((m, j) => (
+      <g>
+        <!-- 自己这一列的乘积进来 -->
+        <line class="e" x1={cx(m.col)} y1={yProd + BH} x2={cx(m.col)} y2={yMix - 3} marker-end="url(#eh-arrow)" />
+        <!-- 右边的上一级结果（或最右的乘积）进来 -->
+        {j === 0
+          ? <path class="e" d={`M${cx(3)} ${yProd + BH} V ${yMix + BH / 2} H ${cols[2] + BW + 3}`} marker-end="url(#eh-arrow)" />
+          : <line class="e" x1={cols[m.col + 1]} y1={yMix + BH / 2} x2={cols[m.col] + BW + 3} y2={yMix + BH / 2} marker-end="url(#eh-arrow)" />}
+        <rect class="mix" x={cols[m.col]} y={yMix} width={BW} height={BH} rx="7" />
+        <text class="t" x={cx(m.col)} y={yMix + 17} text-anchor="middle">{m.lbl}</text>
+        <text class="s" x={cx(m.col)} y={yMix + 32} text-anchor="middle">⊕ 之后的 64 位整数</text>
+        <line class="e" x1={cx(m.col)} y1={yMix + BH} x2={cx(m.col)} y2={yMod - 3} marker-end="url(#eh-arrow)" />
+        <rect class="op" x={cols[m.col]} y={yMod} width={BW} height={BH} rx="7" />
+        <text class="t" x={cx(m.col)} y={yMod + 17} text-anchor="middle">mod 8 个素数</text>
+        <text class="s" x={cx(m.col)} y={yMod + 32} text-anchor="middle">得到 8 个行号</text>
+        <line class="e" x1={cx(m.col)} y1={yMod + BH} x2={segX(2 - j, 0) + 4 * SEG} y2={yTab - 3} marker-end="url(#eh-arrow)" />
+        {Array.from({ length: 8 }, (_, k) => <rect class:list={['seg', `g${m.n}`]} x={segX(2 - j, k)} y={yTab} width={SEG - 2} height="24" rx="2" />)}
+        <text class="s" x={segX(2 - j, 0) + 4 * SEG} y={yTab + 40} text-anchor="middle">{m.n}-gram 的 8 段</text>
+      </g>
+    ))}
+    <text class="s" x={cx(3) + 6} y={yMix + 12}>⊕ 是按位异或</text>
+
+    <rect class="out" x="690" y={yTab - 8} width="176" height="42" rx="7" />
+    <text class="t" x="778" y={yTab + 9} text-anchor="middle">取出 24 行，每行 256 维</text>
+    <text class="s" x="778" y={yTab + 25} text-anchor="middle">拼成 6144 维</text>
+    <line class="e" x1={segX(2, 7) + SEG + 2} y1={yTab + 12} x2="687" y2={yTab + 12} marker-end="url(#eh-arrow)" />
+    <text class="s" x={TX0} y={yTab + 62}>每段的行数是一个素数，约 1600 万。24 段合起来是一张 3.84 亿行的表。</text>
+    <text class="s" x={TX0} y={yTab + 78}>同一阶的 8 个行号来自同一个混合值，只是模的素数不同。</text>
+  </svg>
+  {caption && <figcaption>{caption}</figcaption>}
+</figure>
+
+<style>
+  .eh { margin: 2rem 0; padding: 0.9rem 0.7rem 0.5rem; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); overflow-x: auto; }
+  .eh svg { display: block; width: 100%; min-width: 780px; height: auto; font-family: var(--font-sans); }
+  .eh marker path { fill: var(--text-2); }
+  .row { fill: var(--text-2); font-size: 11.5px; font-weight: 600; }
+  .word { fill: var(--muted); font-size: 11px; font-style: italic; }
+  .t { fill: var(--text); font-size: 11.5px; font-weight: 600; }
+  .s { fill: var(--muted); font-size: 10.5px; }
+  .e { fill: none; stroke: var(--text-2); stroke-width: 1.3; }
+  .tok { fill: var(--bg-2); stroke: var(--text-2); stroke-width: 1.3; }
+  .tok.cur { stroke: var(--cat-rose); stroke-width: 2; }
+  .op { fill: var(--bg-2); stroke: var(--text-2); stroke-width: 1.3; }
+  .mix { fill: color-mix(in srgb, var(--cat-amber) 18%, var(--bg-2)); stroke: var(--cat-amber); stroke-width: 1.5; }
+  .out { fill: color-mix(in srgb, var(--cat-rose) 16%, var(--bg-2)); stroke: var(--cat-rose); stroke-width: 1.5; }
+  .seg { stroke-width: 1; }
+  .seg.g2 { fill: color-mix(in srgb, var(--cat-indigo) 45%, var(--bg-2)); stroke: var(--cat-indigo); }
+  .seg.g3 { fill: color-mix(in srgb, var(--cat-cyan) 45%, var(--bg-2)); stroke: var(--cat-cyan); }
+  .seg.g4 { fill: color-mix(in srgb, var(--cat-emerald) 45%, var(--bg-2)); stroke: var(--cat-emerald); }
+  figcaption { margin-top: 0.6rem; font-size: 0.88rem; color: var(--text-2); text-align: center; line-height: 1.6; }
+</style>

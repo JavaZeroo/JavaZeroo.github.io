@@ -1,0 +1,311 @@
+---
+title: "DeepSeek-V4.1 模型结构（0）：一张图看懂 DeepSeek-V4.1-Flash"
+pubDate: 2026-10-02 12:00:00
+description: "连载开篇。DeepSeek-V4.1-Flash 把每 token 的全局 KV cache 压到 890 字节，prefill 只跑一半的层。这一篇用一张总架构图把 CED、CSA2 的两个共享池、Single-Pass mHC、Engram、DSpark 和视觉通路摆在一起，给出 40 层的排布、V4-Flash → V4.1-Flash 的对照表、552B 参数的分项，并说明后面每一篇讲什么。"
+categories:
+  - "📝学习"
+tags:
+  - "大模型"
+  - "DeepSeek-V4.1"
+  - "模型结构"
+series: deepseek-v41
+part: "总览"
+order: 0
+draft: false
+---
+
+import V41ArchDiagram from '../../components/v41/V41ArchDiagram.astro';
+import V41LayerStrip from '../../components/v41/V41LayerStrip.astro';
+
+这个连载配合 [DeepSeek-V4.1-Flash 技术报告](https://arxiv.org/abs/2609.19969)的 §2 "Architecture" 一起读。V4.1 是在 DeepSeek-V4 上改出来的，所以它也是 [DeepSeek-V4 连载](/2026/09/05/deepseek-v4-00-overview/)的续篇：V4 讲过的模块这里只引用，篇幅都留给这一代的改动。开篇不进细节，只做四件事：说清这一代要解决什么问题，把整个模型画成一张图，把层数、维度和参数量对上，告诉你后面每一篇在图上的哪个位置。
+
+## 三句话版本
+
+DeepSeek-V4.1-Flash 只有一个模型：主干 **552B** 参数，**40 层**，上下文 **1M**，能读图像。另有 196B 参数放在两张 Engram 查找表里。
+
+它有两个激活参数量：**prefill 时每 token 8B，decode 时 16B**。prefill 指把 prompt 读进去、建好缓存的阶段，decode 指逐个生成 token 的阶段。两个数不一样，是因为 prompt 里的 token 只需要算前 20 层。
+
+论文的标题是 "Pushing the Limits of KV Cache Compression"。和 V4-Flash 比，同样长度的上下文，显存里的 KV cache 是 1/4，磁盘上的 KV cache 是 1/8。
+
+结构上的改动按论文 §2 的顺序排：
+
+| 维度 | 模块 | 一句话 | 论文 |
+|---|---|---|---|
+| **序列** | Causal Encoder-Decoder（CED） | 前 20 层叫 encoder，后 20 层叫 decoder。decoder 的全局 KV 全部由 encoder 的最终输出投影得到 | §2.2 |
+| **序列** | Compressed Sparse Attention 2（CSA2） | 相邻的几层共用一份全局 KV，也共用稀疏选择的结果 | §2.3 |
+| **序列** | Hierarchical Sparse Indexer | decoder 里靠后的 indexer 只在 16384 个候选位置里打分 | §2.3.2 |
+| **序列** | FP4 main KV cache | 全局 KV 用 4 bit 浮点存 | §2.4.4 |
+| **深度** | Single-Pass mHC | 读算子改用上一个子层算好的权重，残差流只需要读写一遍 | §2.4.1 |
+| **记忆** | Engram | 按 n-gram 查表，把查到的向量加进残差流 | §2.4.2 |
+| **解码** | DSpark | 三层草稿模块，一次前向猜 5 个 token | §2.4.3 |
+| **输入端** | DeepSeek-ViT + MLP projector | 图像变成 token，和文本排成一条序列 | §2.1.1 |
+| **优化器** | head-wise Muon、Sinkhorn-balanced update | 注意力的 query 和 key 权重按头分别正交化；embedding 类的大表换一种只需要动量的更新 | §2.5 |
+
+宽度方向的 DeepSeekMoE 基本沿用 V4，只多了一处：文本 token 和图像 token 各用一套负载均衡偏置。
+
+## 这一代要解决的问题：KV cache 的三处成本
+
+先回顾 V4 的注意力。每一层有两个分支：
+
+- **滑窗分支**（sliding-window attention，SWA）看最近 128 个 token，KV 不压缩。
+- **全局分支**看整段上下文。KV 先压缩成条目，再由一个叫 lightning indexer 的小模块给条目打分，每个 query 只读分数最高的 top-k 条。
+
+这两个分支在 [V4 连载的第 1 – 3 篇](/2026/09/05/deepseek-v4-01-kv-compression/)里讲过。论文把 V4 概括成一句话：一个靠滑窗做局部处理的主干，外加一份压缩过的全局上下文。V4.1 的思路是**滑窗分支基本不动，只简化全局分支**。
+
+全局分支的 KV cache 论文叫 global KV，本连载写作**全局 KV**。它由两部分组成：注意力真正读的 **main KV**，和 indexer 打分用的 **indexer K**。全局 KV 随上下文长度线性增长，滑窗 KV 每层固定 128 条。上下文一长，占地方的就是全局 KV。
+
+agent 场景下，这份缓存在三个地方花钱。
+
+**第一处是显存。** 生成时全局 KV 必须整份放在 GPU 显存里。V4-Flash 每个 token 的全局 KV 是 3514 字节，1M 上下文就是 3.4 GiB。一台机器能同时服务多少个长会话，由这个数决定。
+
+**第二处是磁盘。** agent 每次调用工具后都会带着同一段前缀再发一次请求。服务端把算好的 KV cache 存在 SSD 上，下次命中前缀就不用重算。论文把这份缓存叫 persistent KV cache。V4 的部署里它至少保留 72 小时，其中将近一半的空间存的是滑窗 KV。
+
+**第三处是 prefill 的计算。** 缓存没命中时，新进来的 prompt token 要过完全部的层。agent 的输入远多于输出，工具返回的大段内容都是输入。
+
+V4.1 对这三处各有对策：
+
+| 成本 | V4-Flash | V4.1-Flash | 靠什么 | 哪一篇 |
+|---|---|---|---|---|
+| 显存里的全局 KV | 3514 B/token | **890 B/token**，约 1/4 | CSA2 跨层共享 + FP4 | 第 2、3 篇 |
+| 磁盘上的 persistent KV | 全局 KV + 滑窗 KV | 约 **1/8**，只存全局 KV | 上一行，再加 SWA Bounded Replay | 第 8 篇 |
+| prefill 每 token 激活参数 | 13B，过全部 43 层 | **8B**，过 20 层 | CED | 第 1 篇 |
+
+1/8 是两个因子相乘：全局 KV 自己缩到 1/4，滑窗 KV 不再进磁盘又省掉将近一半。
+
+生成一个 token 的计算量也几乎不随上下文变长。论文 Figure 2 给的数字是：上下文从 4K 增加到 1M，长了 256 倍，V4.1-Flash 单 token 的 decode FLOPs 只增加 1/4。
+
+## 总图
+
+下面这张图对应论文 Figure 3。后面每一篇开头都会再放一次，只点亮当篇讲的模块。方块可以点击，跳到讲它的那一篇。
+
+<V41ArchDiagram caption="DeepSeek-V4.1-Flash 总架构。纵向是深度。中间 4 条竖线是残差流，每个子层先由读算子把 4 条流压成一条，算完再由写算子分回去。横向虚线把 40 层分成 encoder 和 decoder。右侧两个方块是 CSA2 的共享池：实线箭头是写入，虚线箭头是读取。" />
+
+怎么读这张图：
+
+- **中间是 4 条残差流。** 这是 V4 的 mHC，V4.1 保留了它。每个子层前面有一个读算子 $A$，后面有一个写算子 $C$ 和一个混合矩阵 $B$。V4.1 改的是时序：读算子用的权重由上一个子层提前算好。这就是 Single-Pass mHC，[V4 的第 4 篇](/2026/09/05/deepseek-v4-04-mhc/)讲了没改的部分。
+- **一条横线把 40 层分成两半。** 第 0 – 19 层是 encoder，第 20 – 39 层是 decoder。线上的方块 $H_{20}$ 是 encoder 的最终输出，也就是第 20 层的输入。这里的 encoder 不是 BERT 那种双向的 encoder：40 层全部是因果的，层与层之间只靠残差流相连，没有 cross-attention。两个名字只说明一件事，即全局 KV 是谁生成的。
+- **右侧是两个共享池。** 这是 CSA2 的核心。「共享池」是本连载的叫法，论文没有给它起名字，官方代码里对应的类是 `SharedAttentionRuntime`。V4 每一层都自己压缩一份 KV。V4.1 只有 4 层这样做，论文叫 **Full** 模式，图上是往池里画实线箭头的那几行。其余的层从池里读。
+- **读的方式有两种。** **Reuse** 模式连「读哪 512 条」都用现成的，40 层里有 30 层是这种。**Reindex** 模式共用 KV，但用自己的 indexer query 重新选一次 512 条，共 4 层，全在 decoder。
+- **encoder 的池每组一份，decoder 的池只有一份。** encoder 的 18 层分 3 组，每组第一层是 Full。decoder 的 20 层共用第 20 层写入的那一份，而第 20 层的输入正是 $H_{20}$。所以一个 prompt token 算到横线就能把 decoder 的全局 KV 建好，后 20 层不用为它跑。
+- **左侧的 Engram** 在第 1 层和第 14 层入口各有一个。它按当前 token 结尾的 2-gram、3-gram、4-gram 查表，把查到的向量经过一个门加进 4 条残差流。
+- **顶部是输入。** 图像先过 DeepSeek-ViT，再做 3×3 的 pixel-unshuffle 把 token 数除以 9，由两层 MLP 投影到 5120 维，写到序列里图像 token 的位置上。
+- **底部是输出。** 最后一次读算子把 4 条流压成 1 条，过 RMSNorm 和 LM head。DSpark 是挂在主干后面的三层草稿模块，只在投机解码时运行。
+
+## 40 层怎么排
+
+<V41LayerStrip caption="43 格 = 40 层主干 + 3 个 DSpark 草稿层。层号和 config.json、官方代码一样从 0 开始数。" />
+
+排布来自 config 里的三个数组。
+
+`compress_ratios` 给出每层的压缩率 $m$，即几个 token 压成一条全局 KV：
+
+$$
+[\underbrace{0,\ 0}_{\text{第 0、1 层}},\ \underbrace{2,\ \dots,\ 2}_{\text{第 2 – 19 层}},\ \underbrace{1,\ \dots,\ 1}_{\text{第 20 – 39 层}},\ \underbrace{0,\ 0,\ 0}_{\text{DSpark}}]
+$$
+
+0 表示这一层只有滑窗分支。encoder 里每 2 个 token 压成一条。decoder 里 $m = 1$，每个 token 一条，不压缩。数组有 43 项，最后 3 项属于 DSpark 的三层。V4 的 CSA（$m = 4$）与 HCA（$m = 128$）交错的排法在 V4.1 里没有了，论文的说法是 "pure CSA2"。
+
+`kv_source_layer_ids = [2, 8, 14, 20]` 是 Full 模式的层，它们自己生成全局 KV。
+
+`index_source_layer_ids = [2, 8, 14, 20, 24, 28, 32, 36]` 是自己跑 indexer 的层。在这个数组里、又不在上一个数组里的 24、28、32、36 就是 Reindex 模式。两个数组都不在的层是 Reuse 模式。
+
+合起来：
+
+| 层 | 模式 | $m$ | 全局 KV 从哪来 |
+|---|---|---|---|
+| 0、1 | 纯滑窗 | — | 没有 |
+| 2 – 7、8 – 13、14 – 19 | 每组第 1 层 Full，其余 5 层 Reuse | 2 | 本组的 Full 层 |
+| 20 – 23 | 第 20 层 Full，其余 3 层 Reuse | 1 | 第 20 层 |
+| 24 – 39，4 层一组 | 每组第 1 层 Reindex，其余 3 层 Reuse | 1 | 第 20 层 |
+
+Full 4 层，Reindex 4 层，Reuse 30 层，纯滑窗 2 层。
+
+:::note{type="info"}
+**只在代码里能看到的两点。** 第一，三种模式在官方 `inference/model.py` 里只是两个布尔值：`is_kv_source` 决定这层有没有压缩算子，`is_index_source` 决定有没有 indexer。Reuse 层的注意力参数和第 0 层的纯滑窗注意力完全一样，一个多余的矩阵都没有。第二，V4 前三层的 hash routing 在 V4.1 里不见了：config 没有 `num_hash_layers` 字段，路由代码里也没有按 token id 查表的分支。论文没有提这件事。
+:::
+
+## V4-Flash → V4.1-Flash 对照表
+
+| | DeepSeek-V4-Flash | DeepSeek-V4.1-Flash |
+|---|---|---|
+| 主干参数 | 284B | 552B，另有 Engram 196B |
+| 每 token 激活参数 | 13B | prefill 8B / decode 16B |
+| 层数 | 43 | 40 = 20 encoder + 20 decoder |
+| 隐藏维 $d$ | 4096 | 5120 |
+| 输入 | 文本 | 文本 + 图像 |
+| 全局注意力 | CSA（$m = 4$）与 HCA（$m = 128$）交错 | 只有 CSA2，$m = 2$（encoder）与 $m = 1$（decoder） |
+| 生成全局 KV 的层数 | 41 层各自一份 | 4 层 |
+| 压缩算子 | 相邻条目重叠，带块内位置偏置 | 不重叠，没有位置偏置 |
+| indexer K 的来源 | 从隐藏态另压一路 | 从 main KV 投影 |
+| query 头数 / 头维 | 64 / 512 | 64 / 512 |
+| query 低秩维 | 1024 | 1280 |
+| indexer 头数 / 头维 / top-k | 64 / 128 / 512 | 32 / 128 / 512 |
+| 候选池 | 无 | decoder 里 2048 块 × 8 = 16384 个位置 |
+| main KV 精度 | 448 维 FP8 + 64 维 BF16 | 512 维 FP4 |
+| 滑窗 KV 精度 | 448 维 FP8 + 64 维 BF16 | 512 维 FP8 |
+| 全局 KV | 3514 B/token | 890 B/token |
+| 滑窗窗口 | 128 | 128 |
+| 残差连接 | mHC，4 条流 | Single-Pass mHC，4 条流 |
+| routed expert / 激活 / shared | 256 / 6 / 1 | 384 / 6 / 1 |
+| expert 中间维 | 2048 | 2304 |
+| 前三层的 FFN | hash-MoE | 普通 MoE |
+| 负载均衡偏置 | 一套 | 文本、图像各一套 |
+| 草稿模块 | MTP 1 层，随主干一起预训练 | DSpark 3 层，主干预训练结束后单独训练 |
+| 优化器 | Muon + AdamW | head-wise Muon + AdamW + Sinkhorn-balanced update |
+| 预训练 token | 32T | 45T，文本与多模态的 token 比是 7 : 1 |
+| 稀疏注意力的训练 | 先稠密训 1T token，再换成稀疏 | 从第一步就是稀疏 |
+| 词表 | 129280 | 129280 |
+
+「V4-Flash」一列里论文没给的数字取自它的 config，出处见 [V4 的总览](/2026/09/05/deepseek-v4-00-overview/)。
+
+config.json 里值得先记住的字段，后面每一篇都会用到：
+
+| 字段 | 值 | 意思 |
+|---|---|---|
+| `hidden_size` | 5120 | 主干宽度 $d$ |
+| `num_hidden_layers` | 40 | 前一半是 encoder，后一半是 decoder。config 里没有单独的字段标这条分界 |
+| `num_attention_heads` / `head_dim` | 64 / 512 | query 头数与头维 |
+| `num_key_value_heads` | 1 | 只有一条 KV 向量，K 和 V 是同一个东西 |
+| `q_lora_rank` | 1280 | query 的低秩维，indexer 的 query 也从这里出来 |
+| `qk_rope_head_dim` | 64 | 每个头最后 64 维带 RoPE |
+| `o_groups` / `o_lora_rank` | 8 / 1024 | 分组输出投影 |
+| `sliding_window` | 128 | 滑窗窗口 $n_{\text{win}}$ |
+| `compress_ratios` | 0 / 2 / 1 | 每层的压缩率，见上一节 |
+| `kv_source_layer_ids` | 2, 8, 14, 20 | Full 模式的层 |
+| `index_source_layer_ids` | 上面 4 层 + 24, 28, 32, 36 | 自己跑 indexer 的层 |
+| `index_n_heads` / `index_head_dim` / `index_topk` | 32 / 128 / 512 | indexer 的头数、头维，每个 query 读多少条全局 KV |
+| `candidate_source_layer_id` | 20 | 建候选池的层 |
+| `candidate_topk_blocks` / `candidate_block_size` | 2048 / 8 | 候选池最多 2048 块，每块 8 个位置 |
+| `hc_mult` / `hc_sinkhorn_iters` | 4 / 20 | mHC 的流数和 Sinkhorn 轮数 |
+| `n_routed_experts` / `num_experts_per_tok` / `n_shared_experts` | 384 / 6 / 1 | MoE 配置 |
+| `moe_intermediate_size` | 2304 | expert 中间维 |
+| `scoring_func` / `routed_scaling_factor` | sqrtsoftplus / 1.5 | 路由打分函数与权重缩放 |
+| `engram_layer_ids` | 1, 14 | Engram 的位置 |
+| `engram_max_ngram_size` / `engram_n_heads` / `engram_head_dim` | 4 / 8 / 256 | n-gram 最长 4，每一阶 8 个哈希头，每头取出 256 维 |
+| `engram_num_embeddings` | 约 3.84 亿，两张表 | 每张表的行数 |
+| `num_nextn_predict_layers` | 3 | DSpark 的层数。字段名沿用了 MTP 的 |
+| `dspark_block_size` | 5 | 一次猜 5 个 token |
+| `dspark_target_layer_ids` | 37, 38, 39 | DSpark 读主干的哪几层 |
+| `dspark_n_routed_experts` / `dspark_num_experts_per_tok` | 128 / 3 | DSpark 层的 MoE 比主干小 |
+| `expert_dtype` | fp4 | routed expert 权重 FP4，其余 FP8 |
+| `vision_config` | 32 层，hidden 1024，patch 14，`downsample_ratio` 3 | DeepSeek-ViT |
+
+## 一个 token 的一次前向
+
+一个 token 走哪条路，取决于它是 prompt 里的 token 还是正在生成的 token。先看生成，它走完全程。
+
+### decode：过全部 40 层
+
+这一节和下一节的维度与顺序都取自官方的参考实现 `inference/model.py`，论文只给了各模块的概述。
+
+**入口。** token id 查 embedding 得到 5120 维向量，复制 4 份进入 4 条残差流。
+
+**Engram（第 1、14 层入口）。** 取以当前 token 结尾的 2-gram、3-gram、4-gram。每一阶用 8 个头各算一个行号，共 24 个行号，从表里取出 24 个 256 维向量，拼成 6144 维。一个线性层把它变成 5 个 5120 维向量：4 个 key 分别对应 4 条残差流，1 个 value 共用。每条流和自己的 key 做归一化的点积，取带符号的平方根，再过 sigmoid 得到一个 0 到 1 之间的门。每条流加上「门 × value」。图像 token 不参与。
+
+**读算子。** 把 4 条流按 4 个权重加权求和，得到子层的 5120 维输入，再过 RMSNorm。这 4 个权重不是现算的，是上一个子层留下的。第 0 层的注意力前面没有上一个子层，权重固定为 $(1, 0, 0, 0)$。
+
+读的同时，这个子层也从 4 条流算出自己的一组系数。做法是把 4 条流拉平成 20480 维，乘一个 $24 \times 20480$ 的矩阵得到 24 个数。其中 4 个是写权重 $C$，16 个排成 $4 \times 4$ 过 20 轮 Sinkhorn 得到混合矩阵 $B$，这两样留给本子层的写算子。剩下 4 个是读权重 $A$，留给下一个子层。
+
+**注意力（以 Reuse 层为例）。** 自己算三样东西：
+
+- query：5120 → 1280 → 64 头 × 512 维，每头最后 64 维加 RoPE。
+- 滑窗 KV：5120 → 512，过 RMSNorm，最后 64 维加 RoPE，按 FP8 写进一个 128 格的环形缓存。
+- 输出投影：分 8 组，每组 4096 → 1024，拼起来 8192 → 5120。
+
+全局 KV 和「读哪 512 条」都从共享池拿。64 个 query 头对着 128 条滑窗 KV 加 512 条全局 KV 做一次注意力，共 640 条。每个头另有一个可学习的 attention sink。输出的 64 维 RoPE 位做反旋转。这一段和 V4 相同，见 [V4 的第 3 篇](/2026/09/05/deepseek-v4-03-hybrid-attention/)。
+
+**Full 层多做的事。** 第 20 层把输入投影成 512 维，过 RMSNorm，这就是 main KV 的一条。再把它投影到 128 维，得到 indexer K。两者都按 FP4 写进 decoder 的共享池。然后 indexer 给所有看得见的条目打分：32 个头、每头 128 维的 indexer query 和 indexer K 做点积，过 ReLU，按头加权求和。分数最高的 512 条的位置写进共享池。第 20 层还要建候选池：每 8 个位置算一块，块的分数取块内最高分，留下分数最高的 2048 块。encoder 的 Full 层多一步压缩：每 2 个 token 的 512 维向量按由输入算出的逐通道 softmax 权重加权求和，合成一条。
+
+**Reindex 层多做的事。** 只算自己的 indexer query，和共享池里的 indexer K 打分，范围限制在候选池的 16384 个位置里，选出新的 512 条，覆盖共享池里的索引。
+
+**写算子。** 注意力的输出乘写权重 $C$ 分到 4 条流，旧的 4 条流按混合矩阵 $B$ 互相混合，两者相加。
+
+**DeepSeekMoE。** router 给 384 个 expert 打分，打分函数是 $\sqrt{\operatorname{softplus}(\cdot)}$。加上偏置后选 top-6，图像 token 和文本 token 加的偏置不是同一套。权重取不加偏置的分数，归一化后乘 1.5。每个 expert 是 5120 → 2304 → 5120 的 SwiGLU，带截断。另有一个同样结构的 shared expert，所有 token 都过。
+
+**出口。** 第 39 层的 MoE 留下最后一组读权重，把 4 条流压成 1 条，过 RMSNorm，LM head 把 5120 维映到 129280 个 logit。V4 在这里有一个单独的 `hc_head` 来产生读权重，V4.1 不需要了。
+
+**DSpark。** 投机解码开启时，主干每生成一个 token，DSpark 的三层接着猜后面的 token。它的输入有两部分：主干第 37、38、39 层入口处 4 条残差流的平均，以及刚生成的那个 token。三层一次前向给出 5 个位置的 logits，这 5 个位置互相看不到对方采样出了什么。所以后面接一个 Markov head：它按顺序逐个位置采样，每采一个 token，就把这个 token 对下一个位置的影响加到 logits 上。最后一个 confidence head 估计每个草稿 token 被主干接受的概率。
+
+### prefill：算到第 20 层的入口为止
+
+prompt 里的一个 token，同样从 embedding 开始，过第 0 – 19 层，得到 $H_{20}$。第 20 层把它投影成 main KV 和 indexer K，写进 decoder 的共享池。到这里，后面所有 token 需要从它身上读的全局信息已经齐了，第 20 – 39 层不用为它算。
+
+有一个例外。decoder 每一层还有自己的滑窗 KV，它来自那一层自己的输入。生成第一个新 token 时，decoder 每层的滑窗里要有最近 128 个 token。所以 prompt 的**最后 128 个 token** 仍然要过 decoder。严格地重建这些滑窗 KV 需要回放更多的 token：一层的滑窗 KV 依赖上一层最近 128 个位置的输出，20 层叠起来就是 $20 \times 128 = 2560$ 个 token。V4.1 只回放 128 个，接受一点近似，论文把这个做法叫 Decoder SWA Bounded Replay。
+
+于是 prompt 长度为 $N$ 时，prefill 的计算量从 $N \times 40$ 层变成 $N \times 20 + 128 \times 20$ 层。$N$ 远大于 128 时就是一半。
+
+## 参数量
+
+按 config 手算：
+
+| 部件 | 算式 | 参数量 |
+|---|---|---|
+| routed expert | 3 × 5120 × 2304 × 384 个 × 40 层 | **543.6B** |
+| shared expert | 3 × 5120 × 2304 × 40 层 | 1.4B |
+| 注意力 | 每层约 127M × 40 层 | 5.1B |
+| embedding + LM head | 2 × 129280 × 5120 | 1.3B |
+| Engram 的投影 | 6144 × 25600 × 2 个 | 0.3B |
+| router、mHC、压缩算子、indexer | | 0.2B |
+| **主干合计** | | **≈ 552B** |
+| Engram 的表 | 约 3.84 亿行 × 256 维 × 2 张 | 196.6B |
+| DSpark 三层 | 每层 128 个 expert，约 4.7B | ≈ 14B |
+| DeepSeek-ViT | 32 层，hidden 1024 | ≈ 0.4B |
+
+主干合计和论文的 552B 对得上，Engram 的表和论文的 196B 对得上。这是我的推算：552B 里不含 DSpark 和 ViT。论文没有给分项。
+
+注意力每层的 127M 是这样来的：query 的两个矩阵 5120 × 1280 和 1280 × 32768，共 48.5M；滑窗 KV 的投影 5120 × 512，2.6M；输出投影的两个矩阵 8 × 4096 × 1024 和 8192 × 5120，共 75.5M。
+
+两个激活参数量也能算出来。下面的拆法是我的估算，论文只给了 8B 和 16B 两个结果，没有给统计的范围；算不算 embedding 和 LM head 是这里的关键假设。一个 token 在一层里用到 6 个 routed expert 加 1 个 shared expert，再加这一层的注意力：
+
+$$
+7 \times 35.4\text{M} + 127\text{M} \approx 374\text{M}.
+$$
+
+decode 过 40 层，是 15.0B。加上 embedding 和 LM head 的 1.3B，约 **16B**。prefill 过 20 层，是 7.5B。加上 embedding 的 0.66B，约 **8B**。prefill 不出 logits，所以不算 LM head。
+
+routed expert 占主干的 98%，这一点和 V4 一样。V4.1-Flash 的总参数是 V4-Flash 的近两倍，prefill 的激活参数反而从 13B 降到 8B。
+
+## 890 字节是怎么来的
+
+这个数可以用 config 复算，留到第 3 篇细讲，这里先给结果。
+
+一条 main KV 是 512 个 4 bit 的数，256 字节。每 16 个数共用一个 1 字节的 scale，32 字节。合计 288 字节。一条 indexer K 是 128 个 4 bit 的数加 4 字节 scale，68 字节。所以每生成一条全局 KV 要存 356 字节。
+
+每个 token 摊到多少条：encoder 有 3 个 Full 层，每 2 个 token 一条，合 1.5 条。decoder 有 1 个 Full 层，每个 token 一条。共 2.5 条。
+
+$$
+356 \times 2.5 = 890\ \text{字节 / token}.
+$$
+
+1M 上下文是 0.87 GiB。V4-Flash 的 3514 字节对应 3.4 GiB。
+
+890 字节只是全局 KV。每层的滑窗 KV 另算：128 条 × 528 字节 × 40 层，约 2.7 MB。它和上下文长度无关，所以不摊到每个 token 上。
+
+## 阅读地图
+
+每一篇对应论文的一个小节。
+
+| 篇 | 讲什么 | 对应论文 |
+|---|---|---|
+| 0 | 本篇。要解决的问题、总图、层排布、参数量 | §1，§2.1，§4.2.1 |
+| 1 | [序列（上）：CED](/2026/10/02/deepseek-v41-01-ced/)。它和 YOCO 差在哪，8B 与 16B 的来历，decoder 的滑窗 KV 怎么补 | §2.2 |
+| 2 | [序列（中）：CSA2 的三种模式](/2026/10/02/deepseek-v41-02-csa2/)。简化后的压缩算子，谁往共享池里写、谁读，「共用缓存」和「共用索引」为什么是两件事 | §2.3，§2.3.1 |
+| 3 | [序列（下）：Hierarchical Sparse Indexer 与 FP4 main KV](/2026/10/02/deepseek-v41-03-indexer-fp4/)。候选池怎么建，4 bit 浮点为什么够用，890 字节的分项 | §2.3.2，§2.4.4 |
+| 4 | [深度：Single-Pass mHC](/2026/10/02/deepseek-v41-04-single-pass-mhc/)。残差流的访存量下界，读权重为什么能晚一拍 | §2.4.1 |
+| 5 | [记忆：Engram](/2026/10/02/deepseek-v41-05-engram/)。n-gram 哈希查表，门控，196B 参数怎么训练和存放 | §2.4.2，§3.1.3，Engram 论文 |
+| 6 | [解码：DSpark](/2026/10/02/deepseek-v41-06-dspark/)。一次出 5 个 token 的草稿，Markov head，按置信度决定验证几个 | §2.4.3，DSpark 论文 |
+| 7 | [输入端与优化器](/2026/10/02/deepseek-v41-07-vision-optim/)：DeepSeek-ViT，分模态的负载均衡，head-wise Muon，Sinkhorn-balanced update | §2.1.1，§2.5 |
+| 8 | [系统](/2026/10/02/deepseek-v41-08-systems/)：persistent KV cache 的管理，SWA Bounded Replay，CSA2 在流水线并行下怎么训练 | §3.1.2，§3.2 |
+
+本连载**不讲**：数据构建、post-training（SFT、RL、on-policy distillation、可调的 reasoning effort）、评测结果。这些在论文 §4.1、§4.3、§5。V4 已有、V4.1 没改的模块也不重讲，包括 lightning indexer 的打分公式、部分 RoPE 与输出反旋转、attention sink、mHC 的双随机约束、sqrt-softplus 打分、Muon。它们在 [V4 连载](/2026/09/05/deepseek-v4-00-overview/)里。只想看 CSA2 相对前几代注意力改了什么，可以先读独立的一篇 [DeepSeek 注意力结构对比](/2026/09/23/deepseek-attention-structures/)。
+
+:::note{type="info"}
+**关于层号。** 本连载的层号一律从 0 开始，和 `config.json`、官方代码一致。论文 §2.2 写 "$l > L/2$ 的层是 decoder" 时是从 1 开始数的，对应这里的第 20 – 39 层。
+:::
+
+## 资料
+
+- DeepSeek-V4.1-Flash 技术报告：[arXiv 2609.19969](https://arxiv.org/abs/2609.19969)
+- 权重、config 与官方推理实现：Hugging Face [deepseek-ai/DeepSeek-V4.1-Flash](https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash)，`inference/model.py` 是可读的参考实现，不是生产用的服务引擎
+- DeepSeek-V4 技术报告：[arXiv 2606.19348](https://arxiv.org/abs/2606.19348)
+- 上游论文：YOCO（Sun et al.，NeurIPS 2024，CED 的出发点）、Engram [2601.07372](https://arxiv.org/abs/2601.07372)、DSpark [2607.05147](https://arxiv.org/abs/2607.05147)、mHC [2512.24880](https://arxiv.org/abs/2512.24880)

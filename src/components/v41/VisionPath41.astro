@@ -1,0 +1,31 @@
+---
+/**
+ * DeepSeek-V4.1-Flash 的视觉通路：一张图怎么变成主干序列里的一段 token。
+ * 以一张缩放到 1302 × 1302 的方图为例（方图的上限）：93 × 93 个 patch → 31 × 31 个视觉 token → 序列里占 994 个位置。
+ * 维度都来自官方 inference/vision.py 与 image_processor.py。
+ */
+import FlowDiagram from '../figures/FlowDiagram.astro';
+interface Props { caption?: string }
+const { caption } = Astro.props;
+
+const nodes = [
+  { id: 'img', x: 16, y: 26, w: 150, h: 62, kind: 'in', lines: ['图像', '缩放到 14 的整数倍', '例：1302 × 1302'] },
+  { id: 'pe', x: 196, y: 26, w: 170, h: 62, lines: ['切成 14 × 14 的 patch', '每个 patch 588 个数', '线性层 588 → 1024'] },
+  { id: 'vit', x: 396, y: 20, w: 200, h: 74, kind: 'vision', strong: true, lines: ['DeepSeek-ViT，32 层', '图内双向注意力，2D-RoPE', 'RMSNorm，SwiGLU', '例：93 × 93 = 8649 个 patch'] },
+  { id: 'un', x: 626, y: 26, w: 190, h: 62, lines: ['3 × 3 pixel-unshuffle', '相邻 9 个 patch 拼到通道维', '9 × 1024 = 9216 维'] },
+  { id: 'mlp', x: 626, y: 132, w: 190, h: 62, lines: ['两层 MLP projector', '9216 → 5120 → 5120', '中间是 GELU'] },
+  { id: 'tok', x: 396, y: 132, w: 200, h: 62, kind: 'main', lines: ['视觉 token', '5120 维', '例：31 × 31 = 961 个'] },
+  { id: 'seq', x: 16, y: 126, w: 350, h: 74, kind: 'mla', strong: true, lines: ['写进主干的输入序列', '起始符 +（一行视觉 token + 换行符）× 行数 + 结束符', '例：1 + 31 × 32 + 1 = 994 个位置', '和文本 token 的 embedding 排在同一条序列里'] },
+];
+const edges = [
+  { from: 'img', to: 'pe' },
+  { from: 'pe', to: 'vit' },
+  { from: 'vit', to: 'un' },
+  { from: 'un', to: 'mlp' },
+  { from: 'mlp', to: 'tok', path: 'M626 163 H 598' },
+  { from: 'tok', to: 'seq', path: 'M396 163 H 368' },
+];
+---
+
+<FlowDiagram id="vision41" viewBox="0 0 832 214" minWidth={780} label="DeepSeek-V4.1-Flash 的视觉通路"
+  nodes={nodes} edges={edges} caption={caption} />

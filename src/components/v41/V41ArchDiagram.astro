@@ -1,0 +1,333 @@
+---
+/**
+ * DeepSeek-V4.1-Flash 总架构图。纵向是深度，画法沿用 V4ArchDiagram：4 条残差流（mHC），
+ * 每个子层前一个「读」算子、后一个「写 + 混」算子。V4.1 新增的东西各占一处：
+ *  - 中间一条横线把 40 层分成 encoder（0–19）和 decoder（20–39），线上的方块是 encoder 末态 H_20（CED）；
+ *  - 右侧两个共享池：CSA2 的 Full 层往里写全局 KV、indexer K 和 top-k 索引，Reuse 层只读，
+ *    Reindex 层读 indexer K 与候选池、重写 top-k；
+ *  - 左侧 Engram 在第 1、14 层入口把查表结果加进残差流；
+ *  - 顶部视觉通路，底部 DSpark 草稿层。
+ * MoE 只画一次（第 2 行），其余各层的 MoE 省略。
+ * `highlight` 点亮一组或几组模块，其余淡化；方块可点击，跳到 `LINKS` 里对应的文章。
+ */
+import SvgTex from '../figures/SvgTex.astro';
+type Group = 'vision' | 'embed' | 'swa' | 'csa2' | 'pool' | 'ced' | 'moe' | 'mhc' | 'engram' | 'dspark' | 'output';
+
+interface Props {
+  /** 要点亮的模块组；不传则全部正常显示 */
+  highlight?: Group | Group[];
+  caption?: string;
+}
+const { highlight, caption } = Astro.props;
+const hl = new Set<Group>(highlight ? (Array.isArray(highlight) ? highlight : [highlight]) : []);
+const dimming = hl.size > 0;
+
+const OVERVIEW = '/2026/10/02/deepseek-v41-00-overview/';
+const P = (slug: string) => `/2026/10/02/deepseek-v41-${slug}/`;
+const LINKS: Record<Group, string | null> = {
+  vision: P('07-vision-optim'),
+  embed: OVERVIEW,
+  output: OVERVIEW,
+  swa: P('08-systems'),
+  csa2: P('02-csa2'),
+  pool: P('03-indexer-fp4'),
+  ced: P('01-ced'),
+  moe: P('07-vision-optim'),
+  mhc: P('04-single-pass-mhc'),
+  engram: P('05-engram'),
+  dspark: P('06-dspark'),
+};
+
+interface Box { id: string; group: Group; x: number; y: number; w: number; h: number; label: string; sub?: string; title?: string; }
+
+// ---- 布局常量 ----
+const STREAMS = [340, 356, 372, 388];            // 4 条残差流
+const SX = (STREAMS[0] + STREAMS[3]) / 2;         // 流束中心
+const RW = 76;                                    // 读 / 写算子的宽度（横跨 4 条流）
+const ROW0 = 150, ROW_H = 68;
+const BOX_H = 34, WB_H = 18;
+const MOD_X = 462, MOD_W = 214;
+const POOL_X = 772, POOL_W = 250;
+// 第 2 行前留出 Engram 的位置，第 4 行前留出 encoder / decoder 分界
+const rowY = (i: number) => ROW0 + i * ROW_H + (i >= 2 ? 26 : 0) + (i >= 4 ? 46 : 0);
+const rowC = (i: number) => rowY(i) + BOX_H / 2;
+const wbY = (i: number) => rowY(i) + BOX_H + 8;
+const wbC = (i: number) => wbY(i) + WB_H / 2;
+
+const rows: { i: number; group: Group; label: string; sub: string; title: string }[] = [
+  { i: 0, group: 'swa', label: '滑窗注意力', sub: '第 0、1 层 · 窗口 128', title: '前两层只有滑窗分支，没有全局 KV' },
+  { i: 1, group: 'moe', label: 'DeepSeekMoE', sub: '每层的 FFN · 384 选 6 + 1 shared', title: 'sqrt(softplus) 打分；文本和图像 token 各用一套负载均衡偏置；routed expert 权重 FP4' },
+  { i: 2, group: 'csa2', label: 'CSA2 · Full', sub: '第 2 / 8 / 14 层 · m = 2', title: 'Full 模式：自己压缩 main KV（每 2 个 token 一条），投影出 indexer K，打分选 top-512，全部写进共享池' },
+  { i: 3, group: 'csa2', label: 'CSA2 · Reuse ×5', sub: '每组其余 5 层', title: 'Reuse 模式：只有自己的 query、滑窗 KV 和输出投影；全局 KV 与 top-512 索引都从共享池读' },
+  { i: 4, group: 'csa2', label: 'CSA2 · Full', sub: '第 20 层 · m = 1 · 建候选池', title: 'decoder 唯一的 Full 层：输入是 encoder 末态，每个 token 一条 main KV；另选出最多 16384 个位置作为候选池' },
+  { i: 5, group: 'csa2', label: 'CSA2 · Reuse ×3', sub: '第 21 – 23 层', title: 'Reuse 模式' },
+  { i: 6, group: 'csa2', label: 'CSA2 · Reindex', sub: '第 24 / 28 / 32 / 36 层', title: 'Reindex 模式：全局 KV 和 indexer K 从共享池读，用自己的 indexer query 在候选池里重新打分，选出新的 top-512' },
+  { i: 7, group: 'csa2', label: 'CSA2 · Reuse ×3', sub: '每组其余 3 层', title: 'Reuse 模式：用本组 Reindex 层选出的 top-512' },
+];
+
+const boxes: Box[] = [
+  { id: 'vit', group: 'vision', x: 22, y: 40, w: 112, h: BOX_H, label: 'DeepSeek-ViT', sub: '32 层 · patch 14', title: '从头训练的视觉编码器：2D-RoPE、RMSNorm、SwiGLU，hidden 1024' },
+  { id: 'proj', group: 'vision', x: 148, y: 40, w: 116, h: BOX_H, label: '3×3 重排 + MLP', sub: 'token ÷ 9 → 5120 维', title: '3×3 pixel-unshuffle 把 9 个相邻 patch 拼到通道维，再过两层 MLP 投影到主干宽度' },
+  { id: 'embed', group: 'embed', x: SX - 88, y: 40, w: 176, h: BOX_H, label: 'Token Embedding', sub: '129280 × 5120', title: '图像位置上的 embedding 被视觉特征覆盖' },
+  ...rows.map((r) => ({ id: `row${r.i}`, group: r.group, x: MOD_X, y: rowY(r.i), w: MOD_W, h: BOX_H, label: r.label, sub: r.sub, title: r.title })),
+  { id: 'norm', group: 'output', x: MOD_X, y: rowY(8), w: 96, h: BOX_H, label: 'RMSNorm', title: '最终归一化' },
+  { id: 'head', group: 'output', x: MOD_X + 112, y: rowY(8), w: 102, h: BOX_H, label: 'LM Head', sub: '→ 129280', title: '不与 embedding 共享权重' },
+  { id: 'dspark', group: 'dspark', x: MOD_X, y: rowY(9), w: MOD_W, h: BOX_H, label: 'DSpark 草稿层 ×3', sub: '滑窗注意力 + MoE（128 选 3）', title: '投机解码的草稿模块：三个 block 一次前向给出 5 个草稿 token 的 logits，Markov head 补上草稿 token 之间的依赖，confidence head 估计每个位置被接受的概率' },
+  { id: 'engram', group: 'engram', x: 52, y: rowY(1) + 60, w: 190, h: BOX_H, label: 'Engram', sub: '第 1、14 层入口各一个', title: '按 2、3、4-gram 的哈希查表，取出的向量经门控后加进 4 条残差流；两张表共 196B 参数' },
+];
+
+const cls = (g: Group) => ['blk', g, hl.has(g) ? 'hl' : ''].join(' ');
+const href = (g: Group) => LINKS[g];
+
+const grpEnc = { x: 316, y: rowY(2) - 6, w: 372, h: 2 * ROW_H - 4 };
+const grpDec = { x: 316, y: rowY(6) - 6, w: 372, h: 2 * ROW_H - 4 };
+const YB = rowY(3) + 84;                           // encoder / decoder 分界线
+const ENG_Y = rowY(1) + 60 + BOX_H / 2;
+const poolEnc = { x: POOL_X, y: rowY(2), w: POOL_W, h: rowY(3) + BOX_H - rowY(2) };
+const poolDec = { x: POOL_X, y: rowY(4), w: POOL_W, h: rowY(7) + BOX_H - rowY(4) };
+const portY = (i: number) => rowY(i) + 9;          // 模块框右边通向共享池的接口
+const VB_H = rowY(9) + BOX_H + 28;
+
+// 有链接的组包一层 <a>，没有的包一层 <g>
+const wrap = (g: Group, f: (T: string, h: string | null) => any) => f(href(g) ? 'a' : 'g', href(g));
+---
+
+<figure class:list={['v41d', { dimming }]} data-highlight={[...hl].join(' ')}>
+  <svg viewBox={`0 0 1040 ${VB_H}`} role="img" aria-label="DeepSeek-V4.1-Flash 总架构图">
+    <defs>
+      <marker id="v41-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0 0 L10 5 L0 10 z" />
+      </marker>
+    </defs>
+
+    <!-- 输入 -->
+    <text class="lbl" x="78" y="28" text-anchor="middle">图像</text>
+    <text class="lbl" x={SX} y="28" text-anchor="middle">文本 token</text>
+    <line class="edge" x1="134" y1={40 + BOX_H / 2} x2="146" y2={40 + BOX_H / 2} marker-end="url(#v41-arrow)" />
+    <line class="edge" x1="264" y1={40 + BOX_H / 2} x2={SX - 90} y2={40 + BOX_H / 2} marker-end="url(#v41-arrow)" />
+    <text class="note" x={SX + 100} y={40 + 14}>视觉特征写到图像 token 的位置上，</text>
+    <text class="note" x={SX + 100} y={40 + 28}>和文本 embedding 排成同一条序列</text>
+
+    <!-- embedding → 4 条流 -->
+    {STREAMS.map((x) => <line class="edge" x1={SX} y1={74} x2={x} y2={rowY(0) - 14} />)}
+    <text class="note" x={SX + 100} y={rowY(0) - 22}>复制成 4 份，进入 4 条残差流</text>
+
+    <!-- 残差流 -->
+    {STREAMS.map((x) => <line class="stream" x1={x} y1={rowY(0) - 12} x2={x} y2={rowC(8)} />)}
+    <text class="note" x={STREAMS[0] - 50} y={rowC(0) - 2} text-anchor="end">残差流 ×4</text>
+    <text class="note" x={STREAMS[0] - 50} y={rowC(0) + 12} text-anchor="end">每条 5120 维</text>
+
+    <!-- 重复块虚线框 -->
+    <rect class="grp" x={grpEnc.x} y={grpEnc.y} width={grpEnc.w} height={grpEnc.h} rx="10" />
+    <text class="grp-lbl" x={grpEnc.x - 10} y={rowY(2) + 12} text-anchor="end">重复 3 组</text>
+    <text class="note" x={grpEnc.x - 10} y={rowY(2) + 30} text-anchor="end">第 2 – 19 层，6 层一组</text>
+    <text class="note" x={grpEnc.x - 10} y={rowY(2) + 46} text-anchor="end">每组 1 层 Full + 5 层 Reuse</text>
+    <rect class="grp" x={grpDec.x} y={grpDec.y} width={grpDec.w} height={grpDec.h} rx="10" />
+    <text class="grp-lbl" x={grpDec.x - 10} y={rowY(6) + 12} text-anchor="end">重复 4 组</text>
+    <text class="note" x={grpDec.x - 10} y={rowY(6) + 30} text-anchor="end">第 24 – 39 层，4 层一组</text>
+    <text class="note" x={grpDec.x - 10} y={rowY(6) + 46} text-anchor="end">每组 1 层 Reindex + 3 层 Reuse</text>
+
+    <!-- encoder / decoder 分界 -->
+    <line class="bound" x1="40" y1={YB} x2="1024" y2={YB} />
+    <text class="grp-lbl" x="40" y={YB - 9}>encoder：第 0 – 19 层</text>
+    <text class="grp-lbl" x="40" y={YB + 18}>decoder：第 20 – 39 层</text>
+    <text class="note" x={SX + 100} y={YB - 9}>prefill 时，绝大部分 prompt token 只算到这里</text>
+    <SvgTex x={SX + 100} y={YB + 14} size={11} align="start" color="var(--muted)" src="decoder 的全局 KV 全部由 $H_{20}$ 投影得到" />
+
+    <!-- 每一行：读 → 模块 → 写/混 -->
+    {rows.map((r) => (
+      <g>
+        <line class="edge" x1={SX + RW / 2} y1={rowC(r.i)} x2={MOD_X - 2} y2={rowC(r.i)} marker-end="url(#v41-arrow)" />
+        <path class="edge ret" d={`M${MOD_X + MOD_W} ${rowC(r.i)} H ${MOD_X + MOD_W + 20} V ${wbC(r.i)} H ${SX + RW / 2 + 2}`} marker-end="url(#v41-arrow)" />
+      </g>
+    ))}
+    <text class="note" x={MOD_X + MOD_W + 34} y={rowC(0) - 2}>只有滑窗分支，不读全局 KV</text>
+    <text class="note" x={MOD_X + MOD_W + 34} y={rowC(1) - 2}>40 层的注意力后面都接一个 MoE，</text>
+    <text class="note" x={MOD_X + MOD_W + 34} y={rowC(1) + 12}>下面各行省略不画</text>
+
+    <!-- 共享池的读写 -->
+    <g class:list={['poolio', { hl: hl.has('pool') }]}>
+      <line class="edge w" x1={MOD_X + MOD_W} y1={portY(2)} x2={POOL_X - 2} y2={portY(2)} marker-end="url(#v41-arrow)" />
+      <text class="io" x={POOL_X - 12} y={portY(2) - 5} text-anchor="end">写</text>
+      <line class="edge r" x1={POOL_X} y1={portY(3)} x2={MOD_X + MOD_W + 2} y2={portY(3)} marker-end="url(#v41-arrow)" />
+      <text class="io" x={POOL_X - 12} y={portY(3) - 5} text-anchor="end">读</text>
+      <line class="edge w" x1={MOD_X + MOD_W} y1={portY(4)} x2={POOL_X - 2} y2={portY(4)} marker-end="url(#v41-arrow)" />
+      <text class="io" x={POOL_X - 12} y={portY(4) - 5} text-anchor="end">写</text>
+      <line class="edge r" x1={POOL_X} y1={portY(5)} x2={MOD_X + MOD_W + 2} y2={portY(5)} marker-end="url(#v41-arrow)" />
+      <text class="io" x={POOL_X - 12} y={portY(5) - 5} text-anchor="end">读</text>
+      <line class="edge w" x1={MOD_X + MOD_W + 2} y1={portY(6)} x2={POOL_X - 2} y2={portY(6)} marker-start="url(#v41-arrow)" marker-end="url(#v41-arrow)" />
+      <text class="io" x={POOL_X - 12} y={portY(6) - 5} text-anchor="end">重选索引</text>
+      <line class="edge r" x1={POOL_X} y1={portY(7)} x2={MOD_X + MOD_W + 2} y2={portY(7)} marker-end="url(#v41-arrow)" />
+      <text class="io" x={POOL_X - 12} y={portY(7) - 5} text-anchor="end">读</text>
+    </g>
+    {wrap('pool', (T, h) => (<T href={h}>
+      <g class={cls('pool')}>
+        <title>encoder 的三组各有一份全局 KV，由该组的 Full 层写入，组内 6 层共用</title>
+        <rect x={poolEnc.x} y={poolEnc.y} width={poolEnc.w} height={poolEnc.h} rx="8" />
+        <text class="t" x={poolEnc.x + poolEnc.w / 2} y={poolEnc.y + 20} text-anchor="middle">encoder 共享池（每组一份）</text>
+        <text class="s" x={poolEnc.x + 14} y={poolEnc.y + 42}>main KV：每 2 个 token 一条，512 维 FP4</text>
+        <text class="s" x={poolEnc.x + 14} y={poolEnc.y + 60}>indexer K：每条 128 维 FP4</text>
+        <text class="s" x={poolEnc.x + 14} y={poolEnc.y + 78}>top-512 索引：每个 query 一份，不进缓存</text>
+      </g></T>
+    ))}
+    {wrap('pool', (T, h) => (<T href={h}>
+      <g class={cls('pool')}>
+        <title>decoder 只有一份全局 KV，由第 20 层从 encoder 末态投影出来，20 层共用</title>
+        <rect x={poolDec.x} y={poolDec.y} width={poolDec.w} height={poolDec.h} rx="8" />
+        <text class="t" x={poolDec.x + poolDec.w / 2} y={poolDec.y + 20} text-anchor="middle">decoder 共享池（只有一份）</text>
+        <text class="s" x={poolDec.x + 14} y={poolDec.y + 46}>main KV：每个 token 一条，512 维 FP4</text>
+        <text class="s" x={poolDec.x + 14} y={poolDec.y + 64}>indexer K：每条 128 维 FP4</text>
+        <text class="s" x={poolDec.x + 14} y={poolDec.y + 96}>候选池：第 20 层选出的</text>
+        <text class="s" x={poolDec.x + 14} y={poolDec.y + 112}>2048 块 × 8 = 16384 个位置，</text>
+        <text class="s" x={poolDec.x + 14} y={poolDec.y + 128}>Reindex 层只在池内打分</text>
+        <text class="s" x={poolDec.x + 14} y={poolDec.y + 160}>top-512 索引：第 20 层先写，</text>
+        <text class="s" x={poolDec.x + 14} y={poolDec.y + 176}>每个 Reindex 层覆盖一次</text>
+        <text class="s" x={poolDec.x + 14} y={poolDec.y + 208}>全局 KV 合计 890 B / token</text>
+      </g></T>
+    ))}
+
+    <!-- 左侧：mHC 说明 -->
+    <text class="note" x="40" y={rowY(4) + 38}>Single-Pass mHC：每个子层一次读、一次写 + 混</text>
+    <SvgTex x={40} y={rowY(4) + 62} size={11} align="start" color="var(--muted)" src="$X_{l+1} = B_l X_l + C_l\,\mathcal{F}_l(A_{l-1} X_l)$" />
+    <SvgTex x={40} y={rowY(4) + 84} size={11} align="start" color="var(--muted)" src="读用的 $A_{l-1}$ 是上一个子层算好的" />
+
+    <!-- Engram → 残差流 -->
+    <line class="edge eng" x1={52 + 190} y1={ENG_Y} x2={STREAMS[0] - 4} y2={ENG_Y} marker-end="url(#v41-arrow)" />
+    <text class="note" x="52" y={ENG_Y - 24}>查表结果经门控后加进残差流</text>
+
+    <!-- 输出行 -->
+    <line class="edge" x1={SX + RW / 2} y1={rowC(8)} x2={MOD_X - 2} y2={rowC(8)} marker-end="url(#v41-arrow)" />
+    <line class="edge" x1={MOD_X + 96} y1={rowC(8)} x2={MOD_X + 110} y2={rowC(8)} marker-end="url(#v41-arrow)" />
+    <line class="edge" x1={MOD_X + MOD_W} y1={rowC(8)} x2={MOD_X + MOD_W + 30} y2={rowC(8)} marker-end="url(#v41-arrow)" />
+    <text class="lbl" x={MOD_X + MOD_W + 38} y={rowC(8) + 4}>logits</text>
+    <text class="note" x={SX - RW / 2 - 8} y={rowC(8) + 4} text-anchor="end">最后一次只读：4 条流压成 1 条</text>
+    <path class="edge dsp" d={`M${SX} ${rowY(8) + BOX_H} V ${rowC(9)} H ${MOD_X - 2}`} marker-end="url(#v41-arrow)" />
+    <text class="note" x={SX - 10} y={rowC(9) + 4} text-anchor="end">读主干第 37 – 39 层入口处 4 条流的平均</text>
+    <text class="note" x={MOD_X + MOD_W + 12} y={rowC(9) + 4}>一次前向出 5 个草稿 token 和各自的置信度</text>
+
+    <!-- CED：encoder 末态 -->
+    {wrap('ced', (T, h) => (<T href={h}>
+      <g class={cls('ced')}>
+        <title>encoder 末态：第 19 层的输出，也就是第 20 层的输入。decoder 所有层的全局 KV 都只从它投影（论文式 1）</title>
+        <rect x={SX - 74} y={YB - 12} width={148} height={24} rx="8" />
+        <SvgTex x={SX} y={YB} size={12} src="encoder 末态 $H_{20}$" />
+      </g></T>
+    ))}
+
+    <!-- 读算子 -->
+    {[...rows.map((r) => r.i), 8].map((i) => wrap('mhc', (T, h) => (<T href={h}>
+      <g class={cls('mhc')}>
+        <title>mHC 读算子：对 4 条流加权求和，得到子层的 5120 维输入。权重由上一个子层算好</title>
+        <rect x={SX - RW / 2} y={rowY(i)} width={RW} height={BOX_H} rx="8" />
+        <text class="t" x={SX} y={rowC(i) + 5} text-anchor="middle">读 A</text>
+      </g></T>
+    )))}
+    <!-- 写 + 混算子 -->
+    {rows.map((r) => wrap('mhc', (T, h) => (<T href={h}>
+      <g class={cls('mhc')}>
+        <title>mHC 写算子 C 与混合矩阵 B：子层输出按 C 分到 4 条流，同时 4 条流按双随机矩阵 B 互相混合</title>
+        <rect x={SX - RW / 2} y={wbY(r.i)} width={RW} height={WB_H} rx="6" />
+        <text class="s" x={SX} y={wbC(r.i) + 4} text-anchor="middle">写 C · 混 B</text>
+      </g></T>
+    )))}
+
+    <!-- 方块 -->
+    {boxes.map((b) => wrap(b.group, (T, h) => (<T href={h}>
+      <g class={cls(b.group)}>
+        {b.title && <title>{b.title}</title>}
+        <rect x={b.x} y={b.y} width={b.w} height={b.h} rx="8" />
+        <text class="t" x={b.x + b.w / 2} y={b.y + (b.sub ? 14 : b.h / 2 + 5)} text-anchor="middle">{b.label}</text>
+        {b.sub && <text class="s" x={b.x + b.w / 2} y={b.y + 27} text-anchor="middle">{b.sub}</text>}
+      </g></T>
+    )))}
+  </svg>
+
+  <div class="legend">
+    <span class:list={['chip', 'csa2', { hl: hl.has('csa2') }]}>序列 · CSA2</span>
+    <span class:list={['chip', 'pool', { hl: hl.has('pool') }]}>序列 · 共享池</span>
+    <span class:list={['chip', 'ced', { hl: hl.has('ced') }]}>序列 · CED</span>
+    <span class:list={['chip', 'swa', { hl: hl.has('swa') }]}>序列 · 滑窗</span>
+    <span class:list={['chip', 'mhc', { hl: hl.has('mhc') }]}>深度 · Single-Pass mHC</span>
+    <span class:list={['chip', 'moe', { hl: hl.has('moe') }]}>宽度 · DeepSeekMoE</span>
+    <span class:list={['chip', 'engram', { hl: hl.has('engram') }]}>记忆 · Engram</span>
+    <span class:list={['chip', 'dspark', { hl: hl.has('dspark') }]}>解码 · DSpark</span>
+    <span class:list={['chip', 'vision', { hl: hl.has('vision') || hl.has('embed') || hl.has('output') }]}>输入与输出</span>
+  </div>
+  {caption && <figcaption>{caption}</figcaption>}
+</figure>
+
+<style>
+  .v41d {
+    margin: 2rem 0;
+    padding: 1rem 1rem 0.8rem;
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    background: var(--surface);
+    overflow-x: auto;
+    --c-csa2: var(--cat-indigo);
+    --c-pool: var(--cat-cyan);
+    --c-ced: var(--cat-cyan);
+    --c-swa: var(--muted);
+    --c-moe: var(--cat-emerald);
+    --c-mhc: var(--cat-amber);
+    --c-engram: var(--cat-rose);
+    --c-dspark: var(--muted);
+    --c-vision: var(--muted);
+  }
+  .v41d svg { display: block; width: 100%; min-width: 760px; height: auto; font-family: var(--font-sans); }
+  .v41d marker path { fill: var(--text-2); }
+  .v41d .edge { fill: none; stroke: var(--text-2); stroke-width: 1.4; }
+  .v41d .edge.ret { opacity: 0.75; }
+  .v41d .edge.dsp { stroke-dasharray: 4 4; opacity: 0.7; }
+  .v41d .edge.eng { stroke: var(--c-engram); }
+  .v41d .poolio .edge { stroke: var(--c-pool); }
+  .v41d .poolio .edge.r { stroke-dasharray: 5 4; }
+  .v41d .poolio .io { fill: var(--c-pool); font-size: 11px; font-weight: 600; }
+  .v41d .stream { stroke: var(--text-2); stroke-width: 2; stroke-linecap: round; opacity: 0.5; }
+  .v41d .grp { fill: none; stroke: var(--border-2); stroke-dasharray: 6 5; }
+  .v41d .bound { stroke: var(--c-ced); stroke-width: 1.4; stroke-dasharray: 8 5; opacity: 0.8; }
+  .v41d .grp-lbl, .v41d .lbl { fill: var(--text-2); font-size: 12px; font-weight: 600; }
+  .v41d .note { fill: var(--muted); font-size: 11px; }
+
+  .v41d .blk rect {
+    fill: color-mix(in srgb, var(--c) 16%, var(--bg-2));
+    stroke: var(--c);
+    stroke-width: 1.5;
+    transition: opacity 0.2s, stroke-width 0.15s;
+  }
+  .v41d .blk.dspark rect { stroke-dasharray: 5 3; }
+  .v41d .blk.ced rect { fill: color-mix(in srgb, var(--c) 22%, var(--bg)); }
+  .v41d .blk .t { fill: var(--text); font-size: 13px; font-weight: 600; }
+  .v41d .blk .s { fill: var(--text-2); font-size: 10.5px; }
+  .v41d .blk.pool .s { font-size: 11px; }
+  .v41d .blk.csa2 { --c: var(--c-csa2); }
+  .v41d .blk.pool { --c: var(--c-pool); }
+  .v41d .blk.ced { --c: var(--c-ced); }
+  .v41d .blk.swa { --c: var(--c-swa); }
+  .v41d .blk.moe { --c: var(--c-moe); }
+  .v41d .blk.mhc { --c: var(--c-mhc); }
+  .v41d .blk.engram { --c: var(--c-engram); }
+  .v41d .blk.dspark { --c: var(--c-dspark); }
+  .v41d .blk.vision, .v41d .blk.embed, .v41d .blk.output { --c: var(--c-vision); }
+  .v41d a { cursor: pointer; text-decoration: none; }
+  .v41d a text { text-decoration: none; }
+  .v41d a:hover .blk rect { stroke-width: 2.5; }
+  .v41d a:focus-visible .blk rect { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .v41d.dimming .blk:not(.hl) { opacity: 0.32; }
+  .v41d.dimming .poolio:not(.hl) { opacity: 0.32; }
+  .v41d.dimming .blk.hl rect { stroke-width: 2.4; filter: drop-shadow(0 0 6px color-mix(in srgb, var(--c) 55%, transparent)); }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 0.4rem 0.6rem; margin-top: 0.8rem; }
+  .chip {
+    font-size: 0.78rem; padding: 0.15rem 0.6rem; border-radius: 999px;
+    border: 1px solid var(--c); color: var(--text-2);
+    background: color-mix(in srgb, var(--c) 12%, transparent);
+  }
+  .chip.csa2 { --c: var(--c-csa2); } .chip.pool { --c: var(--c-pool); } .chip.ced { --c: var(--c-ced); }
+  .chip.swa { --c: var(--c-swa); } .chip.mhc { --c: var(--c-mhc); } .chip.moe { --c: var(--c-moe); }
+  .chip.engram { --c: var(--c-engram); } .chip.dspark { --c: var(--c-dspark); } .chip.vision { --c: var(--c-vision); }
+  .v41d.dimming .chip:not(.hl) { opacity: 0.45; }
+  .chip.hl { color: var(--text); font-weight: 600; }
+  figcaption { margin-top: 0.7rem; font-size: 0.88rem; color: var(--text-2); text-align: center; }
+</style>
