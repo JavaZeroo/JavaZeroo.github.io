@@ -1,0 +1,110 @@
+---
+title: "用 Docker 和 SSH 连接多套 VPN 下的开发环境"
+pubDate: 2026-10-19
+description: "把 VPN 放进 Linux 容器，用 ProxyJump 和 SSH 回连，让本机、另一台服务器及其开发容器共用内网 SSH 入口。"
+categories:
+  - "💾服务器"
+tags:
+  - "Docker"
+  - "SSH"
+  - "网络"
+  - "折腾"
+---
+
+import VpnSshPath from '../../components/network/VpnSshPath.astro';
+
+最近折腾远程开发，碰到一个麻烦：我用的 Windows VPN 客户端一次只能连一个环境，但我需要同时访问多组内网服务器，还想让另一台 Linux 服务器里的开发容器也能访问它们。我不想再开一台 Windows 虚拟机，最后用了 **Linux VPN 容器、SSH 端口转发和 ProxyJump**。
+
+这篇记录连接方法和踩过的坑。地址、主机名和用户名均为示例；实际使用前，需要具备对应网络的访问权限。
+
+## 先把 VPN 变成一个本地 SSH 入口
+
+前提是厂商提供可在 Linux 容器中运行的 VPN 客户端。我把它放进 Docker Desktop 的 Linux 容器，让 VPN 路由留在容器里，再把一台内网服务器的 SSH 转发到 Windows 的 `127.0.0.1:22220`。Windows 原有的 VPN 可以继续使用。
+
+这个方法解决的是指定端口的访问，不会自动让所有 Windows 应用都走容器里的 VPN。Docker Desktop 也仍有虚拟化开销，只是省去了额外维护一整套 Windows 系统。
+
+假设 VPN 能访问跳板机 `10.80.0.11`，但目标机器 `10.80.1.21` 只能从跳板机访问。在本机的 `~/.ssh/config` 中配置：
+
+```ssh-config
+Host lab-jump
+  HostName 127.0.0.1
+  Port 22220
+  User dev
+  HostKeyAlias lab-jump
+  IdentityFile ~/.ssh/id_ed25519_lab
+  IdentitiesOnly yes
+
+Host lab-node
+  HostName 10.80.1.21
+  User dev
+  HostKeyAlias lab-node
+  IdentityFile ~/.ssh/id_ed25519_lab
+  IdentitiesOnly yes
+  ProxyJump lab-jump
+```
+
+以后执行 `ssh lab-node`，SSH 会自动经过跳板机。[ProxyJump](https://man.openbsd.org/ssh_config#ProxyJump) 负责建立到目标的 TCP 通道；目标机器仍会单独验证发起端的身份。专用密钥的公钥要分别装到跳板和目标上，私钥留在发起连接的环境里，不必复制到跳板机。
+
+如果报 `administratively prohibited`，要检查跳板机的 `AllowTcpForwarding` 和 `PermitOpen`，而不只是检查目标的 22 端口。实际配置中，我只允许已知目标的 SSH 地址，修改后先用 `sshd -t` 检查语法，再 reload。
+
+## 让另一台服务器复用这个入口
+
+本机能用了，下一步是让另一台 Linux 服务器也能访问。它没有这套 VPN，但我的电脑可以通过 SSH 登录它，于是从电脑主动建立一条回连：
+
+```bash
+# 在已有 VPN 入口的电脑上运行；此命令保持前台连接
+ssh -N -T \
+  -o ExitOnForwardFailure=yes \
+  -o ServerAliveInterval=30 \
+  -o ServerAliveCountMax=3 \
+  -R 127.0.0.1:22220:127.0.0.1:22220 \
+  dev@192.168.50.10
+```
+
+这里两个 `127.0.0.1` 属于不同机器：`-R` 左侧在远端 Linux 服务器上监听，右侧由电脑连接自己的本地端口。访问远端的 `127.0.0.1:22220`，最终就会进入电脑上的 VPN 转发入口。具体语义见 [OpenSSH 的远程转发说明](https://man.openbsd.org/ssh#R)。
+
+远端服务器也配置上面两组 SSH 别名，并使用它自己的专用密钥、公钥和经过核对的主机指纹。访问路径就变成了下面这样：
+
+<VpnSshPath />
+
+回连端口只监听远端的回环地址，不需要对外开放。它依赖电脑、Docker VPN 和回连进程都在线：电脑关机后，这条入口自然也会断。
+
+## 容器能用宿主机的网络，不等于有宿主机的 SSH 配置
+
+远端服务器上的开发容器使用 Linux 的 `--network=host`，因此可以访问宿主机的回连端口。这个结论依赖 [Docker host 网络模式](https://docs.docker.com/engine/network/drivers/host/)；默认 bridge 网络里，容器的 `127.0.0.1` 指向容器自己，不能直接照搬。
+
+还有一个容易漏掉的地方：**网络能通，不代表 SSH 别名和密钥也存在。** 我在容器里生成独立密钥，安装公钥，再写入同样的 SSH 配置和已验证的主机指纹。这样，容器里也只需执行 `ssh lab-node`。
+
+把多台机器写成固定别名后，后续即使某台切换备用网卡，也只需更新 `HostName`。切换前先核对主机指纹，不能因为能收到 SSH banner，就认定它是原来的机器。
+
+## 连接失败时，分开检查网络和认证
+
+这次配置里，直接访问目标机器超时，但跳板机能访问。我同步检查了两端：VPN 网卡发出了 SYN 并持续重试，目标机器却没收到；从跳板机发出的请求，则能在目标上看到 SYN 和 SYN-ACK。
+
+这把排查范围缩小到了 VPN 客户端或中间网络路径，不能据此认定目标机器防火墙有问题。我也做过一次小流量传输对照，没有看到跳转带来明显吞吐下降；单次测试不足以说明所有负载都没有开销。
+
+后来断网，VPN 容器和回连进程都退出了。重新启动它们后，多数机器恢复，但有几台只接受密码，原有登录方式无法通过。此时网络已经可达，剩下的是认证问题，需要管理员确认，反复重启 VPN 并不能解决。
+
+我的检查顺序是：
+
+1. VPN 容器是否正常运行，内网路由是否存在。
+2. 远端的回连端口是否还在监听。
+3. 从开发容器执行 `ssh -v lab-node`，区分超时、主机指纹不匹配和认证失败。
+4. 修改网络或认证配置后，逐台验证，而不是只测一台。
+
+`ServerAliveInterval` 可以帮助检测死连接，**不会自动重连**。我把回连启动接进了本机的 VPN 启动脚本，断线后重新运行入口即可恢复，也避免把“曾经全部连通”误当成永久保证。
+
+## NPU 和数据盘的两个补记
+
+开发容器还遇到了设备和存储挂载问题。在这次昇腾环境中，我把原先只挂载驱动库和版本文件的方式，改为挂载完整驱动目录，保留拓扑等相关文件。具体设备和通信库仍要按产品与驱动版本配置；`npu-smi` 能列卡、健康状态正常，都不能代替 HCCL 多卡通信测试。
+
+数据盘则是在确认磁盘身份、占用和已有数据后，格式化为 ext4，按 UUID 写入 `fstab` 挂到宿主机 `/data`。容器还需要显式绑定：
+
+```bash
+-v /usr/local/Ascend/driver:/usr/local/Ascend/driver \
+-v /data:/data
+```
+
+原容器没有绑定 `/data`，只在宿主机挂盘，容器不会自动多出这个绑定。我保留开发环境后重建了容器，验证工具、登录状态以及宿主机和容器之间的文件读写，再删除旧容器。Docker 对目录绑定的说明见 [Bind mounts](https://docs.docker.com/engine/storage/bind-mounts/)。
+
+最后，迁移登录配置时要注意：登录缓存和带认证的代理地址都属于凭据，不应提交到博客仓库。容器快照如果包含这些文件，也只留作本地重建使用。
