@@ -5,32 +5,37 @@ import Icon from './Icon.astro';
   <div class="search-panel glass" role="dialog" aria-modal="true" aria-label="站内搜索">
     <label class="search-input">
       <Icon name="search" />
-      <input type="search" placeholder="搜索文章…" autocomplete="off" data-search-input />
+      <input type="search" aria-label="搜索文章" placeholder="搜索文章…" autocomplete="off" data-search-input />
       <kbd>ESC</kbd>
     </label>
-    <ul class="search-results" data-search-results></ul>
+    <ul class="search-results" data-search-results aria-live="polite" aria-busy="false"></ul>
   </div>
 </div>
 
 <script>
-  type PF = { init(): Promise<void>; search(q: string): Promise<{ results: { data(): Promise<any> }[] }> };
-  let pf: PF | null | undefined;
+  type Result = { url: string; meta: { title?: string }; excerpt: string };
+  type PF = { init(): Promise<void>; search(q: string): Promise<{ results: { data(): Promise<Result> }[] }> };
+  let pending: Promise<PF | null> | undefined;
+  let retries = 0;
 
-  async function load(): Promise<PF | null> {
-    if (pf !== undefined) return pf;
-    try {
-      // Built by astro-pagefind after `astro build`; served from dist in dev.
-      // Constructed so Vite never sees an import() expression: when it does,
-      // it rewrites it around a __VITE_PRELOAD__ placeholder that is not
-      // substituted in inlined scripts, and the call throws at runtime.
-      const load = new Function('p', 'return import(p)') as (p: string) => Promise<PF>;
-      pf = await load('/pagefind/pagefind.js');
-      await pf.init();
-    } catch (e) {
-      console.error('[search] pagefind failed to load', e);
-      pf = null;
-    }
-    return pf;
+  function load(): Promise<PF | null> {
+    if (pending) return pending;
+    pending = (async () => {
+      try {
+        // Built by astro-pagefind after `astro build`; served from dist in dev.
+        // Keep Vite from rewriting this dynamic import in an inlined script.
+        const load = new Function('p', 'return import(p)') as (p: string) => Promise<PF>;
+        const pf = await load(`/pagefind/pagefind.js${retries ? `?retry=${retries}` : ''}`);
+        await pf.init();
+        return pf;
+      } catch (e) {
+        console.error('[search] pagefind failed to load', e);
+        pending = undefined;
+        retries++;
+        return null;
+      }
+    })();
+    return pending;
   }
 
   // See Header.astro: `init` runs again after every client-side navigation, and
@@ -47,12 +52,23 @@ import Icon from './Icon.astro';
     if (!root || !input || !list) return;
 
     let active = 0;
+    let version = 0;
+    let t: number | undefined;
+    const cancel = () => {
+      version++;
+      clearTimeout(t);
+      list.setAttribute('aria-busy', 'false');
+    };
+    signal.addEventListener('abort', cancel, { once: true });
+    document.addEventListener('astro:before-swap', cancel, { signal });
     let opener: HTMLElement | null = null;
     const open = () => {
+      cancel();
       opener = document.activeElement as HTMLElement | null;
       root.hidden = false; input.value = ''; list.innerHTML = ''; input.focus(); load();
     };
     const close = () => {
+      cancel();
       root.hidden = true;
       // Back to whatever opened the dialog, so a keyboard user does not land
       // at the top of the document.
@@ -77,23 +93,36 @@ import Icon from './Icon.astro';
       stops[(Math.max(at, 0) + (e.shiftKey ? stops.length - 1 : 1)) % stops.length]?.focus();
     }, { signal });
 
-    const render = (items: { url: string; meta: { title?: string }; excerpt: string }[]) => {
+    const escape = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
+    const render = (items: Result[]) => {
       active = 0;
       list.innerHTML = items.length
-        ? items.map((r, i) => `<li class="${i === 0 ? 'active' : ''}"><a href="${r.url}"><div class="st">${r.meta.title ?? r.url}</div><div class="sx">${r.excerpt}</div></a></li>`).join('')
+        ? items.map((r, i) => `<li class="${i === 0 ? 'active' : ''}"><a href="${escape(r.url)}"><div class="st">${escape(r.meta.title ?? r.url)}</div><div class="sx">${r.excerpt}</div></a></li>`).join('')
         : `<li class="search-empty">没有找到相关文章</li>`;
     };
 
-    let t: number | undefined;
     input.addEventListener('input', () => {
-      clearTimeout(t);
+      cancel();
+      const current = version;
+      const q = input.value.trim();
+      if (!q) { list.innerHTML = ''; return; }
+      const valid = () => current === version && !signal.aborted && !root.hidden;
+      list.innerHTML = '<li class="search-empty">正在搜索…</li>';
+      list.setAttribute('aria-busy', 'true');
       t = window.setTimeout(async () => {
-        const q = input.value.trim();
-        if (!q) { list.innerHTML = ''; return; }
-        const api = await load();
-        if (!api) { list.innerHTML = `<li class="search-empty">搜索索引尚未生成（需要先 build）</li>`; return; }
-        const res = await api.search(q);
-        render(await Promise.all(res.results.slice(0, 8).map((r) => r.data())));
+        try {
+          const api = await load();
+          if (!valid()) return;
+          if (!api) throw new Error('Search unavailable');
+          const res = await api.search(q);
+          if (!valid()) return;
+          const items = await Promise.all(res.results.slice(0, 8).map((r) => r.data()));
+          if (valid()) render(items);
+        } catch {
+          if (valid()) list.innerHTML = '<li class="search-empty">搜索暂时不可用，请稍后重新输入重试</li>';
+        } finally {
+          if (valid()) list.setAttribute('aria-busy', 'false');
+        }
       }, 120);
     }, { signal });
 

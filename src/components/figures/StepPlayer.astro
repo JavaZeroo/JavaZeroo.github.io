@@ -44,7 +44,7 @@ const init = full[cur];
     </div>
   )}
   {caption && <figcaption set:html={texMix(caption)} />}
-  <script type="application/json" data-script-steps set:html={JSON.stringify(full)} />
+  <script is:inline type="application/json" data-script-steps set:html={JSON.stringify(full)} />
 </figure>
 
 <style is:global>
@@ -80,14 +80,17 @@ const init = full[cur];
 <script>
   type ElState = 'on' | 'dim' | 'hide';
   interface Step { title: string; caption: string; facts?: string[]; state: Record<string, ElState> }
+  const stops = new Set<() => void>();
+  document.addEventListener('astro:before-swap', () => { stops.forEach((stop) => stop()); stops.clear(); });
   const init = () => document.querySelectorAll<HTMLElement>('[data-stepplayer]').forEach((root) => {
-    if (root.dataset.ready || root.classList.contains('fixed')) { if (!root.dataset.ready) { root.dataset.ready = '1'; apply(root, 0); } return; }
+    if (root.dataset.ready || root.classList.contains('fixed')) { if (!root.dataset.ready) { root.dataset.ready = '1'; apply(root, Number(root.dataset.step || 0)); } return; }
     root.dataset.ready = '1';
     let cur = Number(root.dataset.step || 0), timer: number | null = null;
     const steps = JSON.parse(root.querySelector('[data-script-steps]')!.textContent || '[]') as Step[];
     const play = root.querySelector<HTMLButtonElement>('[data-play]')!;
     const go = (i: number) => { cur = (i + steps.length) % steps.length; apply(root, cur); root.focus({ preventScroll: true }); };
     const stop = () => { if (timer !== null) { clearInterval(timer); timer = null; } play.classList.remove('on'); play.textContent = '▶ 播放'; };
+    stops.add(stop);
     const start = () => { stop(); play.classList.add('on'); play.textContent = '❚❚ 暂停'; timer = window.setInterval(() => { if (cur === steps.length - 1) stop(); else go(cur + 1); }, Number(root.dataset.interval) || 3000); };
     play.addEventListener('click', () => (timer === null ? (cur === steps.length - 1 && go(0), start()) : stop()));
     root.querySelector('[data-prev]')!.addEventListener('click', () => { stop(); go(cur - 1); });

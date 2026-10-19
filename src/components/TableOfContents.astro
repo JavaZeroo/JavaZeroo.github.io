@@ -30,6 +30,7 @@ const items = Astro.props.headings.filter((h) => h.depth >= 2 && h.depth <= 4);
   const init = () => {
     ac?.abort();
     ac = new AbortController();
+    const { signal } = ac;
     const links = document.querySelectorAll<HTMLAnchorElement>('[data-toc-link]');
     if (!links.length) return;
     const byId = new Map([...links].map((a) => [a.dataset.tocLink!, a]));
@@ -39,18 +40,38 @@ const items = Astro.props.headings.filter((h) => h.depth >= 2 && h.depth <= 4);
 
     // Highlight the last heading scrolled past, so the marker still moves
     // through a short trailing section that can never reach the top.
+    let active: HTMLAnchorElement | undefined;
+    let positions: number[] = [];
+    let frame = 0;
     const sync = () => {
+      frame = 0;
       const line = window.scrollY + 120;
       let current = targets[0];
-      for (const t of targets) {
-        if (t.offsetTop <= line) current = t;
+      for (let i = 0; i < targets.length; i++) {
+        if (positions[i] <= line) current = targets[i];
         else break;
       }
-      for (const [, a] of byId) a.classList.remove('active');
-      if (current) byId.get(current.id)?.classList.add('active');
+      const next = current && byId.get(current.id);
+      if (next === active) return;
+      active?.classList.remove('active');
+      active?.removeAttribute('aria-current');
+      next?.classList.add('active');
+      next?.setAttribute('aria-current', 'location');
+      active = next;
     };
-    sync();
-    addEventListener('scroll', sync, { passive: true, signal: ac.signal });
+    const schedule = () => { if (!frame) frame = requestAnimationFrame(sync); };
+    const measure = () => {
+      positions = targets.map((target) => target.getBoundingClientRect().top + scrollY);
+      schedule();
+    };
+    const observer = new ResizeObserver(measure);
+    const article = document.querySelector('[data-article]');
+    if (article) observer.observe(article);
+    measure();
+    addEventListener('scroll', schedule, { passive: true, signal });
+    addEventListener('resize', measure, { signal });
+    document.fonts.ready.then(() => { if (!signal.aborted) measure(); });
+    signal.addEventListener('abort', () => { observer.disconnect(); cancelAnimationFrame(frame); }, { once: true });
   };
   document.addEventListener('astro:page-load', init);
 </script>

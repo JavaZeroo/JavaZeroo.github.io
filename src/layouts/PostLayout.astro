@@ -32,7 +32,7 @@ const showLede = !!description && !(post.body ?? '').includes(description.replac
           <a class="series-banner" href={seriesUrl(ctx.series.id)} style={`--c:${ctx.series.data.color}`} data-pagefind-ignore>
             <span class="label">专栏</span>
             <b>{ctx.series.data.title}</b>
-            <span class="sep">·</span><span>{post.data.part}</span>
+            <span class="sep">·</span><span class="part">{post.data.part}</span>
             <span class="count label">{ctx.index} / {ctx.total}</span>
             <Icon name="arrow" />
           </a>
@@ -88,21 +88,29 @@ const showLede = !!description && !(post.body ?? '').includes(description.replac
 
     // ---- figure zoom ----------------------------------------------------
     // Diagrams are authored on a ~1000-unit viewBox, so in the column they end
-    // up near 1:1 and their labels sit around 12px. This lifts a copy into an
+    // up near 1:1 and their labels sit around 12px. This lifts the figure into an
     // overlay scaled to the viewport instead of making the reader ctrl+scroll.
     const icon = (d: string) =>
       `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
     const ZOOM = icon('<circle cx="11" cy="11" r="7"/><path d="M20 20l-3.6-3.6M11 8v6M8 11h6"/>');
     const CLOSE = icon('<path d="M6 6l12 12M18 6L6 18"/>');
 
-    let box: HTMLElement | null = null;
-    const closeBox = () => { box?.remove(); box = null; };
+    let closeBox = () => {};
+    document.addEventListener('astro:before-swap', () => closeBox(), { signal });
+    signal.addEventListener('abort', () => closeBox(), { once: true });
 
     const openBox = (fig: HTMLElement, opener: HTMLElement) => {
-      box = document.createElement('div');
+      closeBox();
+      const box = document.createElement('dialog');
       box.className = 'fig-lightbox';
-      const clone = fig.cloneNode(true) as HTMLElement;
-      const art = clone.querySelector('svg, img');
+      box.setAttribute('aria-label', '放大图表');
+      const placeholder = document.createElement('div');
+      placeholder.style.height = `${fig.getBoundingClientRect().height}px`;
+      placeholder.style.margin = getComputedStyle(fig).margin;
+      const originalStyle = fig.getAttribute('style');
+      const originalOverflow = document.documentElement.style.overflow;
+      fig.before(placeholder);
+      const art = fig.querySelector('svg, img');
       const vb = art?.getAttribute('viewBox')?.split(/[\s,]+/).map(Number);
       const drawn = vb && vb.length === 4 ? { w: vb[2], h: vb[3] }
         : art instanceof HTMLImageElement && art.naturalHeight ? { w: art.naturalWidth, h: art.naturalHeight }
@@ -112,34 +120,54 @@ const showLede = !!description && !(post.body ?? '').includes(description.replac
       // a phone — gets it at 1.2x the size it was drawn at, which is what makes
       // the labels legible, and pans inside .fig-scroll.
       const fit = drawn ? Math.min(innerWidth * 0.94, innerHeight * 0.88 * (drawn.w / drawn.h)) : 0;
-      const fitted = fit >= drawn?.w!;
-      if (drawn) clone.style.width = `${fitted ? fit : drawn.w * 1.2}px`;
+      const fitted = !!drawn && fit >= drawn.w;
+      if (drawn) fig.style.width = `${fitted ? fit : drawn.w * 1.2}px`;
       // The figures are translucent by design; over the scrim they need a floor.
-      clone.style.background = 'var(--bg-2)';
+      fig.style.background = 'var(--bg-2)';
       const scroll = document.createElement('div');
-      scroll.className = 'fig-scroll';
-      scroll.appendChild(clone);
+      scroll.className = 'fig-scroll prose';
+      scroll.appendChild(fig);
       const close = document.createElement('button');
       close.type = 'button';
       close.className = 'fig-close';
       close.setAttribute('aria-label', '关闭');
       close.innerHTML = CLOSE;
       box.append(scroll, close);
+      let closed = false;
+      closeBox = () => {
+        if (closed) return;
+        closed = true;
+        placeholder.replaceWith(fig);
+        if (originalStyle === null) fig.removeAttribute('style');
+        else fig.setAttribute('style', originalStyle);
+        document.documentElement.style.overflow = originalOverflow;
+        box.close();
+        box.remove();
+        opener.focus({ preventScroll: true });
+      };
       box.addEventListener('click', (e) => { if (e.target === box) closeBox(); });
       close.addEventListener('click', closeBox);
+      box.addEventListener('cancel', (e) => { e.preventDefault(); closeBox(); });
+      box.addEventListener('close', closeBox);
+      box.addEventListener('keydown', (e) => {
+        if (e.key !== 'Tab') return;
+        const stops = [...box.querySelectorAll<HTMLElement>('button, a[href], input, select, textarea, [tabindex]')]
+          .filter((el) => el.tabIndex >= 0 && !el.matches(':disabled') && el.checkVisibility());
+        const index = stops.indexOf(document.activeElement as HTMLElement);
+        e.preventDefault();
+        stops[(index + (e.shiftKey ? stops.length - 1 : 1)) % stops.length]?.focus();
+      });
       document.body.appendChild(box);
+      document.documentElement.style.overflow = 'hidden';
+      box.showModal();
       // The viewBox covers the drawing only; padding, legend and caption add to
       // it. Measure once it is on screen and pull the width back if the figure
       // as a whole still runs past the bottom.
-      const spare = (scroll.clientHeight - 2) / clone.getBoundingClientRect().height;
+      const spare = (scroll.clientHeight - 2) / fig.getBoundingClientRect().height;
       if (fitted && spare < 1) {
-        clone.style.width = `${Math.floor(clone.getBoundingClientRect().width * spare)}px`;
+        fig.style.width = `${Math.floor(fig.getBoundingClientRect().width * spare)}px`;
       }
       close.focus();
-      // Focus goes back where it came from, and Escape closes.
-      box.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') { closeBox(); opener.focus(); }
-      });
     };
 
     document.querySelectorAll<HTMLElement>('.prose figure').forEach((fig) => {
@@ -152,7 +180,6 @@ const showLede = !!description && !(post.body ?? '').includes(description.replac
       btn.addEventListener('click', () => openBox(fig, btn), { signal });
       fig.appendChild(btn);
     });
-    addEventListener('keydown', (e) => { if (e.key === 'Escape') closeBox(); }, { signal });
 
     document.querySelectorAll<HTMLButtonElement>('[data-copy]').forEach((btn) => {
       btn.addEventListener('click', async () => {

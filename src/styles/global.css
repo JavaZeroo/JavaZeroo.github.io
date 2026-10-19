@@ -2,9 +2,7 @@
    render maths, and it is 15 KB gzipped on every other page. */
 @import '@fontsource-variable/cascadia-code/wght.css';
 
-/* HarmonyOS Sans SC is linked from BaseHead (two sliced stylesheets, 400 and
-   700, under /fonts/), not imported here: Vite would try to inline 224
-   @font-face rules into the bundle. font-weight 500 resolves to the 400 face. */
+/* BaseHead declares only the HarmonyOS glyphs used in the brand name. */
 
 /* ============================================================
    Tokens. Dark is the design; light is derived from it.
@@ -35,10 +33,10 @@
   --cat-amber: #fbbf24;
   --cat-rose: #fb7185;
 
-  --font-sans: 'HarmonyOS Sans SC', system-ui, -apple-system, 'PingFang SC', 'Microsoft YaHei',
-    'Noto Sans CJK SC', sans-serif;
+  --font-sans: system-ui, -apple-system, 'PingFang SC', 'Microsoft YaHei',
+    'Noto Sans CJK SC', 'Noto Sans SC', 'WenQuanYi Micro Hei', 'Droid Sans Fallback', sans-serif;
   --font-mono: 'Cascadia Code Variable', 'Cascadia Code', ui-monospace, SFMono-Regular, Menlo,
-    Consolas, 'HarmonyOS Sans SC', monospace;
+    Consolas, 'Noto Sans CJK SC', 'Noto Sans SC', 'Droid Sans Fallback', monospace;
   /* Flip to `normal` to get Cascadia's => and != ligatures back. */
   --code-ligatures: none;
 
@@ -128,6 +126,7 @@ a { color: inherit; text-decoration: none; }
   background-clip: text;
   color: transparent;
 }
+.brand, .hero h1 { font-family: 'Blog Brand', var(--font-sans); }
 .glass {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -387,6 +386,21 @@ main { flex: 1; }
 .series-banner .sep { opacity: 0.5; }
 .series-banner .count { margin-left: 0.2rem; }
 .series-banner svg { width: 0.9rem; height: 0.9rem; opacity: 0.7; }
+.series-banner :is(.label, .part) { white-space: nowrap; }
+@media (max-width: 640px) {
+  .series-banner {
+    display: grid; width: 100%; border-radius: var(--r-sm);
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas: 'label title arrow' '. part count';
+    gap: 0.2rem 0.6rem; margin-bottom: 1rem;
+  }
+  .series-banner > .label:first-child { grid-area: label; }
+  .series-banner b { grid-area: title; }
+  .series-banner .part { grid-area: part; }
+  .series-banner .count { grid-area: count; margin: 0; }
+  .series-banner svg { grid-area: arrow; justify-self: end; }
+  .series-banner .sep { display: none; }
+}
 
 /* ============================================================
    Rows (archives, taxonomy, listings)
@@ -450,6 +464,11 @@ main { flex: 1; }
 .post-header > .label a:hover { color: var(--text); }
 .post-header h1 { font-size: clamp(2rem, 1.4rem + 2.4vw, 2.9rem); line-height: 1.18; letter-spacing: -0.03em; margin: 0; text-wrap: balance; }
 .post-header .lede { margin: 1.1rem 0 0; color: var(--text-2); font-size: 1.05rem; line-height: 1.65; }
+@media (max-width: 640px) {
+  .post-header { padding-block: 1.75rem 1.5rem; }
+  .post-header h1 { font-size: 1.75rem; line-height: 1.3; text-wrap: pretty; }
+  .post-header .lede { margin-top: 0.8rem; font-size: 0.95rem; }
+}
 
 .toc { display: none; }
 @media (min-width: 1200px) {
@@ -517,9 +536,7 @@ main { flex: 1; }
 /* ---- figures: zoom ----
    The diagrams are drawn on a ~1000-unit viewBox, so even a full-width column
    renders them at roughly 1:1 and their 11-12px labels stay small. The button
-   lifts a copy of the figure into an overlay sized to the viewport, which is
-   what a reader would otherwise do with ctrl+scroll. The clone keeps the whole
-   <figure> so the component's own scoped styles still match. */
+   moves the live figure into a modal dialog, preserving state and listeners. */
 .prose figure { position: relative; }
 .fig-zoom {
   position: absolute; top: 0.5rem; right: 0.5rem; z-index: 2;
@@ -537,16 +554,19 @@ figure:hover > .fig-zoom, .fig-zoom:focus-visible { opacity: 1; }
 
 .fig-lightbox {
   position: fixed; inset: 0; z-index: 150;
+  width: 100%; height: 100%; max-width: none; max-height: none;
+  margin: 0; border: 0; color: var(--text);
   display: grid; place-items: center; padding: 1.5rem;
   background: rgb(0 0 0 / 0.72);
   backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
   animation: fade 0.15s ease-out;
 }
+.fig-lightbox::backdrop { background: transparent; }
 :root[data-theme='light'] .fig-lightbox { background: rgb(15 23 42 / 0.5); }
 /* The figure keeps the width JS computed for it and this scrolls, so a diagram
    can be blown up past the viewport on a phone and panned. */
 .fig-scroll { max-width: 100%; max-height: 100%; overflow: auto; overscroll-behavior: contain; }
-.fig-lightbox figure { margin: 0; }
+.fig-lightbox .prose figure { margin: 0; }
 .fig-lightbox .fig-zoom { display: none; }
 .fig-close {
   position: absolute; top: 1rem; right: 1rem;

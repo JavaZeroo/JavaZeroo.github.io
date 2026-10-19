@@ -50,6 +50,9 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Browser smoke tests
+        run: npm run test:smoke
+
       # Publish dist/ to the gh-pages branch, which Pages is already configured
       # to serve (the Hexo site deployed the same way). This needs no change in
       # the repository settings; switch to actions/deploy-pages later if the
@@ -70,4 +73,4 @@ jobs:
       # on first deploy; no ICP filing is needed for the non-mainland zone.
       - name: Deploy to EdgeOne Pages
         if: github.event_name != 'pull_request' && env.EDGEONE_API_TOKEN != ''
-        run: npx edgeone makers deploy ./dist -n javazero-blog -a overseas -t "$EDGEONE_API_TOKEN"
+        run: npx --yes edgeone@1.6.41 makers deploy ./dist -n javazero-blog -a overseas -t "$EDGEONE_API_TOKEN"

@@ -12,6 +12,7 @@ npx playwright install --with-deps chromium   # 首次：mermaid 构建期渲染
 npm run dev       # http://localhost:4321
 npm run build     # 输出到 dist/
 npm run check     # 类型检查
+npm run test:smoke # 构建后运行浏览器回归检查（CI 同样运行）
 ```
 
 ## 写文章
@@ -54,13 +55,18 @@ front-matter 由 `src/content.config.ts` 的 zod schema 校验，字段写错构
 
 ## 字体
 
-- 正文/标题：**HarmonyOS Sans SC**（Regular / Medium / Bold），用 `cn-font-split` 切成 unicode-range 分片放在 `public/fonts/harmonyos-sans-sc/`，浏览器只拉页面用到的分片。协议见旁边的 `LICENSE.txt`，页脚有署名（协议要求）。重新切片：`node scripts/split-fonts.mjs <含 HarmonyOS_SansSC_*.ttf 的目录>`（需先 `npm i -D cn-font-split`；有意不进 CI）。
+- 正文/文章标题：系统字体栈，避免中文长文触发大量字体下载。页头和首页品牌名称保留 **HarmonyOS Sans SC Bold**：`src/utils/brand-font.ts` 在构建期按 `AUTHOR` 提取所需字符的声明，只加载命中的分片，不加载完整字体 CSS。品牌使用 `font-display: optional`，慢网下保留系统字体以避免后续跳动。
+- HarmonyOS 字体分片仍保留在 `public/fonts/harmonyos-sans-sc/`，供品牌及构建期分享图使用。协议见旁边的 `LICENSE.txt`，页脚有署名。重新切片：`node scripts/split-fonts.mjs <含 HarmonyOS_SansSC_*.ttf 的目录>`（需先 `npm i -D cn-font-split`；有意不进 CI）。
 - 代码：**Cascadia Code**（可变字体，fontsource 自托管），默认关闭连字，`global.css` 里 `--code-ligatures: normal` 可打开。
 - 站点图标 / 页头小头像 / 首页分享图（`public/og.png`）都由 `node scripts/gen-assets.mjs` 从 `public/images/avatar.jpg` 生成，换头像后重跑一次。
 - 每篇文章的分享图由 `src/plugins/og-images.mjs` 在构建末尾用 Chromium 渲染到 `dist/og/<文件名>.png`（不进 git），卡片字体就是站点自己的 HarmonyOS 分片。
 - 搜索：Pagefind，`astro build` 后自动生成索引到 `dist/pagefind/`；`npm run dev` 时从上一次 build 的 `dist/` 读取，所以先 build 一次搜索才有结果。
 
 ## 部署
+
+`npm run test:smoke` 使用临时本地端口检查 `dist/`，覆盖桌面与 390/320px 手机布局、字体请求预算、图表放大交互、弹窗焦点、主题、站内导航、真实搜索和乱序搜索响应。设置 `SMOKE_SCREENSHOTS=/tmp/blog-smoke` 可保存截图。
+
+EdgeOne 仅对带哈希的字体文件和 `/_astro/` 资源启用一年缓存；字体 CSS 和 Pagefind 资源需要重新验证，避免发布后继续使用旧入口。缓存规则遵循 [EdgeOne URL 路径匹配语法](https://pages.edgeone.ai/document/edgeone-json)。GitHub Pages 的响应头由平台管理，修改此配置不会更改其缓存策略。
 
 推送到 `hexo`（默认分支，或 `main`）后由 `.github/workflows/deploy.yml` 构建并把 `dist/` 推到 `gh-pages` 分支，GitHub Pages 从该分支提供服务（Settings → Pages → Source: Deploy from a branch → `gh-pages`）。
 
