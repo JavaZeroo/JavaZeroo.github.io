@@ -1,7 +1,6 @@
 ---
 import '../styles/global.css';
 import { brandFontCss } from '../utils/brand-font';
-import { ClientRouter } from 'astro:transitions';
 import { SITE_TITLE, SITE_DESCRIPTION, AUTHOR, SITE_URL } from '../consts';
 
 interface Props { title: string; description?: string; type?: 'website' | 'article'; publishedAt?: Date; updatedAt?: Date; ogImage?: string }
@@ -56,10 +55,7 @@ const jsonLd = type === 'article' && publishedAt ? {
 <meta name="theme-color" content="#0b0f19" />
 {jsonLd && <script is:inline type="application/ld+json" set:html={JSON.stringify(jsonLd)} />}
 
-<ClientRouter />
-
-<!-- Dark is the default. Runs before first paint, and again after every
-     client-side navigation because the router swaps <html>. -->
+<!-- Apply the saved theme before first paint on every page. -->
 <script is:inline>
   (() => {
     let watcher;
@@ -72,7 +68,7 @@ const jsonLd = type === 'article' && publishedAt ? {
     };
     const apply = () => {
       // Marks that JS runs at all: CSS keeps scroll-reveal content visible
-      // without it. Re-applied after a swap, which replaces <html>.
+      // without it.
       document.documentElement.classList.add('js');
       let light = false;
       try {
@@ -86,6 +82,5 @@ const jsonLd = type === 'article' && publishedAt ? {
       watcher.observe(document.documentElement, { attributeFilter: ['data-theme'] });
     };
     apply();
-    document.addEventListener('astro:after-swap', apply);
   })();
 </script>

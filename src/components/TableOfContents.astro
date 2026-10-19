@@ -24,8 +24,6 @@ const items = Astro.props.headings.filter((h) => h.depth >= 2 && h.depth <= 4);
 )}
 
 <script>
-  // See Header.astro: `init` runs again after every client-side navigation, so
-  // the previous page's scroll listener has to go.
   let ac: AbortController | undefined;
   const init = () => {
     ac?.abort();
@@ -73,5 +71,5 @@ const items = Astro.props.headings.filter((h) => h.depth >= 2 && h.depth <= 4);
     document.fonts.ready.then(() => { if (!signal.aborted) measure(); });
     signal.addEventListener('abort', () => { observer.disconnect(); cancelAnimationFrame(frame); }, { once: true });
   };
-  document.addEventListener('astro:page-load', init);
+  init();
 </script>

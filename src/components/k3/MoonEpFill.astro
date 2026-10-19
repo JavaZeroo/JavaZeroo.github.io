@@ -148,5 +148,5 @@ import { texMix } from '../figures/tex';
     btnAll.addEventListener('click', () => { while (step(st)) {} check(); render(); });
     check(); render();
   });
-  document.addEventListener('astro:page-load', init);
+  init();
 </script>

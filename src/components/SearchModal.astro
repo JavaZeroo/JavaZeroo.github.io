@@ -38,8 +38,6 @@ import Icon from './Icon.astro';
     return pending;
   }
 
-  // See Header.astro: `init` runs again after every client-side navigation, and
-  // two live ⌘K handlers would open and immediately close the dialog.
   let ac: AbortController | undefined;
 
   const init = () => {
@@ -60,7 +58,7 @@ import Icon from './Icon.astro';
       list.setAttribute('aria-busy', 'false');
     };
     signal.addEventListener('abort', cancel, { once: true });
-    document.addEventListener('astro:before-swap', cancel, { signal });
+    window.addEventListener('pagehide', cancel, { signal });
     let opener: HTMLElement | null = null;
     const open = () => {
       cancel();
@@ -140,5 +138,5 @@ import Icon from './Icon.astro';
       }
     }, { signal });
   };
-  document.addEventListener('astro:page-load', init);
+  init();
 </script>

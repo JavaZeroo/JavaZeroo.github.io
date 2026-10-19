@@ -16,9 +16,7 @@ const { posts } = Astro.props;
           {cat && <a class="cat" href={`/categories/${encodeURIComponent(cat)}/`}>{catLabel(cat)}</a>}
           {post.data.sticky > 0 && <span class="pin">置顶</span>}
         </div>
-        <!-- Start native navigation immediately instead of waiting for the
-             client router to fetch and prepare the whole article. -->
-        <h3><a href={urlOf(post)} data-astro-reload>{post.data.title}</a></h3>
+        <h3><a href={urlOf(post)}>{post.data.title}</a></h3>
         {post.data.description && <p>{post.data.description}</p>}
         <div class="label meta">
           <FormattedDate date={post.data.pubDate} />

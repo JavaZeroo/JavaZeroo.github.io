@@ -65,7 +65,6 @@ const showLede = !!description && !(post.body ?? '').includes(description.replac
 </BaseLayout>
 
 <script>
-  // See Header.astro: `init` runs again after every client-side navigation.
   let ac: AbortController | undefined;
   const init = () => {
     ac?.abort();
@@ -96,7 +95,7 @@ const showLede = !!description && !(post.body ?? '').includes(description.replac
     const CLOSE = icon('<path d="M6 6l12 12M18 6L6 18"/>');
 
     let closeBox = () => {};
-    document.addEventListener('astro:before-swap', () => closeBox(), { signal });
+    window.addEventListener('pagehide', () => closeBox(), { signal });
     signal.addEventListener('abort', () => closeBox(), { once: true });
 
     const openBox = (fig: HTMLElement, opener: HTMLElement) => {
@@ -200,5 +199,5 @@ const showLede = !!description && !(post.body ?? '').includes(description.replac
       });
     });
   };
-  document.addEventListener('astro:page-load', init);
+  init();
 </script>

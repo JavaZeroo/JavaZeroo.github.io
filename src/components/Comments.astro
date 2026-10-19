@@ -2,11 +2,9 @@
 /**
  * giscus: comments backed by GitHub Discussions on this very repository.
  *
- * The script is injected from JS rather than written into the markup, because
- * the ClientRouter swaps the body on navigation and a giscus <script> in there
- * would either re-run or, worse, leave the previous post's thread behind. The
- * IntersectionObserver keeps the request off pages nobody scrolls to the end
- * of; giscus itself renders nothing until it answers.
+ * The script is injected when the comments approach the viewport. The
+ * IntersectionObserver avoids a request when readers never reach the end;
+ * giscus itself renders nothing until it answers.
  *
  * Discussions are created under the Announcements category, which only
  * maintainers can post to directly — a reader's first comment still opens the
@@ -73,5 +71,5 @@ const config: Record<string, string> = {
     });
     watcher.observe(document.documentElement, { attributeFilter: ['data-theme'] });
   };
-  document.addEventListener('astro:page-load', init);
+  init();
 </script>

@@ -81,7 +81,7 @@ const init = full[cur];
   type ElState = 'on' | 'dim' | 'hide';
   interface Step { title: string; caption: string; facts?: string[]; state: Record<string, ElState> }
   const stops = new Set<() => void>();
-  document.addEventListener('astro:before-swap', () => { stops.forEach((stop) => stop()); stops.clear(); });
+  window.addEventListener('pagehide', () => { stops.forEach((stop) => stop()); });
   const init = () => document.querySelectorAll<HTMLElement>('[data-stepplayer]').forEach((root) => {
     if (root.dataset.ready || root.classList.contains('fixed')) { if (!root.dataset.ready) { root.dataset.ready = '1'; apply(root, Number(root.dataset.step || 0)); } return; }
     root.dataset.ready = '1';
@@ -115,6 +115,5 @@ const init = full[cur];
     if (f) { f.innerHTML = (s.facts || []).map((x) => `<li>${x}</li>`).join(''); f.hidden = !(s.facts && s.facts.length); }
     root.querySelectorAll<HTMLButtonElement>('[data-goto]').forEach((b) => b.classList.toggle('cur', Number(b.dataset.goto) === i));
   }
-  document.addEventListener('astro:page-load', init);
-  if (document.readyState !== 'loading') init(); else document.addEventListener('DOMContentLoaded', init);
+  init();
 </script>

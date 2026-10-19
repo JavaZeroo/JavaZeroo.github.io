@@ -37,10 +37,7 @@ const links = [
 </header>
 
 <script>
-  // This module outlives the page: the ClientRouter runs `init` again after
-  // every navigation. Listeners bound to window would pile up — two live
-  // `keydown` handlers toggle the same state twice and cancel out — so each
-  // run drops the previous run's with an AbortController.
+  // Module scripts run after the document is parsed on each full-page load.
   let ac: AbortController | undefined;
   let io: IntersectionObserver | undefined;
 
@@ -81,5 +78,5 @@ const links = [
     io = obs;
     document.querySelectorAll('.reveal').forEach((el) => obs.observe(el));
   };
-  document.addEventListener('astro:page-load', init);
+  init();
 </script>

@@ -93,5 +93,5 @@ import { texMix } from '../figures/tex';
     q<HTMLButtonElement>('[data-rand]').addEventListener('click', () => { reseed(); render(); });
     render();
   });
-  document.addEventListener('astro:page-load', init);
+  init();
 </script>

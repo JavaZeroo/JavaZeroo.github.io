@@ -220,5 +220,5 @@ import { texMix } from '../figures/tex';
     root.querySelectorAll('input[name="pp-mode"]').forEach((el) => el.addEventListener('change', render));
     render();
   });
-  document.addEventListener('astro:page-load', init);
+  init();
 </script>
