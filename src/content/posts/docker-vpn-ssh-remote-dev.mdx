@@ -1,110 +1,140 @@
 ---
-title: "用 Docker 和 SSH 连接多套 VPN 下的开发环境"
+title: "用 Docker 部署 UniVPN，让多个 VPN 连接共存"
 pubDate: 2026-10-19
-description: "把 VPN 放进 Linux 容器，用 ProxyJump 和 SSH 回连，让本机、另一台服务器及其开发容器共用内网 SSH 入口。"
+description: "每套 UniVPN 独占一个容器，把网卡和路由隔离，再用不同本地端口访问各自内网。记录 Docker Desktop 下的部署方法。"
 categories:
   - "💾服务器"
 tags:
   - "Docker"
+  - "UniVPN"
   - "SSH"
   - "网络"
-  - "折腾"
 ---
 
 import VpnSshPath from '../../components/network/VpnSshPath.astro';
 
-最近折腾远程开发，碰到一个麻烦：我用的 Windows VPN 客户端一次只能连一个环境，但我需要同时访问多组内网服务器，还想让另一台 Linux 服务器里的开发容器也能访问它们。我不想再开一台 Windows 虚拟机，最后用了 **Linux VPN 容器、SSH 端口转发和 ProxyJump**。
+我用的 Windows UniVPN 客户端一次只能连接一套 VPN。需要同时访问另一套内网时，又不想额外开一台 Windows 虚拟机，于是把另一套 UniVPN 放进 Docker Desktop 的 Linux 容器。
 
-这篇记录连接方法和踩过的坑。地址、主机名和用户名均为示例；实际使用前，需要具备对应网络的访问权限。
+**一套 VPN 一个容器，各自维护网卡和路由。** Windows 原有的 VPN 可以继续使用；还需要更多连接，就增加容器，用不同本地端口区分入口。
 
-## 先把 VPN 变成一个本地 SSH 入口
+## 为什么能共存
 
-前提是厂商提供可在 Linux 容器中运行的 VPN 客户端。我把它放进 Docker Desktop 的 Linux 容器，让 VPN 路由留在容器里，再把一台内网服务器的 SSH 转发到 Windows 的 `127.0.0.1:22220`。Windows 原有的 VPN 可以继续使用。
+普通 bridge 网络下，每个容器都有自己的网络命名空间。UniVPN 创建的 `cnem_vnic` 网卡和下发的内网路由留在对应容器里，因此两个容器可以使用同样的网卡名，内网 IP 重复也能按入口区分。
 
-这个方法解决的是指定端口的访问，不会自动让所有 Windows 应用都走容器里的 VPN。Docker Desktop 也仍有虚拟化开销，只是省去了额外维护一整套 Windows 系统。
+这里不要给 VPN 容器加 `--network=host`，也不要让它们共享另一个容器的网络命名空间，否则就失去了这层隔离。[Docker 的 host 网络说明](https://docs.docker.com/engine/network/drivers/host/)解释了共享网络命名空间的行为。
 
-假设 VPN 能访问跳板机 `10.80.0.11`，但目标机器 `10.80.1.21` 只能从跳板机访问。在本机的 `~/.ssh/config` 中配置：
-
-```ssh-config
-Host lab-jump
-  HostName 127.0.0.1
-  Port 22220
-  User dev
-  HostKeyAlias lab-jump
-  IdentityFile ~/.ssh/id_ed25519_lab
-  IdentitiesOnly yes
-
-Host lab-node
-  HostName 10.80.1.21
-  User dev
-  HostKeyAlias lab-node
-  IdentityFile ~/.ssh/id_ed25519_lab
-  IdentitiesOnly yes
-  ProxyJump lab-jump
-```
-
-以后执行 `ssh lab-node`，SSH 会自动经过跳板机。[ProxyJump](https://man.openbsd.org/ssh_config#ProxyJump) 负责建立到目标的 TCP 通道；目标机器仍会单独验证发起端的身份。专用密钥的公钥要分别装到跳板和目标上，私钥留在发起连接的环境里，不必复制到跳板机。
-
-如果报 `administratively prohibited`，要检查跳板机的 `AllowTcpForwarding` 和 `PermitOpen`，而不只是检查目标的 22 端口。实际配置中，我只允许已知目标的 SSH 地址，修改后先用 `sshd -t` 检查语法，再 reload。
-
-## 让另一台服务器复用这个入口
-
-本机能用了，下一步是让另一台 Linux 服务器也能访问。它没有这套 VPN，但我的电脑可以通过 SSH 登录它，于是从电脑主动建立一条回连：
-
-```bash
-# 在已有 VPN 入口的电脑上运行；此命令保持前台连接
-ssh -N -T \
-  -o ExitOnForwardFailure=yes \
-  -o ServerAliveInterval=30 \
-  -o ServerAliveCountMax=3 \
-  -R 127.0.0.1:22220:127.0.0.1:22220 \
-  dev@192.168.50.10
-```
-
-这里两个 `127.0.0.1` 属于不同机器：`-R` 左侧在远端 Linux 服务器上监听，右侧由电脑连接自己的本地端口。访问远端的 `127.0.0.1:22220`，最终就会进入电脑上的 VPN 转发入口。具体语义见 [OpenSSH 的远程转发说明](https://man.openbsd.org/ssh#R)。
-
-远端服务器也配置上面两组 SSH 别名，并使用它自己的专用密钥、公钥和经过核对的主机指纹。访问路径就变成了下面这样：
+容器里的 VPN 不会自动接管 Windows 应用。我的做法是把需要访问的内网 SSH 端口转发出来：
 
 <VpnSshPath />
 
-回连端口只监听远端的回环地址，不需要对外开放。它依赖电脑、Docker VPN 和回连进程都在线：电脑关机后，这条入口自然也会断。
+## 准备镜像
 
-## 容器能用宿主机的网络，不等于有宿主机的 SSH 配置
+前提是 Docker Desktop 已切换到 Linux 容器，且 Linux UniVPN 客户端适配自己的网关。下面使用第三方项目 [jesusdf/huawei-vpn](https://github.com/jesusdf/huawei-vpn) 封装的命令行客户端，**镜像不是厂商官方发布的**。示例针对账号密码认证，短信或动态验证码需要另行调整登录流程。
 
-远端服务器上的开发容器使用 Linux 的 `--network=host`，因此可以访问宿主机的回连端口。这个结论依赖 [Docker host 网络模式](https://docs.docker.com/engine/network/drivers/host/)；默认 bridge 网络里，容器的 `127.0.0.1` 指向容器自己，不能直接照搬。
+在一个空目录中新建 `Dockerfile`：
 
-还有一个容易漏掉的地方：**网络能通，不代表 SSH 别名和密钥也存在。** 我在容器里生成独立密钥，安装公钥，再写入同样的 SSH 配置和已验证的主机指纹。这样，容器里也只需执行 `ssh lab-node`。
+```dockerfile
+FROM jesusdf/huawei-vpn@sha256:f3d98c6229071a2b14d1907a393ecac7743ad1b4d7cc96f38875290d574cd45b
 
-把多台机器写成固定别名后，后续即使某台切换备用网卡，也只需更新 `HostName`。切换前先核对主机指纹，不能因为能收到 SSH banner，就认定它是原来的机器。
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends socat \
+    && rm -rf /var/lib/apt/lists/* \
+    && sed -i 's/-re "Connect Success"/-nocase -re "connect success"/; /^spawn /i log_user 0' /opt/univpn/connect.exp
 
-## 连接失败时，分开检查网络和认证
-
-这次配置里，直接访问目标机器超时，但跳板机能访问。我同步检查了两端：VPN 网卡发出了 SYN 并持续重试，目标机器却没收到；从跳板机发出的请求，则能在目标上看到 SYN 和 SYN-ACK。
-
-这把排查范围缩小到了 VPN 客户端或中间网络路径，不能据此认定目标机器防火墙有问题。我也做过一次小流量传输对照，没有看到跳转带来明显吞吐下降；单次测试不足以说明所有负载都没有开销。
-
-后来断网，VPN 容器和回连进程都退出了。重新启动它们后，多数机器恢复，但有几台只接受密码，原有登录方式无法通过。此时网络已经可达，剩下的是认证问题，需要管理员确认，反复重启 VPN 并不能解决。
-
-我的检查顺序是：
-
-1. VPN 容器是否正常运行，内网路由是否存在。
-2. 远端的回连端口是否还在监听。
-3. 从开发容器执行 `ssh -v lab-node`，区分超时、主机指纹不匹配和认证失败。
-4. 修改网络或认证配置后，逐台验证，而不是只测一台。
-
-`ServerAliveInterval` 可以帮助检测死连接，**不会自动重连**。我把回连启动接进了本机的 VPN 启动脚本，断线后重新运行入口即可恢复，也避免把“曾经全部连通”误当成永久保证。
-
-## NPU 和数据盘的两个补记
-
-开发容器还遇到了设备和存储挂载问题。在这次昇腾环境中，我把原先只挂载驱动库和版本文件的方式，改为挂载完整驱动目录，保留拓扑等相关文件。具体设备和通信库仍要按产品与驱动版本配置；`npu-smi` 能列卡、健康状态正常，都不能代替 HCCL 多卡通信测试。
-
-数据盘则是在确认磁盘身份、占用和已有数据后，格式化为 ext4，按 UUID 写入 `fstab` 挂到宿主机 `/data`。容器还需要显式绑定：
-
-```bash
--v /usr/local/Ascend/driver:/usr/local/Ascend/driver \
--v /data:/data
+ENV USER=root
+COPY vpn-forward.sh /vpn-forward.sh
+ENTRYPOINT ["/bin/sh", "/vpn-forward.sh"]
 ```
 
-原容器没有绑定 `/data`，只在宿主机挂盘，容器不会自动多出这个绑定。我保留开发环境后重建了容器，验证工具、登录状态以及宿主机和容器之间的文件读写，再删除旧容器。Docker 对目录绑定的说明见 [Bind mounts](https://docs.docker.com/engine/storage/bind-mounts/)。
+这里固定镜像摘要，并兼容登录成功提示的大小写；同时关闭交互回显，避免账号密码被客户端回显进日志。
 
-最后，迁移登录配置时要注意：登录缓存和带认证的代理地址都属于凭据，不应提交到博客仓库。容器快照如果包含这些文件，也只留作本地重建使用。
+再新建 `vpn-forward.sh`，保存为 **LF 换行**：
+
+```sh
+#!/bin/sh
+set -eu
+: "${FORWARD_TARGET:?请设置内网目标 IP}"
+
+socat TCP4-LISTEN:2222,bind=0.0.0.0,reuseaddr,fork \
+  "TCP4:${FORWARD_TARGET}:${FORWARD_PORT:-22},connect-timeout=10" &
+
+exec /bin/sh /entrypoint.sh
+```
+
+`socat` 在容器内监听 `2222`，收到连接后，再沿容器里的 VPN 路由连接目标服务器。它只是转发 TCP，SSH 仍由目标服务器验证身份。
+
+构建镜像，以下单行命令可直接在 PowerShell 中运行：
+
+```powershell
+docker build -t univpn-forward:local .
+```
+
+## 启动两套 UniVPN
+
+新建 `vpn-a.env`，填入第一套 VPN 的信息。以下全部为示例，需要替换：
+
+```ini
+VPN_GATEWAY=vpn-a.example.com
+VPN_PORT=443
+VPN_USERNAME=your-user-a
+VPN_PASSWORD=replace-with-your-password
+FORWARD_TARGET=10.80.0.11
+FORWARD_PORT=22
+```
+
+复制为 `vpn-b.env`，填写第二套的网关、端口、账号、密码和内网目标。两套 VPN 的 `FORWARD_TARGET` 可以相同，因为它们分别通过自己的隧道访问。网关端口按实际配置填写，不一定是 `443`。
+
+这两个文件包含密码，只保存在本机，不提交到 Git。环境变量也能被有 Docker 管理权限的人查看。
+
+```powershell
+docker run -d --name univpn-a --restart=no --cap-add=NET_ADMIN --device=/dev/net/tun --env-file vpn-a.env -p 127.0.0.1:22221:2222 univpn-forward:local
+docker run -d --name univpn-b --restart=no --cap-add=NET_ADMIN --device=/dev/net/tun --env-file vpn-b.env -p 127.0.0.1:22222:2222 univpn-forward:local
+```
+
+`NET_ADMIN` 和 `/dev/net/tun` 用于建立 VPN 网卡。两条命令都使用默认 bridge 网络，容器名、认证文件和宿主机端口分别独立。这里把入口绑定到 `127.0.0.1`，供本机使用；端口映射规则见 [Docker 文档](https://docs.docker.com/engine/network/port-publishing/)。
+
+如果 Windows 已经连接第一套 VPN，只启动额外需要的那一个容器即可，不必把两套都迁进去。容器隔离也不能绕过 VPN 服务端的账号并发限制，同账号能否多端在线仍取决于网关策略。
+
+## Windows 应用怎么访问
+
+SSH 工具直接填写对应入口：
+
+| 环境 | 地址 | 端口 | 登录身份 |
+| --- | --- | --- | --- |
+| VPN A 内的服务器 | `127.0.0.1` | `22221` | 目标服务器的账号或密钥 |
+| VPN B 内的服务器 | `127.0.0.1` | `22222` | 目标服务器的账号或密钥 |
+
+这一步用的是**内网服务器的 SSH 账号**，与 VPN 登录账号是两回事。也可以在 Windows 的 `~/.ssh/config` 中写两个别名：
+
+```ssh-config
+Host vpn-a-node
+  HostName 127.0.0.1
+  Port 22221
+  User dev
+  HostKeyAlias vpn-a-node
+
+Host vpn-b-node
+  HostName 127.0.0.1
+  Port 22222
+  User dev
+  HostKeyAlias vpn-b-node
+```
+
+之后执行 `ssh vpn-a-node` 或 `ssh vpn-b-node`。VS Code Remote SSH、SFTP 等工具也能使用对应入口。第一次连接时核对目标主机指纹。
+
+这个例子只转发一个 TCP 服务。需要数据库等其他端口，可以增加对应的 `socat` 监听和 Docker 端口映射。需要让浏览器按代理访问更多内网地址，则应另配 SOCKS/HTTP 代理；仅启动 UniVPN 容器不会自动提供这种代理服务。
+
+## 日常启停和排查
+
+```powershell
+docker logs --tail 30 univpn-a
+docker exec univpn-a ip addr show cnem_vnic
+docker exec univpn-a ip route get 10.80.0.11
+
+docker stop univpn-a univpn-b
+docker start univpn-a univpn-b
+```
+
+先确认登录成功、网卡存在，再看目标 IP 是否走 VPN 路由，最后测试本地 SSH 入口。端口已经监听不代表 VPN 已连通。如果提示密码错误，先停止容器再核对认证信息；基础镜像内部有重连逻辑，`--restart=no` 只控制 Docker 的重启策略。
+
+不使用时停止容器。需要限制单个 VPN 容器资源时，可以在创建命令中加 `--memory=256m --cpus=0.5`，再观察实际占用调整；这个限制不包含 Docker Desktop 和 WSL 本身的开销。

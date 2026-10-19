@@ -1,35 +1,37 @@
 ---
-/**
- * 远端开发容器通过电脑上的 SSH 回连、VPN 端口入口和跳板访问目标。
- * 箭头表示访问数据的方向；回连本身由电脑主动发起，无组件参数。
- */
 import FlowDiagram from '../figures/FlowDiagram.astro';
 
-const nodes = [
-  { id: 'remote', x: 20, y: 20, w: 320, h: 62, kind: 'in', lines: ['远端 Linux 服务器或开发容器', '执行 ssh lab-node'] },
-  { id: 'pc', x: 20, y: 132, w: 320, h: 62, kind: 'main', lines: ['Windows 电脑', 'Docker VPN 与本地端口 22220'] },
-  { id: 'jump', x: 20, y: 244, w: 320, h: 62, kind: 'comm', lines: ['内网跳板机', 'VPN 可以访问的 SSH 入口'] },
-  { id: 'node', x: 20, y: 356, w: 320, h: 62, kind: 'out', lines: ['目标服务器', '独立验证发起端的 SSH 密钥'] },
-];
-const edges = [
-  { from: 'remote', to: 'pc', label: 'SSH 回连', lx: 194, ly: 108 },
-  { from: 'pc', to: 'jump', label: 'VPN 端口转发', lx: 194, ly: 220 },
-  { from: 'jump', to: 'node', label: 'ProxyJump', lx: 194, ly: 332 },
+const paths = [
+  { name: 'A', port: '22221' },
+  { name: 'B', port: '22222' },
 ];
 ---
 
 <div class="vpn-path">
-<FlowDiagram
-  id="vpn-ssh-access"
-  viewBox="0 0 360 438"
-  minWidth={300}
-  nodes={nodes}
-  edges={edges}
-  label="远端开发环境经电脑 VPN 和跳板访问目标服务器的路径"
-  caption="箭头是访问数据的方向；SSH 回连由 Windows 电脑主动建立。电脑的 VPN 和回连进程需要保持在线。"
-/>
+  {paths.map(({ name, port }) => (
+    <FlowDiagram
+      id={`univpn-${name.toLowerCase()}`}
+      viewBox="0 0 300 310"
+      minWidth={260}
+      nodes={[
+        { id: 'local', x: 15, y: 10, w: 270, h: 60, kind: 'in', lines: ['Windows 本地入口', `127.0.0.1:${port}`] },
+        { id: 'vpn', x: 15, y: 122, w: 270, h: 64, kind: 'main', lines: [`UniVPN 容器 ${name}`, '独立的 cnem_vnic 与路由'] },
+        { id: 'target', x: 15, y: 238, w: 270, h: 60, kind: 'out', lines: [`内网 ${name} 的 SSH 服务器`, '10.80.0.11:22'] },
+      ]}
+      edges={[
+        { from: 'local', to: 'vpn', label: '映射到容器 2222', lx: 162, ly: 99 },
+        { from: 'vpn', to: 'target', label: `经 VPN ${name} 转发`, lx: 162, ly: 215 },
+      ]}
+      label={`本机通过端口 ${port} 访问 VPN ${name} 内网的路径`}
+    />
+  ))}
 </div>
+<p class="vpn-caption">两个容器的网卡和路由相互独立；即使内网 IP 相同，也可以通过不同本地端口访问。</p>
 
 <style>
-  .vpn-path { max-width: 440px; margin-inline: auto; }
+  .vpn-path { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .vpn-caption { text-align: center; font-size: .85em; opacity: .75; }
+  @media (max-width: 600px) {
+    .vpn-path { grid-template-columns: minmax(0, 1fr); max-width: 340px; margin-inline: auto; }
+  }
 </style>
