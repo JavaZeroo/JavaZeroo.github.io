@@ -13,10 +13,6 @@ const stats = await siteStats();
       {INTRO.tags.map(({ label, href }) => <a class="chip" href={href}>{label}</a>)}
     </div>
     <h1><span class="grad-text">{AUTHOR}</span></h1>
-    <p class="tagline">
-      {INTRO.lines.map((l, i) => (<>{l}{i < INTRO.lines.length - 1 && <br />}</>))}
-      {' '}<em>{INTRO.em}</em>
-    </p>
     <div class="hero-actions">
       <a class="btn primary" href="#posts">看看文章 <Icon name="down" /></a>
       {SOCIALS.map(({ name, href, icon }) => (

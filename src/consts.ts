@@ -7,8 +7,7 @@ export const AVATAR = '/images/avatar.jpg';
 export const AVATAR_SMALL = '/images/avatar-64.webp';
 export const HOME_POSTS = 7;
 
-/** Hero copy. `tags` render as chips linking at their tag page; `em` is the
- *  emphasised clause of the tagline. */
+/** Hero tags render as chips linking to their tag pages. */
 export const INTRO = {
   tags: [
     { label: '大模型', href: '/tags/大模型/' },
@@ -16,8 +15,6 @@ export const INTRO = {
     { label: '训练系统', href: '/tags/训练系统/' },
     { label: '折腾', href: '/tags/折腾/' },
   ],
-  lines: ['读论文和代码，', '把大模型拆成看得懂的图。'],
-  em: '偶尔写点数学。',
 };
 
 export const SOCIALS = [
