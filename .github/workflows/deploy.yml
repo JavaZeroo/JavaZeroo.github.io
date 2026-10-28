@@ -16,7 +16,9 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    # Keep browser-rendering dependencies on the previously validated LTS image.
+    # ubuntu-latest moved to 26 and made apt font installation much slower.
+    runs-on: ubuntu-24.04
     env:
       # Optional second target; see the EdgeOne step below. Unset on forks and
       # pull requests, which skips that step.

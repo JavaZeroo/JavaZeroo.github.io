@@ -1,0 +1,56 @@
+---
+/**
+ * UniVPN 网关的控制面与数据面。两张竖排图在手机上顺序堆叠；
+ * 控制面负责认证与健康门控，业务数据不经过 Python 代理。无 props。
+ */
+import FlowDiagram from '../figures/FlowDiagram.astro';
+
+const control = [
+  { id: 'terminal', x: 30, y: 24, w: 300, h: 60, kind: 'in', lines: ['用户终端', 'docker compose exec vpn vpnctl login'] },
+  { id: 'frontend', x: 30, y: 128, w: 300, h: 66, kind: 'main', lines: ['Python 终端前端与服务', '本地 Unix IPC · CSDK/RPC'] },
+  { id: 'engine', x: 30, y: 238, w: 300, h: 66, kind: 'mla', lines: ['官方 UniVPNCS 与辅助服务', '密码与短信续交到同一认证会话'] },
+  { id: 'probe', x: 30, y: 348, w: 300, h: 66, kind: 'comm', lines: ['后台业务探针', '核对认证、接口、路由与 SSH 响应'] },
+  { id: 'gate', x: 30, y: 458, w: 300, h: 66, kind: 'out', lines: ['更新专属转发链', '探针通过才放行，失败则 DROP'] },
+];
+const data = [
+  { id: 'apps', x: 30, y: 24, w: 300, h: 60, kind: 'in', lines: ['Windows 直连应用', '原始 IP 与端口 · SSH / HTTP / UDP'] },
+  { id: 'windows', x: 30, y: 128, w: 300, h: 66, kind: 'main', lines: ['Windows WireGuard 网卡', '仅接管 AllowedIPs 中的目标'] },
+  { id: 'wg', x: 30, y: 238, w: 300, h: 66, kind: 'mla', lines: ['Docker 容器内的 wg0', '经 localhost 发布的 UDP 端口进入'] },
+  { id: 'filter', x: 30, y: 348, w: 300, h: 66, kind: 'comm', lines: ['iptables FORWARD 与 SNAT', '限制源地址、目标 CIDR 和 VPN 出口'] },
+  { id: 'private', x: 30, y: 458, w: 300, h: 66, kind: 'out', lines: ['cnem_vnic → UniVPN 网关 → 内网', '回复经连接跟踪和 WireGuard 返回'] },
+];
+---
+
+<div class="vpn-diagram-grid">
+  <div>
+    <h3>控制面负责登录和放行</h3>
+    <FlowDiagram id="univpn-control" viewBox="0 0 360 548" minWidth={300}
+      nodes={control} edges={[
+        { from: 'terminal', to: 'frontend', label: '账号、密码与短信' },
+        { from: 'frontend', to: 'engine', label: '独立前端控制官方引擎' },
+        { from: 'engine', to: 'probe', label: '隧道启动后继续检查' },
+        { from: 'probe', to: 'gate', label: '后台统一执行探测' },
+      ]}
+      label="UniVPN 控制面：用户终端经 Python 前端和官方引擎完成认证，后台探针决定转发是否放行"
+      caption="验证码保留在当前登录会话中。新版状态查询只读后台探针结果，不重复发起认证或探测。" />
+  </div>
+  <div>
+    <h3>数据面按目标地址转发</h3>
+    <FlowDiagram id="univpn-data" viewBox="0 0 360 548" minWidth={300}
+      nodes={data} edges={[
+        { from: 'apps', to: 'windows', label: 'Windows 默认选路' },
+        { from: 'windows', to: 'wg', label: '本机 WireGuard 隧道' },
+        { from: 'wg', to: 'filter', label: '在同一网络命名空间内' },
+        { from: 'filter', to: 'private', label: '仅允许指定 VPN 出口' },
+      ]}
+      label="UniVPN 数据面：Windows 应用经本机 WireGuard、Docker wg0、转发与源地址转换访问 UniVPN 内网"
+      caption="WireGuard 是 Windows 到容器的入口。远端连接仍由 UniVPN 承担，业务包不经 Python 用户态代理。" />
+  </div>
+</div>
+
+<style>
+  .vpn-diagram-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; margin-block: 1.4rem; }
+  .vpn-diagram-grid h3 { margin-block: 0 .3rem; font-size: 1rem; }
+  .vpn-diagram-grid :global(.fd) { margin-block: .6rem 0; height: calc(100% - 2rem); }
+  @media (max-width: 640px) { .vpn-diagram-grid { grid-template-columns: minmax(0, 1fr); } }
+</style>

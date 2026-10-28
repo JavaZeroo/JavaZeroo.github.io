@@ -1,156 +1,138 @@
 ---
 title: "用 Docker 部署 UniVPN，让多个 VPN 连接共存"
 pubDate: 2026-10-19
-updatedDate: 2026-10-27
-description: "用独立容器让多套 UniVPN 共存，记录账号密码和短信认证的差异，以及从 SSH 端口转发升级为网段网关的设计。"
+updatedDate: 2026-10-29
+description: "用纯终端短信认证和 WireGuard 接入，把 Docker 中的 UniVPN 变成按目标网段转发的网关，让 Windows 直接访问内网 SSH、HTTP 和 UDP。"
 categories:
   - "💾服务器"
 tags:
   - "Docker"
   - "UniVPN"
-  - "SSH"
+  - "WireGuard"
   - "网络"
 ---
 
-import VpnSshPath from '../../components/network/VpnSshPath.astro';
+import UniVpnArchitecture from '../../components/network/UniVpnArchitecture.astro';
+import UniVpnDependencies from '../../components/network/UniVpnDependencies.astro';
 
-我用的 Windows UniVPN 客户端一次只能连接一套 VPN。需要同时访问另一套内网时，又不想额外开一台 Windows 虚拟机，于是把另一套 UniVPN 放进 Docker Desktop 的 Linux 容器。
+Windows 的 UniVPN 客户端一次只能连接一套环境。我需要保留原来的 VPN，同时访问另一套内网，又不想多开一台 Windows 虚拟机，于是把额外的 UniVPN 放进 Docker。
 
-**一套 VPN 一个容器，各自维护网卡和路由。** Windows 原有的 VPN 可以继续使用；还需要更多连接，就增加容器，用不同本地端口区分入口。
+现在采用的方案是：**每套 UniVPN 独占一个容器，Windows 通过 WireGuard 把指定目标的流量送进去。** 配好后，应用直接使用原始内网 IP，例如 `ssh your-user@10.80.0.11`；网页和 UDP 服务走同一条路径。
 
-> 2026-10-27 更新：前半部分保留已经使用过的账号密码登录与 SSH 转发方案。后续已用独立 Python 终端前端连接官方引擎，完成无图形界面的短信认证、隧道启动和 4 台服务器 SSH 验证；正式容器单次内存样本为 18.8 MiB。文末补充新后端的用法，Windows 按网段接入的整条链路仍待实测。
+这条路线已经完成纯终端短信认证和 Windows 多协议实测。配套源码在 [JavaZeroo/univpn-docker-gateway](https://github.com/JavaZeroo/univpn-docker-gateway)。它仍是实验项目，下面说明具体用法和已经验证的范围。
 
-## 为什么能共存
+## Windows 通过 WireGuard 接入独立的 UniVPN 容器
 
-普通 bridge 网络下，每个容器都有自己的网络命名空间。UniVPN 创建的 `cnem_vnic` 网卡和下发的内网路由留在对应容器里，因此两个容器可以使用同样的网卡名，内网 IP 重复也能按入口区分。
+容器拥有独立的网络命名空间。UniVPN 创建的 `cnem_vnic`、内网路由和转发规则留在对应容器中。增加一套 VPN，就增加一个独立实例，分别配置账号、密钥、接入地址和 UDP 端口。
 
-不同 VPN 实例不要使用 `--network=host` 或共享彼此的网络命名空间，否则会失去这层隔离。同一套 VPN 的业务容器或网关辅助容器，可以有意共享它的网络命名空间。[Docker 的 host 网络说明](https://docs.docker.com/engine/network/drivers/host/)解释了共享网络命名空间的行为。
+Windows 还需要到容器的网络入口。[Docker Desktop 的 Linux 容器网络位于虚拟机内部](https://docs.docker.com/desktop/features/networking/networking-how-tos/)，不能直接把容器 IP 当作 Windows 路由的下一跳。因此，这里通过发布到 `127.0.0.1` 的 UDP 端口接入 WireGuard。
 
-容器里的 VPN 不会自动接管 Windows 应用。我的做法是把需要访问的内网 SSH 端口转发出来：
+<UniVpnArchitecture />
 
-<VpnSshPath />
+图中的**数据面**承载 SSH、HTTP、UDP 等业务：Windows 应用 → Windows WireGuard → localhost UDP → 容器 `wg0` → 转发与 SNAT → `cnem_vnic` → 内网目标。SNAT 将来源换成容器的 VPN 地址，让远端回包沿原路返回。
 
-## 准备镜像
+**控制面**负责登录和决定何时允许转发。`vpnctl` 在终端收取账号、密码和短信验证码，经本地控制接口交给 Python 服务，再通过 CSDK/RPC 控制官方 UniVPNCS。验证码续交到原来的引擎和登录会话。
 
-前提是 Docker Desktop 已切换到 Linux 容器，且 Linux UniVPN 客户端适配自己的网关。下面使用第三方项目 [jesusdf/huawei-vpn](https://github.com/jesusdf/huawei-vpn) 封装的命令行客户端，**镜像不是厂商官方发布的**。这套示例只验证了账号密码认证，不能直接用于本文遇到的短信认证环境，具体限制见文末。
+后台守卫检查 VPN 接口、目标路由和真实业务探针。检查失败后，专属转发链切换为 DROP；正常流量还必须从 `wg0` 转向指定 VPN 接口，不能改从容器普通出口发走。状态变化有轮询和探针超时延迟。
 
-在一个空目录中新建 `Dockerfile`：
+WireGuard 只连接 Windows 与本机容器；访问远端环境仍由 UniVPN 完成。容器内的 `wg0` 是 Linux 内核接口，**不需要再运行一个 WireGuard 常驻进程或辅助容器**。[WireGuard 的网络命名空间说明](https://www.wireguard.com/netns/)解释了接口与命名空间的关系。
 
-```dockerfile
-FROM jesusdf/huawei-vpn@sha256:f3d98c6229071a2b14d1907a393ecac7743ad1b4d7cc96f38875290d574cd45b
+## 各层依赖分别运行在 Windows、Linux 内核和容器中
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends socat \
-    && rm -rf /var/lib/apt/lists/* \
-    && sed -i 's/-re "Connect Success"/-nocase -re "connect success"/; /^spawn /i log_user 0' /opt/univpn/connect.exp
+上一张图说明数据怎么走；下面按运行位置说明依赖关系。
 
-ENV USER=root
-COPY vpn-forward.sh /vpn-forward.sh
-ENTRYPOINT ["/bin/sh", "/vpn-forward.sh"]
-```
+<UniVpnDependencies />
 
-这里固定镜像摘要，并兼容登录成功提示的大小写；同时关闭交互回显，避免账号密码被客户端回显进日志。
+| 层次 | 使用的组件 | 负责什么 |
+| --- | --- | --- |
+| Windows | 官方 WireGuard、PowerShell 辅助脚本 | 创建独立隧道服务，安装目标路由，检查实际选路 |
+| Docker Desktop / WSL | Linux 容器运行环境、WireGuard 内核支持 | 提供网络命名空间、TUN 设备和 UDP 端口发布 |
+| VPN 容器 | Ubuntu 22.04 amd64、tini、Python 标准库 | 管理进程、交互认证、会话状态和健康检查 |
+| 厂商组件 | UniVPNCS / CSDK、UniVPNPromoteService、libgmcrypto.so | 完成远端认证，建立 UniVPN 隧道 |
+| 容器网络工具 | iproute2、iptables、wireguard-tools、ca-certificates | 配置接口、按目标 CIDR 转发、SNAT 与失败阻断 |
 
-再新建 `vpn-forward.sh`，保存为 **LF 换行**：
+当前验证的厂商版本是 **10781.21.0.0831**，运行环境是 Ubuntu 22.04 / amd64。项目会校验安装包及引擎摘要，换版本或架构需要重新验证这条本地接口，不能直接忽略校验。
 
-```sh
-#!/bin/sh
-set -eu
-: "${FORWARD_TARGET:?请设置内网目标 IP}"
+默认 Compose 使用 bridge 网络，额外授予 `NET_ADMIN` 和 `/dev/net/tun`，供引擎配置 VPN 网卡和路由；不使用 privileged 或宿主机网络。WireGuard 内核能力来自 Docker 的 Linux 环境，安装工具包本身不能替代它。
 
-socat TCP4-LISTEN:2222,bind=0.0.0.0,reuseaddr,fork \
-  "TCP4:${FORWARD_TARGET}:${FORWARD_PORT:-22},connect-timeout=10" &
+默认 `native` 镜像使用 Python 标准库，不安装 Qt、X11、Xvfb、DBus 或 VNC。厂商程序由用户自行下载后本地构建；项目不分发包含厂商程序的镜像或安装包。分层细节见仓库的[架构文档](https://github.com/JavaZeroo/univpn-docker-gateway/blob/main/docs/architecture.md)。
 
-exec /bin/sh /entrypoint.sh
-```
+## Windows 接入需要先完成容器内的 VPN 认证
 
-`socat` 在容器内监听 `2222`，收到连接后，再沿容器里的 VPN 路由连接目标服务器。它只是转发 TCP，SSH 仍由目标服务器验证身份。
+以下以 `10.80.0.11` 为示例目标，所有网关、密钥和地址都需要按自己的环境填写。准备好 Docker Desktop 的 Linux 容器环境，以及 [Windows 官方 WireGuard](https://www.wireguard.com/install/)。完整密钥生成与文件权限步骤见[快速开始](https://github.com/JavaZeroo/univpn-docker-gateway/blob/main/docs/quickstart.md)。
 
-构建镜像，以下单行命令可直接在 PowerShell 中运行：
+### 1. 克隆项目，自备厂商安装包
 
 ```powershell
-docker build -t univpn-forward:local .
+git clone https://github.com/JavaZeroo/univpn-docker-gateway.git
+Set-Location univpn-docker-gateway
+New-Item -ItemType Directory -Force vendor, private | Out-Null
+Copy-Item .env.example .env
 ```
 
-## 启动两套 UniVPN
+从[联软官方下载页面](https://www.leagsoft.com/doc/article/103107.html)取得适用的 Linux 安装包，解压后的安装程序放到 `vendor/univpn.run`，然后计算摘要：
 
-新建 `vpn-a.env`，填入第一套 VPN 的信息。以下全部为示例，需要替换：
+```powershell
+Get-FileHash vendor/univpn.run -Algorithm SHA256
+```
+
+将计算结果写入本地 `.env`，同时确定本机 UDP 入口：
 
 ```ini
-VPN_GATEWAY=vpn-a.example.com
-VPN_PORT=443
-VPN_USERNAME=your-user-a
-VPN_PASSWORD=replace-with-your-password
-FORWARD_TARGET=10.80.0.11
-FORWARD_PORT=22
+UNIVPN_SHA256=替换为安装程序的64位SHA256摘要
+VPN_CONFIG_DIR=./private
+WG_PORT=51829
 ```
 
-复制为 `vpn-b.env`，填写第二套的网关、端口、账号、密码和内网目标。两套 VPN 的 `FORWARD_TARGET` 可以相同，因为它们分别通过自己的隧道访问。网关端口按实际配置填写，不一定是 `443`。
+安装包、`.env` 和 `private/` 都不提交到 Git。这里的 SHA256 固定本地构建输入，不代表任意厂商版本都兼容。
 
-这两个文件包含密码，只保存在本机，不提交到 Git。环境变量也能被有 Docker 管理权限的人查看。
+### 2. 填写网关、目标范围和真实探针
 
-```powershell
-docker run -d --name univpn-a --restart=no --cap-add=NET_ADMIN --device=/dev/net/tun --env-file vpn-a.env -p 127.0.0.1:22221:2222 univpn-forward:local
-docker run -d --name univpn-b --restart=no --cap-add=NET_ADMIN --device=/dev/net/tun --env-file vpn-b.env -p 127.0.0.1:22222:2222 univpn-forward:local
+将 `examples/vpn.json` 复制为 `private/vpn.json`，例如：
+
+```json
+{
+  "gateway": "vpn.example.com",
+  "port": 443,
+  "vpn_interface": "cnem_vnic",
+  "allowed_cidrs": ["10.80.0.11/32"],
+  "wireguard_client": "10.203.0.2/32",
+  "probe": {
+    "host": "10.80.0.11",
+    "port": 22,
+    "banner_prefix": "SSH-2.0-"
+  }
+}
 ```
 
-`NET_ADMIN` 和 `/dev/net/tun` 用于建立 VPN 网卡。两条命令都使用默认 bridge 网络，容器名、认证文件和宿主机端口分别独立。这里把入口绑定到 `127.0.0.1`，供本机使用；端口映射规则见 [Docker 文档](https://docs.docker.com/engine/network/port-publishing/)。
+`allowed_cidrs` 是允许转发的目标范围。先从确认需要的单机 `/32` 开始；网关实际下发了哪些路由，要连接后再核对。实验环境可能使用看起来像公网的地址，不能据此扩大成整个 `/8`。
 
-如果 Windows 已经连接第一套 VPN，只启动额外需要的那一个容器即可，不必把两套都迁进去。容器隔离也不能绕过 VPN 服务端的账号并发限制，同账号能否多端在线仍取决于网关策略。
+这里使用 SSH banner 判断目标是否可达。**探针使用 SSH，不影响转发 HTTP 或 UDP。** `wireguard_client` 则是 Windows 接入端的地址，要与 WireGuard 配置一致，并避开现有局域网、Docker 和其他 VPN 的地址范围。
 
-## Windows 应用怎么访问
+证书默认验证 CA 链和主机名。自签证书需要先独立核验，再按仓库文档设置明确批准的叶证书摘要。当前做法是独立 TLS 预检加本次登录例外，尚未将预检连接与引擎后续连接绑定，不能称为引擎侧证书 pinning。
 
-SSH 工具直接填写对应入口：
+### 3. 配对 Windows 与容器的 WireGuard
 
-| 环境 | 地址 | 端口 | 登录身份 |
-| --- | --- | --- | --- |
-| VPN A 内的服务器 | `127.0.0.1` | `22221` | 目标服务器的账号或密钥 |
-| VPN B 内的服务器 | `127.0.0.1` | `22222` | 目标服务器的账号或密钥 |
+在本机分别生成容器端和 Windows 端密钥，将配置保存为 `private/wg0.conf`、`private/univpn-lab.conf`。可参考仓库的[容器端模板](https://github.com/JavaZeroo/univpn-docker-gateway/blob/main/examples/wg0.conf)和 [Windows 模板](https://github.com/JavaZeroo/univpn-docker-gateway/blob/main/examples/windows.conf)，生成命令见快速开始。
 
-这一步用的是**内网服务器的 SSH 账号**，与 VPN 登录账号是两回事。也可以在 Windows 的 `~/.ssh/config` 中写两个别名：
+| 配置项 | 容器 `wg0.conf` | Windows `univpn-lab.conf` |
+| --- | --- | --- |
+| Interface Address | `10.203.0.1/30` | `10.203.0.2/32` |
+| Interface PrivateKey | 容器自己的私钥 | Windows 自己的私钥 |
+| Peer PublicKey | Windows 公钥 | 容器公钥 |
+| Peer AllowedIPs | `10.203.0.2/32` | `10.80.0.11/32` |
+| Peer Endpoint | 无需填写 | `127.0.0.1:51829` |
+| ListenPort | `51820` | 无需固定 |
+| MTU | `1280` | `1280` |
+| Table | `off` | 不填写 |
 
-```ssh-config
-Host vpn-a-node
-  HostName 127.0.0.1
-  Port 22221
-  User dev
-  HostKeyAlias vpn-a-node
+两端各自保留私钥，只交换公钥。Windows 的 `AllowedIPs` 与 `vpn.json` 的目标 CIDR 一致；容器 peer 的 `AllowedIPs` 只接受 Windows 接入地址。`.env` 的 `WG_PORT` 对应 Windows Endpoint 的端口，容器内仍监听 `51820/udp`。
 
-Host vpn-b-node
-  HostName 127.0.0.1
-  Port 22222
-  User dev
-  HostKeyAlias vpn-b-node
-```
+私钥文件只应允许自己、SYSTEM 和管理员读取。Git 忽略目录不能代替文件权限；按快速开始设置 Windows ACL，容器加载时会再将配置复制到权限为 `0600` 的运行目录。
 
-之后执行 `ssh vpn-a-node` 或 `ssh vpn-b-node`。VS Code Remote SSH、SFTP 等工具也能使用对应入口。第一次连接时核对目标主机指纹。
+两端配置在首次启动前准备好，服务会自动加载容器端的 `wg0.conf`。首次路径不需要再手工热加载。
 
-这个例子只转发一个 TCP 服务。需要数据库等其他端口，可以增加对应的 `socat` 监听和 Docker 端口映射。需要让浏览器按代理访问更多内网地址，则应另配 SOCKS/HTTP 代理；仅启动 UniVPN 容器不会自动提供这种代理服务。
-
-## 日常启停和排查
-
-```powershell
-docker logs --tail 30 univpn-a
-docker exec univpn-a ip addr show cnem_vnic
-docker exec univpn-a ip route get 10.80.0.11
-
-docker stop univpn-a univpn-b
-docker start univpn-a univpn-b
-```
-
-先确认登录成功、网卡存在，再看目标 IP 是否走 VPN 路由，最后测试本地 SSH 入口。端口已经监听不代表 VPN 已连通。如果提示密码错误，先停止容器再核对认证信息；基础镜像内部有重连逻辑，`--restart=no` 只控制 Docker 的重启策略。
-
-不使用时停止容器。需要限制单个 VPN 容器资源时，可以在创建命令中加 `--memory=256m --cpus=0.5`，再观察实际占用调整；这个限制不包含 Docker Desktop 和 WSL 本身的开销。
-
-## 短信认证：通过官方引擎保留纯终端交互
-
-项目的 [connect.exp](https://github.com/jesusdf/huawei-vpn/blob/main/univpn/connect.exp) 驱动厂商命令行程序，依次提交账号、密码，然后等待连接结果，没有验证码输入分支。厂商安装包附带的《终端用户接入指南》10.2.2 更明确写出：Linux CLI 的 SSL VPN 连接仅支持用户名/密码认证。在后续测试的网关上，命令行客户端返回需要动态口令，原镜像无法完成认证。只给脚本增加一个验证码环境变量，不能补出厂商 CLI 没有提供的交互能力。
-
-随后验证了官方引擎的另一条本地控制路径：**保留 UniVPNCS 负责认证和隧道，由独立 Python 前端通过 CSDK/RPC 接口完成终端交互。** 密码触发短信后，验证码续交到原引擎、原登录会话，不需要启动 GUI 或桌面。
-
-配套项目 [JavaZeroo/univpn-docker-gateway](https://github.com/JavaZeroo/univpn-docker-gateway) 的默认 Compose 已使用这个后端。官方 10781.21.0.0831 的正式容器实测通过真实短信认证、TUN 隧道启动和 **4/4 台服务器的 SSH banner**。容器中只有 tini、Python、官方辅助服务和 UniVPNCS，Qt/Xvfb/DBus/AT-SPI/VNC 包检查为空。
-
-按仓库说明取得厂商安装包、校验摘要并填写本地配置后运行：
+### 4. 在终端完成账号密码和短信认证
 
 ```powershell
 docker compose build
@@ -159,39 +141,139 @@ docker compose exec vpn vpnctl login
 docker compose exec vpn vpnctl status
 ```
 
-`login` 在当前终端输入账号密码，并等待最新短信验证码。也可以先用 `login --no-otp` 返回，随后运行 `docker compose exec vpn vpnctl sms` 续交。只有真实目标探针通过，`status` 才返回 `data_plane_ready: true` 并以状态码 0 退出；认证成功或网卡存在都不够。
+`login` 隐藏输入密码；网关要求短信时，在同一终端输入最新验证码。密码和验证码不写进 `.env`、命令参数或配置文件。交互登录需要 TTY，不加 `-T`。
 
-连接后的单次 `docker stats` 样本为 **18.8 MiB / 384 MiB、CPU 1.26%**，不包含 Docker Desktop/WSL 固定开销，也不是稳态或峰值保证。验证码过期或认证失败后，需要 `docker compose restart vpn`，再显式运行 `vpnctl login`；没有自动重试密码或重复发送短信。协议和证书策略的限制见仓库[实测记录](https://github.com/JavaZeroo/univpn-docker-gateway/blob/main/docs/native-rpc-research.md)。
+如果要在收到短信挑战后先返回，再续交验证码：
 
-## 从 SSH 入口升级为网段网关
-
-本地 SSH 端口只是第一阶段。更完整的目标是让 Windows 应用直接访问内网原始 IP，SSH、网页、数据库和 UDP 服务共用一套网段规则，无需为每个服务增加端口映射。
-
-这里需要区分两个问题：容器内 UniVPN 已经是 VPN 客户端；缺少的是 **Windows 到这个容器的三层网络入口**。[Docker Desktop 文档](https://docs.docker.com/desktop/features/networking/networking-how-tos/)说明 Linux 容器网络位于虚拟机内部，Windows 不能直接访问每个容器 IP，因此不能简单地把 Docker 容器地址填成 Windows 的静态路由下一跳。
-
-计划采用下面的结构，**尚未完成部署和端到端验证**：
-
-```text
-Windows 应用：直接访问内网 IP
-    ↓ 只匹配配置的目标网段
-Windows WireGuard 接口
-    ↓ 本机发布的 UDP 端口
-Docker 内的 WireGuard 接口
-    ↓ 转发规则 + 源地址转换
-同一网络命名空间内的 UniVPN 接口
-    ↓
-目标内网
+```powershell
+docker compose exec vpn vpnctl login --no-otp
+docker compose exec vpn vpnctl sms
 ```
 
-WireGuard 是本机到容器的接入链路，远端仍使用原 UniVPN 协议。[WireGuard 支持网络命名空间](https://www.wireguard.com/netns/)，适合作为这个入口。可以让辅助容器共享**对应那一套** UniVPN 的网络命名空间；其他 VPN 实例仍保持独立。
+`sms` 继续现有挑战，不重新提交密码或重发短信。`--no-otp` 返回成功可能只表示正在等待验证码；只有 `status` 中 `data_plane_ready` 为 `true` 且退出码为 0，才表示真实目标探针通过。
 
-每套 VPN 配置独立的接入地址、密钥、UDP 端口和目标网段。Windows 的 `AllowedIPs` 只包含确认需要的网段；容器启用 IP 转发，只允许这些目标从 WireGuard 转发到 UniVPN，并在 UniVPN 出口执行源地址转换，让回包能返回 Windows。未允许的目标，以及 VPN 断开后的转发，都应被拒绝，不能落到容器普通互联网出口。
+过期、失败或取消后，先 `docker compose restart vpn`，再显式执行 `vpnctl login`。项目不自动重试密码或重发短信；也可以用 `vpnctl cancel` 取消当前等待中的认证。
 
-配置时还需要解决几个实际问题：
+<details>
+<summary>已有已认证容器，后来才加入 WireGuard 时</summary>
 
-- **路由冲突**：与 Windows 原生 VPN、Mihomo TUN 和本地局域网核对。多个 VPN 的目标网段重叠时，仅靠目的 IP 不能同时区分，应使用地址映射或分开使用环境。
-- **网段范围**：优先录入实际下发且确实需要的前缀，必要时先用单机 `/32`。实验内网可能使用公网地址，不能凭 IP 外观扩大成整个 `/8`。
-- **域名和数据包大小**：内网域名需要单独设计按域名分流的 DNS；双层隧道需要验证 MTU，避免小请求成功、大文件卡住。
-- **健康检查**：WireGuard 握手、VPN 网卡存在都不代表目标可达。需要真实 SSH 握手、HTTP/UDP 请求，并测试断线、重连和 Docker 重启后的恢复。
+如果容器启动前已有 `wg0.conf`，服务会自动加载。若刚完成短信登录后才新增配置，可以在尚无 `wg0` 时热加载，保留当前认证会话：
 
-这项改造应在新测试实例上先验证，保留现有 SSH 入口作为回退。完成后，博客再补充实际配置和测量结果；目前上面的结构属于设计方案，不能当作可直接运行的教程。
+```powershell
+docker compose exec vpn sh -c 'install -m 600 /config/wg0.conf /run/univpn/wg0.conf && wg-quick up /run/univpn/wg0.conf'
+```
+
+</details>
+
+### 5. 安装一条独立的 Windows 隧道服务
+
+[WireGuard 支持每条隧道独立运行 Windows 服务](https://git.zx2c4.com/wireguard-windows/about/docs/enterprise.md)，无需一直打开管理界面。仓库脚本默认只读，先检查配置和计划：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/windows-gateway.ps1 -TunnelConfig private/univpn-lab.conf -GatewayConfig private/vpn.json -Endpoint 127.0.0.1:51829
+```
+
+确认范围后安装；这一步创建系统服务、网卡和路由，需要管理员权限，`-Elevate` 会请求 UAC 确认：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/windows-gateway.ps1 -Mode Install -TunnelConfig private/univpn-lab.conf -GatewayConfig private/vpn.json -Endpoint 127.0.0.1:51829 -Elevate
+```
+
+配置名必须是独立的 `univpn-*.conf`。脚本检查官方 WireGuard 程序签名，拒绝覆盖已有同名服务或网卡，也拒绝默认路由、DNS 修改和配置 hooks。`ExecutionPolicy Bypass` 只作用于这次脚本进程。
+
+相同目标可能已被另一套 VPN 下发路由。脚本只调整本次新建接口的 IPv4 ActiveStore metric，再逐个检查目标的最佳路由；不会改其他 VPN 的优先级。接口重建或系统重启后仍要复核，这部分持久性尚未验收。
+
+### 6. 检查普通应用的实际路径
+
+```powershell
+Get-Service 'WireGuardTunnel$univpn-lab'
+Find-NetRoute -RemoteIPAddress 10.80.0.11
+& "$env:ProgramFiles\WireGuard\wg.exe" show univpn-lab
+docker compose exec vpn ip route get 10.80.0.11
+docker compose exec vpn vpnctl status
+ssh your-user@10.80.0.11
+```
+
+最佳路由应选中新接口 `univpn-lab`，容器到目标应走 `cnem_vnic`，WireGuard 应有近期握手和增长的收发计数。然后在不绑定接口或源地址的情况下测试实际应用；服务显示 Running、接口 Up 或单独一次 SSH 成功，都不足以证明走了新链路。
+
+目标有 HTTP 服务时，可以再执行下面的请求；端口以实际服务为准。`--noproxy` 用于排除应用代理，避免把代理连通误认成网关连通。
+
+```powershell
+curl.exe --noproxy "*" http://10.80.0.11:8080/
+```
+
+此后 WindTerm、浏览器等应用填写目标原始 IP 和服务端口即可，例如 SSH 的 `10.80.0.11:22`。应用自己配置的 HTTP/SOCKS 代理仍需另查；Windows 路由不会取消应用内的代理设置。
+
+### 7. 停止和回滚只操作当前实例
+
+移除本次 Windows 隧道，再停止对应容器：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/windows-gateway.ps1 -Mode Uninstall -TunnelConfig private/univpn-lab.conf -Elevate
+docker compose stop vpn
+```
+
+卸载只针对这条命名隧道，不需要读取私钥，也不删除其他 VPN 路由。重新启动容器后需要显式登录。若旧 Windows VPN 仍在线，卸载后目标可能继续可达，应重新看最佳路由，不能拿“还能访问”证明当前实例没有停掉。
+
+## 多实例：每套 VPN 独立配置和入口
+
+第二套 VPN 使用另一个 Compose project；配置仍放在被忽略的 `private/` 内。两份本地 env 文件都填写安装包摘要，并分别设置 `VPN_CONFIG_DIR`、`WG_PORT`。
+
+| 项目 | VPN A | VPN B |
+| --- | --- | --- |
+| Compose project | `vpn-a` | `vpn-b` |
+| 配置目录 | `./private/a` | `./private/b` |
+| 本机 UDP 端口 | `51829` | `51830` |
+| Windows 接入地址 | `10.203.0.2/32` | `10.204.0.2/32` |
+| Windows 隧道名 | `univpn-a` | `univpn-b` |
+| 示例目标 | `10.80.0.11/32` | `10.90.0.11/32` |
+
+```powershell
+docker compose --env-file private/vpn-a.env -p vpn-a up -d
+docker compose --env-file private/vpn-a.env -p vpn-a exec vpn vpnctl login
+docker compose --env-file private/vpn-b.env -p vpn-b up -d
+docker compose --env-file private/vpn-b.env -p vpn-b exec vpn vpnctl login
+```
+
+每个实例生成独立密钥，Windows 配置指向各自的 localhost UDP 端口。保留 Docker bridge 隔离，不使用 host 网络，也不共享两个 VPN 的网络命名空间。容器内接口都叫 `wg0`、`cnem_vnic` 没关系。
+
+容器能隔离远端路由，但 Windows 只看到目的 IP。两套 VPN 的目标 CIDR 重叠时，当前方案不能同时区分，应另做地址映射或切换使用；也不能绕过网关对同一账号的并发限制。
+
+## 简化取舍：保留必要的两段隧道
+
+这套方案有两个必要部分：UniVPN 连接远端网关，WireGuard 把 Windows 流量送进对应容器。把 `wg0` 放在同一个 VPN 容器中后，共用现成的路由和防火墙规则，部署上只保留一个容器。
+
+认证入口采用 `vpnctl` 和 Python 标准库，不再维护桌面、VNC 或额外 Web 登录服务。短信仍由用户输入，失败后显式重新登录，避免后台反复发短信或重试密码。后续可简化配置生成，但会话、证书和转发范围仍需要明确保存。[简化分析](https://github.com/JavaZeroo/univpn-docker-gateway/blob/main/docs/simplification.md)记录了这些取舍。
+
+这次教程进一步合并了首次接入步骤：镜像只构建一次，两端 WireGuard 配置在首次启动前准备好，省去登录后的手工热加载。快速开始中的命令片段会生成配对密钥，并从 `vpn.json` 读取目标列表，减少重复填写。
+
+下一步最值得做的是把这些片段收敛成**一个 profile 初始化命令**，由一份配置生成双端文件，再复用现有预检和安装脚本。这部分尚未实现。直接删除 WireGuard 不能靠一条指向 Docker bridge 的 Windows 路由补上三层入口；WSL 镜像网络也还没有验证出可替换的路径，因此当前先保留已验证的数据链路。
+
+单个已连接的正式容器曾测得 **18.8 MiB 内存、CPU 1.26%**，这只是一次采样，不代表稳态或峰值。Compose 的 `384 MiB` 是上限，Docker Desktop / WSL 的平台开销要在 Windows 上另测；减少 VPN 进程并不能消除这部分开销。
+
+## 实测结果与当前边界
+
+2026-10-29 的 Windows 验收使用普通 TCP/UDP socket 和 HTTP 客户端，没有绑定接口、源地址或 HTTP/SOCKS 代理。除目标 IP 外，还交叉核对最佳路由、WireGuard 计数与远端看到的 VPN 来源。
+
+| 验证项目 | 结果 |
+| --- | --- |
+| 无 GUI 的真实短信认证 | 同一引擎会话续交验证码，认证和隧道启动成功 |
+| Windows 默认选路的 SSH | 4 台目标的 SSH banner，4/4 通过 |
+| HTTP 下载、上传 | 双向各 1 MiB，长度与摘要匹配 |
+| UDP 往返 | 32、1200、4096 字节内容均正确返回 |
+| 临时阻断健康探针 | 转发切换为 DROP，SSH、HTTP、UDP 均失败 |
+| 恢复健康探针 | 转发自动恢复，全部业务测试重新通过，无需新验证码 |
+
+这次配置只包含 **4 个精确 `/32`**。测试路径中 UniVPN MTU 为 1300，WireGuard 使用 1280；大 UDP 内容经过分片并正常返回，只能证明本次路径可用。临时 HTTP/UDP 测试服务已清理。
+
+探针故障测试没有断开厂商 VPN 会话，不能代替真实断线、重新认证和 Docker 重启恢复。Windows 服务或系统重启后的路由优先级、条件 DNS、IPv6，以及重叠 CIDR 访问也都还没有完成验收。
+
+另一个需要区分的状态是：并发状态查询曾干扰后台健康检查，源码已经修复为“后台独占探测、状态只读最近结果”，回归测试通过。**当前保持连接的旧容器尚未更换镜像，这项修复还未在该会话生效。** 维护部署需要重建并重新认证，不能把源码修复写成线上已经生效。
+
+详细方法和结果放在[网段网关验证记录](https://github.com/JavaZeroo/univpn-docker-gateway/blob/main/docs/subnet-gateway-validation.md)，后续仍按认证、容器转发、Windows 选路和实际业务分别验收。
+
+## 旧方案保留为历史参考
+
+最初参考 [jesusdf/huawei-vpn](https://github.com/jesusdf/huawei-vpn)，用 expect 驱动厂商 CLI，再用 socat 暴露几个本地 SSH 端口。它适用于当时验证过的账号密码入口，但旧菜单在本次短信环境没有续交验证码的流程。
+
+后续通过官方引擎的 CSDK/RPC 路径完成了纯终端短信认证，再用 WireGuard 接入 Windows。旧方案的[认证对照记录](https://github.com/JavaZeroo/univpn-docker-gateway/blob/main/docs/cli-mfa-proof.md)仍保留，本文的操作步骤以当前 native 网关路线为准。
