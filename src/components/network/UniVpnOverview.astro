@@ -1,93 +1,90 @@
 ---
 /**
- * 按部署位置展示 UniVPN 网关总览。上排实线是业务数据，底部虚线是
- * Windows 引导与容器认证控制；移动端改为纵排，不改变现有详细图。无 props。
+ * 按宿主机、独立 VPN 容器、远端分组展示 Lite 与 Full 的可选入口。
+ * Lite 走 Python SOCKS5，Full 走宿主机 WireGuard；认证控制面共用。无 props。
  */
 import FlowDiagram from '../figures/FlowDiagram.astro';
-
 const controlWide = [
-  { id: 'cmd', x: 24, y: 48, w: 212, h: 62, kind: 'in', lines: ['univpn.cmd / PowerShell', 'profile · Docker · 交互登录'] },
-  { id: 'install', x: 284, y: 48, w: 212, h: 62, kind: 'main', lines: ['宿主机 WireGuard 引导', '有效安装复用，完全缺失才安装', '由用户授权安装 Windows 程序'] },
-  { id: 'rpc', x: 564, y: 48, w: 212, h: 62, kind: 'comm', lines: ['vpnctl / Python 服务', '本地 Unix IPC → CSDK/RPC'] },
-  { id: 'engine', x: 820, y: 48, w: 212, h: 62, kind: 'mla', lines: ['官方 UniVPNCS', '密码与短信续交到原会话'] },
+  { id: 'terminal', x: 24, y: 48, w: 280, h: 60, kind: 'in', lines: ['用户终端', 'Lite：docker run · Full：univpn.cmd'] },
+  { id: 'rpc', x: 390, y: 48, w: 280, h: 60, kind: 'main', lines: ['容器 vpnctl / Python 服务', '本地 Unix IPC → CSDK/RPC'] },
+  { id: 'engine', x: 756, y: 48, w: 280, h: 60, kind: 'mla', lines: ['官方 UniVPNCS', '密码与短信续交到同一会话'] },
 ];
 const controlMobile = [
-  { id: 'cmd', x: 28, y: 40, w: 284, h: 54, kind: 'in', lines: ['univpn.cmd / PowerShell', 'profile · Docker · 交互登录'] },
-  { id: 'install', x: 28, y: 140, w: 284, h: 62, kind: 'main', lines: ['宿主机 WireGuard 引导', '有效安装复用，完全缺失才安装', '由用户授权安装 Windows 程序'] },
-  { id: 'rpc', x: 28, y: 284, w: 284, h: 56, kind: 'comm', lines: ['vpnctl / Python 服务', '本地 Unix IPC → CSDK/RPC'] },
-  { id: 'engine', x: 28, y: 386, w: 284, h: 54, kind: 'mla', lines: ['官方 UniVPNCS', '密码与短信续交到原会话'] },
+  { id: 'terminal', x: 28, y: 40, w: 284, h: 60, kind: 'in', lines: ['用户终端', 'Lite：docker run · Full：univpn.cmd'] },
+  { id: 'rpc', x: 28, y: 160, w: 284, h: 60, kind: 'main', lines: ['容器 vpnctl / Python 服务', '本地 Unix IPC → CSDK/RPC'] },
+  { id: 'engine', x: 28, y: 280, w: 284, h: 60, kind: 'mla', lines: ['官方 UniVPNCS', '密码与短信续交到同一会话'] },
 ];
 ---
 
-<section class="uvpn-overview" data-univpn-overview aria-label="UniVPN 架构设计总览，按 Windows、Docker Linux VM 与远端分组">
-  <div class="uvpn-overview-legend"><span class="data-line"></span> 业务数据 <span class="control-line"></span> 引导 / 认证 / 依赖</div>
+<section class="uvpn-overview" data-univpn-overview aria-label="Lite 与 Full 双版本架构总览，按宿主机、容器和远端分组">
+  <div class="uvpn-overview-legend"><span class="data-line"></span> 业务数据 <span class="control-line"></span> 认证控制；每个实例选择一版</div>
   <div class="uvpn-overview-grid">
     <div class="uvpn-overview-place">
       <h3><span>01</span> Windows 宿主机</h3>
-      <FlowDiagram id="uvpn-overview-windows" viewBox="0 0 340 440" minWidth={220}
+      <FlowDiagram id="uvpn-overview-windows" viewBox="0 0 340 600" minWidth={220}
+        groups={[{ x: 12, y: 18, w: 316, h: 216, label: 'Lite：逐应用设置 SOCKS5' }, { x: 12, y: 302, w: 316, h: 270, label: 'Full：按目标 IP 选路' }]}
         nodes={[
-          { id: 'apps', x: 28, y: 52, w: 284, h: 64, kind: 'in', lines: ['Windows 应用', 'WindTerm / 浏览器 / TCP 与 UDP', '使用目标原始 IP 和端口'] },
-          { id: 'wg', x: 28, y: 170, w: 284, h: 78, kind: 'main', strong: true, lines: ['WireGuard for Windows', '独立 univpn-* 服务与网卡', '安装或复用发生在宿主机'] },
-          { id: 'udp', x: 28, y: 306, w: 284, h: 64, kind: 'comm', lines: ['localhost UDP 入口', '127.0.0.1:本实例端口', '由 Docker Desktop 发布'] },
+          { id: 'lite', x: 28, y: 54, w: 284, h: 62, kind: 'in', lines: ['支持 SOCKS5 的应用', '数字 IPv4 · 仅 TCP CONNECT'] },
+          { id: 'tcp', x: 28, y: 166, w: 284, h: 54, kind: 'main', lines: ['localhost TCP 1080', '不安装 WireGuard，不改网卡'] },
+          { id: 'full', x: 28, y: 338, w: 284, h: 62, kind: 'in', lines: ['普通 Windows 应用', '使用原始 IP · TCP / UDP'] },
+          { id: 'wg', x: 28, y: 466, w: 284, h: 80, kind: 'comm', strong: true, lines: ['Windows WireGuard', '专属 univpn-* 服务与网卡', '经 localhost UDP 接入容器'] },
         ]}
-        edges={[{ from: 'apps', to: 'wg', label: '仅接管配置的目标 CIDR' }, { from: 'wg', to: 'udp', label: '本机 WireGuard 隧道' }]}
-        label="Windows 部署：应用经宿主机 WireGuard 专属服务和网卡，把选定目标流量送入 localhost UDP"
-        caption="先有 Docker Desktop；启动器按需安装或复用宿主机的 WireGuard 程序。" />
+        edges={[{ from: 'lite', to: 'tcp', label: '应用显式配置代理' }, { from: 'full', to: 'wg', label: '仅接管配置的目标 CIDR' }]}
+        label="Windows 入口二选一：Lite 应用经 localhost SOCKS5，Full 应用经宿主机专属 WireGuard 网卡与 UDP 端口"
+        caption="Lite 只有 Docker 入口。Full 的 WireGuard 程序安装或复用发生在 Windows 宿主机。" />
     </div>
-
     <div class="uvpn-overview-place">
       <h3><span>02</span> Docker Desktop Linux VM</h3>
-      <FlowDiagram id="uvpn-overview-container" viewBox="0 0 340 440" minWidth={220}
-        groups={[{ x: 12, y: 18, w: 316, h: 328, label: '同一个 VPN 容器 · 独立网络命名空间' }]}
+      <FlowDiagram id="uvpn-overview-container" viewBox="0 0 340 600" minWidth={220}
+        groups={[{ x: 12, y: 18, w: 316, h: 166, label: 'Lite 容器的数据面' }, { x: 12, y: 228, w: 316, h: 222, label: 'Full 容器的数据面' }, { x: 12, y: 480, w: 316, h: 100, label: '两版共用的官方引擎' }]}
         nodes={[
-          { id: 'wg', x: 30, y: 52, w: 280, h: 64, kind: 'main', lines: ['wg0：WireGuard 内核接口', '由容器里的 wireguard-tools 管理'] },
-          { id: 'filter', x: 30, y: 170, w: 280, h: 64, kind: 'comm', lines: ['iptables FORWARD + SNAT', '目标白名单 · 指定 VPN 出口', '探针失败时关闭转发'] },
-          { id: 'vpn', x: 30, y: 282, w: 280, h: 52, kind: 'mla', lines: ['UniVPNCS → cnem_vnic', '官方引擎连接远端 UniVPN'] },
-          { id: 'kernel', x: 30, y: 376, w: 280, h: 48, kind: 'in', lines: ['共享 Linux 内核与网络能力', 'WireGuard · TUN · netfilter'] },
+          { id: 'socks', x: 30, y: 56, w: 280, h: 104, kind: 'main', lines: ['Python 标准库 SOCKS5', '目标 CIDR 与真实就绪检查', '出站 socket 绑定 VPN 接口', '无 UDP / BIND / 域名 DNS'] },
+          { id: 'wg', x: 30, y: 264, w: 280, h: 62, kind: 'comm', lines: ['wg0：WireGuard 内核接口', '由容器 wireguard-tools 管理'] },
+          { id: 'filter', x: 30, y: 380, w: 280, h: 56, kind: 'comm', lines: ['iptables FORWARD + SNAT', '目标白名单 · 健康失败时 DROP'] },
+          { id: 'vpn', x: 30, y: 512, w: 280, h: 54, kind: 'mla', lines: ['UniVPNCS → cnem_vnic', '每套 VPN 独立网络命名空间'] },
         ]}
         edges={[
-          { from: 'wg', to: 'filter', label: '同一命名空间内转发' },
-          { from: 'filter', to: 'vpn', label: '只允许从 cnem_vnic 发出' },
-          { from: 'kernel', to: 'wg', dashed: true, path: 'M30 400 H4 V84 H28', lx: 32, ly: 360, label: '内核依赖，不是第二个 WG 容器' },
+          { from: 'socks', to: 'vpn', path: 'M30 108 H4 V539 H28', label: '仅 VPN 出口', lx: 14, ly: 204 },
+          { from: 'wg', to: 'filter', label: '同一容器内转发' },
+          { from: 'filter', to: 'vpn', label: '只允许指定 VPN 出口' },
         ]}
-        label="Docker 部署：同一个 VPN 容器包含 wg0、过滤与 SNAT、UniVPN 官方引擎及 cnem_vnic；内核由 Linux VM 提供"
-        caption="容器内只有工具、内核接口和官方 VPN 引擎，无需额外 WireGuard 服务或 Windows 安装程序。" />
+        label="Lite 容器用 Python SOCKS5 绑定 VPN 接口，Full 容器用 wg0 和 iptables 转发；每版均由官方 UniVPNCS 连接远端"
+        caption="两条路径代表不同版本。每套 VPN 一个容器，Lite 无 WireGuard 工具，两版均无桌面。" />
     </div>
-
     <div class="uvpn-overview-place">
       <h3><span>03</span> 远端 VPN 与业务网段</h3>
-      <FlowDiagram id="uvpn-overview-remote" viewBox="0 0 340 440" minWidth={220}
+      <FlowDiagram id="uvpn-overview-remote" viewBox="0 0 340 600" minWidth={220}
         nodes={[
-          { id: 'gateway', x: 28, y: 52, w: 284, h: 78, kind: 'mla', lines: ['远端 UniVPN 网关', '沿用其密码 / 短信认证', '使用原有 UniVPN 隧道'] },
-          { id: 'targets', x: 28, y: 250, w: 284, h: 94, kind: 'out', strong: true, lines: ['已授权内网目标', 'SSH · HTTP · UDP 等实际服务', '远端看到容器的 VPN 来源地址'] },
+          { id: 'gateway', x: 28, y: 120, w: 284, h: 82, kind: 'mla', lines: ['远端 UniVPN 网关', '沿用密码 / 短信认证', '两版使用同一原生认证代码'] },
+          { id: 'targets', x: 28, y: 372, w: 284, h: 96, kind: 'out', strong: true, lines: ['已授权目标 CIDR', 'Lite：SSH / HTTP 等 IPv4 TCP', 'Full：IPv4 TCP / UDP', '目标看到容器 VPN 来源地址'] },
         ]}
         edges={[{ from: 'gateway', to: 'targets', label: '由远端网关提供内网接入' }]}
-        label="远端部署：官方 UniVPN 网关完成认证与内网接入，目标业务服务器无需再安装 WireGuard"
-        caption="WireGuard 只接入本机容器；业务目标无需额外部署 WireGuard。" />
+        label="远端 UniVPN 网关完成认证与内网接入；Lite 只承载 IPv4 TCP，Full 可承载 IPv4 TCP 与 UDP"
+        caption="业务服务器无需部署 WireGuard。选了哪版，就按哪版的协议范围验收。" />
     </div>
   </div>
-
-  <h3 class="uvpn-overview-control-title">控制面：宿主机引导，再控制容器中的官方引擎</h3>
+  <h3 class="uvpn-overview-control-title">共用控制面：终端认证与原会话短信续交</h3>
   <div class="uvpn-overview-control-wide">
-    <FlowDiagram id="uvpn-overview-control-wide" viewBox="0 0 1060 144" minWidth={760}
+    <FlowDiagram id="uvpn-overview-control-wide" viewBox="0 0 1060 140" minWidth={760}
       nodes={controlWide}
-      groups={[{ x: 8, y: 8, w: 508, h: 126, label: 'Windows 宿主机' }, { x: 548, y: 8, w: 504, h: 126, label: '同一 VPN 容器的控制面' }]}
-      edges={[{ from: 'cmd', to: 'install', dashed: true }, { from: 'install', to: 'rpc', dashed: true, label: 'docker exec', lx: 500, ly: 39 }, { from: 'rpc', to: 'engine', dashed: true }]}
-      label="控制关系：Windows 启动器引导宿主机 WireGuard，随后通过 docker exec、vpnctl 和 Python CSDK/RPC 控制同一容器的 UniVPNCS" />
+      groups={[{ x: 8, y: 8, w: 312, h: 122, label: '用户终端' }, { x: 372, y: 8, w: 680, h: 122, label: '所选版本的 VPN 容器' }]}
+      edges={[{ from: 'terminal', to: 'rpc', dashed: true }, { from: 'rpc', to: 'engine', dashed: true }]}
+      label="两版共用控制面：用户终端经 vpnctl、Python IPC 与 CSDK/RPC 控制官方 UniVPNCS"
+      caption="账号、密码和短信只在真实终端输入，不写配置；后台探针决定数据入口是否放行。" />
   </div>
   <div class="uvpn-overview-control-mobile">
-    <FlowDiagram id="uvpn-overview-control-mobile" viewBox="0 0 340 462" minWidth={220}
+    <FlowDiagram id="uvpn-overview-control-mobile" viewBox="0 0 340 366" minWidth={220}
       nodes={controlMobile}
-      groups={[{ x: 10, y: 10, w: 320, h: 208, label: 'Windows 宿主机' }, { x: 10, y: 250, w: 320, h: 202, label: '同一 VPN 容器的控制面' }]}
-      edges={[{ from: 'cmd', to: 'install', dashed: true }, { from: 'install', to: 'rpc', dashed: true, label: 'docker exec', lx: 36, ly: 235 }, { from: 'rpc', to: 'engine', dashed: true }]}
-      label="控制关系纵排：Windows 启动器引导宿主机 WireGuard，通过 docker exec、vpnctl 与 Python RPC 控制容器内官方引擎" />
+      edges={[{ from: 'terminal', to: 'rpc', dashed: true }, { from: 'rpc', to: 'engine', dashed: true }]}
+      label="两版共用控制面纵排：终端经 Python 前端与 CSDK/RPC 控制同一官方引擎会话"
+      caption="真实终端输入认证信息，后台探针决定是否放行；凭据不写配置。" />
   </div>
-  <p class="uvpn-overview-note">安装宿主机程序与创建专属 tunnel 可能分别请求 UAC。新建 <code>univpn-*</code> 不改旧 tunnel 配置，目标网段重叠可能改变 Windows 的实际选路。</p>
+  <p class="uvpn-overview-note">Full 才需要宿主机 WireGuard 和 UAC；专属 <code>univpn-*</code> 不修改旧 tunnel 配置，但重叠目标会参与 Windows 选路。Lite 需要逐应用指定 SOCKS5。</p>
 </section>
 
 <style>
   .uvpn-overview { margin-block: 1.4rem 2rem; padding: 1rem; border: 1px solid var(--border-2); border-radius: var(--r); background: var(--surface); }
-  .uvpn-overview-legend { display: flex; align-items: center; gap: .55rem; color: var(--text-2); font-size: .82rem; margin: 0 0 1rem; }
+  .uvpn-overview-legend { display: flex; align-items: center; flex-wrap: wrap; gap: .55rem; color: var(--text-2); font-size: .82rem; margin: 0 0 1rem; }
   .data-line, .control-line { display: inline-block; width: 28px; border-top: 2px solid var(--text-2); }
   .control-line { margin-left: .7rem; border-top-style: dashed; }
   .uvpn-overview-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }

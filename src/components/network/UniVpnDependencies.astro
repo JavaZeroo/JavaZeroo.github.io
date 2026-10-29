@@ -1,49 +1,55 @@
 ---
 /**
- * 运行依赖分为 Windows 主机、Linux 内核与容器用户态，
- * 避免把 WireGuard 内核接口误画成第二个服务容器。无 props。
+ * 依赖分成共同宿主机与镜像、Lite 专用代理、Full 专用 WireGuard。
+ * 避免把 Windows 程序画入 Linux VM，或暗示 Lite 依赖 WireGuard。无 props。
  */
 import FlowDiagram from '../figures/FlowDiagram.astro';
 ---
 
 <div class="vpn-dependencies">
-  <FlowDiagram id="univpn-host-deps" viewBox="0 0 340 328" minWidth={280}
+  <FlowDiagram id="univpn-host-deps" viewBox="0 0 340 350" minWidth={280}
     nodes={[
-      { id: 'windows', x: 24, y: 20, w: 292, h: 58, kind: 'in', lines: ['Windows 主机', 'Docker CLI、PowerShell、WireGuard'] },
-      { id: 'desktop', x: 24, y: 126, w: 292, h: 64, kind: 'main', lines: ['Docker Desktop / Compose', '拉取镜像、隔离实例、发布 UDP'] },
-      { id: 'vm', x: 24, y: 238, w: 292, h: 64, kind: 'mla', lines: ['WSL 2 Linux VM', '为 Linux 容器提供运行环境'] },
+      { id: 'windows', x: 24, y: 20, w: 292, h: 60, kind: 'in', lines: ['共同宿主机：Windows x64', 'Docker CLI · PowerShell 终端'] },
+      { id: 'desktop', x: 24, y: 138, w: 292, h: 60, kind: 'main', lines: ['Docker Desktop / WSL2', 'Lite：docker run · Full：Compose'] },
+      { id: 'vm', x: 24, y: 256, w: 292, h: 72, kind: 'mla', lines: ['共享 Linux 内核', '独立网络命名空间 · TUN', '容器权限：NET_ADMIN'] },
     ]}
-    edges={[{ from: 'windows', to: 'desktop', label: '管理容器与本机入口' }, { from: 'desktop', to: 'vm', label: '本次实测使用的后端' }]}
-    label="主机依赖：Windows 使用 Docker Desktop 和 Compose，经 WSL 2 运行 Linux 容器；Windows WireGuard 提供本机网卡"
-    caption="Windows WireGuard 另提供本机虚拟网卡；创建 tunnel 服务需要管理员授权。" />
+    edges={[{ from: 'windows', to: 'desktop', label: '运行 Linux 容器' }, { from: 'desktop', to: 'vm', label: '两版共同的运行平台' }]}
+    label="共同平台依赖：Windows Docker CLI 和终端，通过 Docker Desktop 与 WSL2 运行具有 TUN 和 NET_ADMIN 的 Linux 容器"
+    caption="两版都仍有 Docker Desktop / WSL2 平台开销，Lite 不等于直接运行在 Windows 的轻量进程。" />
 
-  <FlowDiagram id="univpn-kernel-deps" viewBox="0 0 340 328" minWidth={280}
+  <FlowDiagram id="univpn-image-deps" viewBox="0 0 340 350" minWidth={280}
     nodes={[
-      { id: 'kernel', x: 24, y: 20, w: 292, h: 58, kind: 'in', lines: ['WSL 2 Linux 内核', '容器共享内核，不各自启动 VM'] },
-      { id: 'capability', x: 24, y: 126, w: 292, h: 64, kind: 'comm', lines: ['网络能力与权限', 'WireGuard 支持、NET_ADMIN、TUN'] },
-      { id: 'devices', x: 24, y: 238, w: 292, h: 64, kind: 'out', lines: ['每个容器独立的网络命名空间', 'wg0、cnem_vnic、路由与过滤规则'] },
+      { id: 'image', x: 24, y: 20, w: 292, h: 60, kind: 'in', lines: ['共同镜像基础：Ubuntu / amd64', 'Python 标准库 · tini · 网络工具 · CA'] },
+      { id: 'vendor', x: 24, y: 138, w: 292, h: 60, kind: 'main', lines: ['原生认证代码 + 官方引擎', '首次官方下载与逐层 SHA256 校验'] },
+      { id: 'cache', x: 24, y: 256, w: 292, h: 72, kind: 'mla', lines: ['具名卷只缓存已校验的 ZIP', '每个容器提取自己的运行副本', '密码和短信不写配置'] },
     ]}
-    edges={[{ from: 'kernel', to: 'capability', label: '提供接口和网络栈' }, { from: 'capability', to: 'devices', label: '允许配置本实例的网络' }]}
-    label="内核依赖：WSL Linux 内核需支持 WireGuard，容器用 NET_ADMIN 与 TUN 在独立命名空间内创建网络接口"
-    caption="wg0 是内核网络接口。默认方案只运行一个 VPN 容器，不需要额外的 WireGuard 守护容器。" />
+    edges={[{ from: 'image', to: 'vendor', label: '公开镜像不含厂商二进制' }, { from: 'vendor', to: 'cache', label: '不执行厂商安装脚本' }]}
+    label="共同镜像依赖：Python 标准库和网络工具，启动时校验并加载官方引擎，已验证的 ZIP 缓存在 Docker 卷"
+    caption="无需本机 Python 或构建镜像。两版均无 Qt、X11、VNC 或额外 Python 第三方库。" />
 
-  <FlowDiagram id="univpn-image-deps" viewBox="0 0 340 328" minWidth={280}
+  <FlowDiagram id="univpn-lite-deps" viewBox="0 0 340 350" minWidth={280}
     nodes={[
-      { id: 'image', x: 24, y: 20, w: 292, h: 58, kind: 'in', lines: ['Ubuntu 22.04 / amd64 公开镜像', '不包含厂商二进制'] },
-      { id: 'control', x: 24, y: 126, w: 292, h: 64, kind: 'main', lines: ['Python 标准库 + 按需获取的引擎', '首次官方下载，校验后加载'] },
-      { id: 'tools', x: 24, y: 238, w: 292, h: 64, kind: 'mla', lines: ['Linux 网络与进程工具', 'iproute2、iptables、wg、tini、CA'] },
+      { id: 'app', x: 24, y: 20, w: 292, h: 60, kind: 'in', lines: ['Lite 的应用依赖', '客户端需要支持 SOCKS5'] },
+      { id: 'proxy', x: 24, y: 138, w: 292, h: 60, kind: 'main', lines: ['Python 标准库 SOCKS5', 'IPv4 TCP CONNECT · 精确目标 CIDR'] },
+      { id: 'config', x: 24, y: 256, w: 292, h: 72, kind: 'out', lines: ['终端 wizard + Docker 配置卷', '无 Windows 脚本 / 网卡', '无 wireguard-tools'] },
     ]}
-    edges={[{ from: 'image', to: 'control', label: '启动前获取并校验厂商组件' }, { from: 'image', to: 'tools', path: 'M24 49 H8 V270 H22', label: '' }]}
-    label="镜像预装 Python 标准库、网络工具、tini 和 CA，首次从官方获取并校验引擎；不安装图形桌面"
-    caption="厂商组件校验后保存在 vendor-cache 卷中。无需本机构建，不依赖额外 Python 第三方包，也不安装 Qt、X11 或 VNC。" />
+    edges={[{ from: 'app', to: 'proxy', label: '逐应用选择 localhost 代理' }, { from: 'proxy', to: 'config', label: '配置与启动均在容器终端' }]}
+    label="Lite 专用依赖：应用支持 SOCKS5，容器使用 Python 标准库代理及配置卷，无 Windows 脚本或 WireGuard"
+    caption="lite / 0.4.0-lite：不解析目标域名，不支持 UDP、BIND 或 IPv6。" />
+
+  <FlowDiagram id="univpn-full-deps" viewBox="0 0 340 350" minWidth={280}
+    nodes={[
+      { id: 'host', x: 24, y: 20, w: 292, h: 60, kind: 'in', lines: ['Full 的 Windows 依赖', '启动器 · WireGuard 程序与网卡'] },
+      { id: 'tools', x: 24, y: 138, w: 292, h: 60, kind: 'comm', lines: ['Full 容器：wireguard-tools', 'wg0 与 iptables 过滤 / SNAT'] },
+      { id: 'kernel', x: 24, y: 256, w: 292, h: 72, kind: 'out', lines: ['Linux 内核 WireGuard / netfilter', '同一 VPN 容器内转发', '无需额外 WireGuard 服务容器'] },
+    ]}
+    edges={[{ from: 'host', to: 'tools', label: '配对密钥与本机 UDP 隧道' }, { from: 'tools', to: 'kernel', label: '用户态工具管理内核接口' }]}
+    label="Full 专用依赖：Windows 官方 WireGuard 与启动器，容器 wireguard-tools，以及 Linux WireGuard 和 netfilter 内核能力"
+    caption="full / 0.4.0-full：原始 IP 接入；latest 与 0.4.0 兼容指向 Full。宿主机安装可能需要 UAC。" />
 </div>
 
 <style>
   .vpn-dependencies { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-block: 1.4rem; }
   .vpn-dependencies :global(.fd) { margin: 0; }
-  .vpn-dependencies :global(.fd:last-child) { grid-column: 1 / -1; width: min(100%, 430px); justify-self: center; }
-  @media (max-width: 640px) {
-    .vpn-dependencies { grid-template-columns: minmax(0, 1fr); }
-    .vpn-dependencies :global(.fd:last-child) { width: 100%; }
-  }
+  @media (max-width: 640px) { .vpn-dependencies { grid-template-columns: minmax(0, 1fr); } }
 </style>

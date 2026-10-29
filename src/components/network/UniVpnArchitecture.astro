@@ -1,50 +1,49 @@
 ---
 /**
- * UniVPN 网关的控制面与数据面。两张竖排图在手机上顺序堆叠；
- * 控制面负责认证与健康门控，业务数据不经过 Python 代理。无 props。
+ * 两个版本的数据路径并排展示：Lite 由 Python SOCKS5 转发 TCP，
+ * Full 由 WireGuard 与 netfilter 转发 IP 包；两版共用原生认证代码。无 props。
  */
 import FlowDiagram from '../figures/FlowDiagram.astro';
-
-const control = [
-  { id: 'terminal', x: 30, y: 24, w: 300, h: 60, kind: 'in', lines: ['用户终端 · univpn.cmd', '启动器调用 vpnctl login / sms'] },
-  { id: 'frontend', x: 30, y: 128, w: 300, h: 66, kind: 'main', lines: ['Python 终端前端与服务', '本地 Unix IPC · CSDK/RPC'] },
-  { id: 'engine', x: 30, y: 238, w: 300, h: 66, kind: 'mla', lines: ['官方 UniVPNCS 与辅助服务', '密码与短信续交到同一认证会话'] },
-  { id: 'probe', x: 30, y: 348, w: 300, h: 66, kind: 'comm', lines: ['后台业务探针', '核对认证、接口、路由与 SSH 响应'] },
-  { id: 'gate', x: 30, y: 458, w: 300, h: 66, kind: 'out', lines: ['更新专属转发链', '探针通过才放行，失败则 DROP'] },
+const lite = [
+  { id: 'apps', x: 30, y: 24, w: 300, h: 60, kind: 'in', lines: ['配置了 SOCKS5 的应用', '数字 IPv4 目标 · 仅 TCP CONNECT'] },
+  { id: 'port', x: 30, y: 138, w: 300, h: 60, kind: 'main', lines: ['localhost TCP 1080', 'Docker 发布到本机回环地址'] },
+  { id: 'proxy', x: 30, y: 252, w: 300, h: 70, kind: 'mla', lines: ['容器内 Python SOCKS5', '目标 CIDR、就绪状态与路由检查', '无 UDP / BIND / 域名解析'] },
+  { id: 'bind', x: 30, y: 376, w: 300, h: 60, kind: 'comm', lines: ['出站 socket 绑定 cnem_vnic', 'VPN 失效不能回落到 eth0'] },
+  { id: 'private', x: 30, y: 490, w: 300, h: 60, kind: 'out', lines: ['UniVPN 网关 → 授权内网', '数据经过 Python 用户态代理'] },
 ];
-const data = [
-  { id: 'apps', x: 30, y: 24, w: 300, h: 60, kind: 'in', lines: ['Windows 直连应用', '原始 IP 与端口 · SSH / HTTP / UDP'] },
-  { id: 'windows', x: 30, y: 128, w: 300, h: 66, kind: 'main', lines: ['Windows WireGuard 网卡', '仅接管 AllowedIPs 中的目标'] },
-  { id: 'wg', x: 30, y: 238, w: 300, h: 66, kind: 'mla', lines: ['Docker 容器内的 wg0', '经 localhost 发布的 UDP 端口进入'] },
-  { id: 'filter', x: 30, y: 348, w: 300, h: 66, kind: 'comm', lines: ['iptables FORWARD 与 SNAT', '限制源地址、目标 CIDR 和 VPN 出口'] },
-  { id: 'private', x: 30, y: 458, w: 300, h: 66, kind: 'out', lines: ['cnem_vnic → UniVPN 网关 → 内网', '回复经连接跟踪和 WireGuard 返回'] },
+const full = [
+  { id: 'apps', x: 30, y: 24, w: 300, h: 60, kind: 'in', lines: ['普通 Windows 应用', '原始 IP 与端口 · TCP / UDP'] },
+  { id: 'windows', x: 30, y: 138, w: 300, h: 60, kind: 'main', lines: ['Windows WireGuard 网卡', '仅接管 AllowedIPs 中的目标'] },
+  { id: 'wg', x: 30, y: 252, w: 300, h: 70, kind: 'mla', lines: ['Docker 容器内的 wg0', '通过 localhost UDP 接入', '与 UniVPN 同一网络命名空间'] },
+  { id: 'filter', x: 30, y: 376, w: 300, h: 60, kind: 'comm', lines: ['iptables FORWARD 与 SNAT', '目标 CIDR / 源地址 / VPN 出口'] },
+  { id: 'private', x: 30, y: 490, w: 300, h: 60, kind: 'out', lines: ['cnem_vnic → UniVPN 网关 → 内网', '数据不经过 Python 用户态代理'] },
 ];
 ---
 
 <div class="vpn-diagram-grid">
   <div>
-    <h3>控制面负责登录和放行</h3>
-    <FlowDiagram id="univpn-control" viewBox="0 0 360 548" minWidth={300}
-      nodes={control} edges={[
-        { from: 'terminal', to: 'frontend', label: '账号、密码与短信' },
-        { from: 'frontend', to: 'engine', label: '独立前端控制官方引擎' },
-        { from: 'engine', to: 'probe', label: '隧道启动后继续检查' },
-        { from: 'probe', to: 'gate', label: '后台统一执行探测' },
+    <h3>Lite：应用代理转发 IPv4 TCP</h3>
+    <FlowDiagram id="univpn-lite-data" viewBox="0 0 360 574" minWidth={300}
+      nodes={lite} edges={[
+        { from: 'apps', to: 'port', label: '应用显式选择代理' },
+        { from: 'port', to: 'proxy', label: 'SOCKS5 握手与目标请求' },
+        { from: 'proxy', to: 'bind', label: '白名单与探针就绪后连接' },
+        { from: 'bind', to: 'private', label: '仅允许 VPN 接口' },
       ]}
-      label="UniVPN 控制面：用户终端经 Python 前端和官方引擎完成认证，后台探针决定转发是否放行"
-      caption="验证码保留在当前登录会话中。新版状态查询只读后台探针结果，不重复发起认证或探测。" />
+      label="Lite 数据面：配置 SOCKS5 的应用经 localhost TCP、Python 代理和绑定 cnem_vnic 的 socket 访问 IPv4 TCP 目标"
+      caption="不安装 WireGuard。每个应用选择代理，裸 SSH 或 HTTP 直连不会自动进入容器。" />
   </div>
   <div>
-    <h3>数据面按目标地址转发</h3>
-    <FlowDiagram id="univpn-data" viewBox="0 0 360 548" minWidth={300}
-      nodes={data} edges={[
+    <h3>Full：网卡与路由转发 IPv4 包</h3>
+    <FlowDiagram id="univpn-full-data" viewBox="0 0 360 574" minWidth={300}
+      nodes={full} edges={[
         { from: 'apps', to: 'windows', label: 'Windows 默认选路' },
         { from: 'windows', to: 'wg', label: '本机 WireGuard 隧道' },
-        { from: 'wg', to: 'filter', label: '在同一网络命名空间内' },
-        { from: 'filter', to: 'private', label: '仅允许指定 VPN 出口' },
+        { from: 'wg', to: 'filter', label: '容器内核转发' },
+        { from: 'filter', to: 'private', label: '就绪放行，失效 DROP' },
       ]}
-      label="UniVPN 数据面：Windows 应用经本机 WireGuard、Docker wg0、转发与源地址转换访问 UniVPN 内网"
-      caption="WireGuard 是 Windows 到容器的入口。远端连接仍由 UniVPN 承担，业务包不经 Python 用户态代理。" />
+      label="Full 数据面：普通应用经 Windows WireGuard、Docker wg0、过滤与源地址转换访问 UniVPN IPv4 内网"
+      caption="宿主机需要 WireGuard。SNAT 使回复沿原 VPN 和本机 WireGuard 返回，支持 TCP / UDP。" />
   </div>
 </div>
 
