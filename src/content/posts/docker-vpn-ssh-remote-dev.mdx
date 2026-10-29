@@ -2,7 +2,7 @@
 title: "用 Docker 部署 UniVPN，让多个 VPN 连接共存"
 pubDate: 2026-10-19
 updatedDate: 2026-10-29
-description: "把 UniVPN 放进独立容器，终端输入短信；Lite 提供 SOCKS5 应用代理，Full 通过 WireGuard 按原始 IP 访问内网。"
+description: "把 UniVPN 放进独立容器，终端输入短信；默认选 Full 按原始 IP 使用 SSH 和浏览器，Lite 则通过 SOCKS5 逐应用接入。"
 categories:
   - "💾服务器"
 tags:
@@ -19,14 +19,25 @@ import UniVpnOverview from '../../components/network/UniVpnOverview.astro';
 
 Windows 的 UniVPN 客户端一次只能连接一套环境。我需要保留原来的 VPN，同时访问另一套内网，又不想多开一台 Windows 虚拟机，于是把额外的 UniVPN 放进 Docker。
 
-**每套 UniVPN 独占一个容器，接入方式分成 Lite 和 Full 两版。** Lite 只运行 Docker，把 VPN 提供为应用的 SOCKS5 代理；Full 通过 Windows WireGuard 网卡接入，应用直接填写原始内网 IP 与端口。
+**每套 UniVPN 独占一个容器，日常使用默认选 Full。** 它通过 Windows WireGuard 网卡接入，连上后像普通 VPN 一样，SSH、浏览器直接填写原始内网 IP。只有明确不想安装宿主机网络组件、并愿意逐应用配置代理时，再选 Lite。
 
 配套项目是 [JavaZeroo/univpn-docker-gateway](https://github.com/JavaZeroo/univpn-docker-gateway)，预构建镜像位于 [Docker Hub](https://hub.docker.com/r/javazero/univpn-docker-gateway)。本文对应 `0.4.0`：`lite` / `0.4.0-lite` 是代理版，`full` / `0.4.0-full` 是原始 IP 接入版；`latest` 和 `0.4.0` 继续指向 Full。
 
-| 需求 | 选择 |
-| --- | --- |
-| 不安装 Windows VPN 网卡，应用可以配置 SOCKS5，只需要 IPv4 TCP | Lite |
-| 直接用原始 IP，需要 UDP，或不想逐个配置应用代理 | Full |
+## 默认推荐 Full，明确需要应用代理时再选 Lite
+
+Lite 的容器依赖少一些，但使用步骤不一定更少。它提供 SOCKS5 代理，SSH 客户端和浏览器都得显式配置；Full 把入口放在网卡和路由层，应用通常不需要额外设置。
+
+| 对比项 | Full：默认推荐 | Lite：按需选择 |
+| --- | --- | --- |
+| 使用体验 | 原始 IP，SSH、浏览器按平常方式使用 | 每个应用配置 SOCKS5 |
+| 支持范围 | 指定 IPv4 目标的 TCP / UDP | IPv4 TCP CONNECT；无 UDP、BIND、目标域名解析 |
+| 宿主机依赖 | WireGuard 与专属网卡，首次可能需要 UAC | 不安装 WireGuard，不改 Windows 网卡或系统代理 |
+| 主要优点 | 符合普通 VPN 的使用习惯，适合多个日常工具 | 容器部署集中，可由不同应用选择不同 VPN |
+| 需要接受的代价 | 网段重叠会影响系统选路，需要管理宿主机入口 | OpenSSH 需额外代理程序，浏览器需处理代理范围 |
+
+下面统一以示例服务器 **`10.80.0.11` 的 SSH 22 端口和 `http://10.80.0.11:8080/`** 说明。服务端也要准备好：HTTP 服务监听内网地址或 `0.0.0.0:8080`，SSH 与 HTTP 端口在远端网络策略中可达。VPN 不会替服务器启动服务或开放端口。
+
+**两版都不用为远端的 22、8080 分别增加 Docker 端口映射。** 目标属于允许的 CIDR、服务可达即可：Full 通过目标路由访问，Lite 的 SSH 和 HTTP 共用同一个 SOCKS5 入口。
 
 ## 架构设计总览：两种入口接入独立容器
 
@@ -35,6 +46,32 @@ Windows 的 UniVPN 客户端一次只能连接一套环境。我需要保留原�
 <UniVpnOverview />
 
 图中的 Lite 与 Full 是两个可选版本，每个实例只运行所选版本。**Lite 不安装 WireGuard，也不修改 Windows 网卡或路由。** Full 的 WireGuard 程序与专属服务安装在 Windows 宿主机，容器里只包含 Linux 工具和 `wg0` 内核接口；不需要第二个 WireGuard 服务容器。
+
+## Full 连接后直接使用 SSH 和浏览器
+
+Full 只需预装 Docker Desktop。在 Windows 新建空文件夹，在该文件夹打开 PowerShell：
+
+```powershell
+docker run --rm -v "${PWD}:/output" javazero/univpn-docker-gateway:full export-client
+.\univpn\univpn.cmd
+```
+
+第一条把 Windows 启动器导出到当前文件夹的 `univpn/` 子目录。第二条在同一个 PowerShell 窗口运行它；`.\` 表示当前目录。启动器按需准备官方 WireGuard、生成配置和配对密钥，再启动容器，收取登录信息并续交短信。
+
+已有签名有效的 WireGuard 安装会复用，不升级或重装。首次安装 Windows 程序与创建专属 `univpn-*` 隧道可能分别需要 UAC；若安装器要求重启，启动器会停止流程并告知用户。执行策略例外只限本次 PowerShell 进程。
+
+填写网关、精确目标 CIDR 和 SSH 探针后，容器先完成认证、隧道与真实探针检查，再安装或核验 Windows 网卡。最后由 Windows 普通连接检查目标 SSH banner。连接后可以直接使用：
+
+```powershell
+ssh your-user@10.80.0.11
+curl.exe --noproxy "*" http://10.80.0.11:8080/
+```
+
+浏览器直接打开 `http://10.80.0.11:8080/`，WindTerm 等 SSH 客户端填目标 IP 和 22 端口。若浏览器、SSH 或其他应用已有代理配置，需让这个内网目标绕过应用代理；网卡路由不会取消应用自己的代理。上面的 `--noproxy` 只让这次 curl 请求直接连接。
+
+Full 通过目标路由承载 TCP / UDP；探针使用 SSH，不代表转发只支持 SSH。WireGuard 位于宿主机的 `C:\Program Files\WireGuard`，容器中的 `wireguard-tools` 不能代替 Windows 网卡。
+
+启动器不修改旧 tunnel 配置，但目标 CIDR 重叠仍可能改变 Windows 实际选路，需要核对。不能把独立名称理解成所有流量都互不影响。[Full 快速开始](https://github.com/JavaZeroo/univpn-docker-gateway/blob/main/docs/quickstart.md)包含首次使用细节。
 
 ## Lite 在容器终端启动并提供 SOCKS5 代理
 
@@ -53,39 +90,39 @@ docker run --rm -it --log-driver none --name univpn-lite `
 
 随后在同一终端输入 VPN 账号、密码与本次短信。连接后保持终端运行，`Ctrl+C` 停止；网络配置和已验证的厂商缓存会保留，凭据不写配置，也不会自动重发短信。
 
-应用的代理类型选择 **SOCKS5**，地址填 `127.0.0.1`，端口填 `1080`。例如：
+### Lite 的 SSH 需要代理客户端
+
+以 Windows OpenSSH 为例，先准备 [Nmap 的 Ncat](https://nmap.org/ncat/)，确保 `ncat` 在本机 `PATH` 中；它不是 Windows 内置命令，也不因为启动了容器就自动装好。Ncat 的官方用法支持 `--proxy` 指定代理地址、`--proxy-type socks5` 选择协议。[Ncat 代理说明](https://nmap.org/ncat/guide/ncat-proxy.html)
+
+将下面一段加入 `~/.ssh/config`，Windows 对应 `$HOME\.ssh\config`。放在通用的 `Host *` 规则之前，不要覆盖已有配置：
+
+```ssh-config
+Host demo-lite
+    HostName 10.80.0.11
+    User your-user
+    Port 22
+    ProxyCommand ncat --proxy 127.0.0.1:1080 --proxy-type socks5 %h %p
+```
+
+然后运行 `ssh demo-lite`。这里 `%h` 和 `%p` 分别替换为目标主机和端口，OpenSSH 通过 Ncat 的输入输出完成连接；SSH 用户、密钥和服务器校验仍由 OpenSSH 处理。[OpenSSH ProxyCommand 与占位符](https://man.openbsd.org/ssh_config#ProxyCommand)
+
+直接执行 `ssh your-user@10.80.0.11` 不会匹配 `demo-lite` 这一段，因此也不会自动走该代理。支持 SOCKS5 的图形 SSH 客户端可以改用它自己的会话代理设置，地址同样是 `127.0.0.1:1080`。
+
+### Lite 的 HTTP 通过 curl 或专用浏览器配置访问
+
+curl 显式选择 SOCKS5，仍访问同一个服务：
 
 ```powershell
 curl.exe --proxy socks5h://127.0.0.1:1080 http://10.80.0.11:8080/
 ```
 
-这里只支持数字 IPv4，`socks5h` 不代表代理能解析真正的目标域名。SSH 需要使用支持 SOCKS5 的客户端并配置会话代理；直接执行 `ssh user@10.80.0.11` 不会自动通过 Lite。
+这里只支持数字 IPv4，`socks5h` 不代表代理能解析真正的目标域名。
+
+浏览器可用 Firefox 的手动代理：在设置中搜索“代理”，打开连接设置，选择手动配置；HTTP / HTTPS 代理留空，**SOCKS 主机填 `127.0.0.1`、端口 `1080`，选择 SOCKS v5**，然后打开 `http://10.80.0.11:8080/`。确认目标未列入“不使用代理”的范围。[Firefox 连接设置](https://support.mozilla.org/en-US/kb/connection-settings-firefox)、[Mozilla 的 SOCKS 配置定义](https://firefox-admin-docs.mozilla.org/reference/policies/proxy/)
+
+这会作用于该浏览器 profile 的代理连接，**不是仅代理当前网页**。本项目拒绝目标 CIDR 以外的请求，所以同一 profile 打开的普通公网网站可能失败。建议通过 `about:profiles` 新建一份专用 profile，只用于这套内网，不改 Windows 系统代理。[Firefox profile 管理](https://support.mozilla.org/en-US/kb/profile-manager-create-remove-switch-firefox-profiles)
 
 Lite 使用 Python 标准库实现 **SOCKS5 CONNECT-only / IPv4 TCP**，不支持 UDP ASSOCIATE、BIND、IPv6 或域名 DNS。规范的数字 IPv4 即使放在 SOCKS5 的域名字段中，也可以使用。代理仅允许配置的目标 CIDR，不能把它当作通用公网代理。[Lite 使用说明](https://github.com/JavaZeroo/univpn-docker-gateway/blob/main/docs/lite.md)记录了完整范围。
-
-## Full 两条命令准备 Windows 网卡，按原始 IP 访问
-
-Full 同样只需预装 Docker Desktop。在 Windows 新建空文件夹，在该文件夹打开 PowerShell：
-
-```powershell
-docker run --rm -v "${PWD}:/output" javazero/univpn-docker-gateway:full export-client
-.\univpn\univpn.cmd
-```
-
-第一条把 Windows 启动器导出到当前文件夹的 `univpn/` 子目录。第二条在同一个 PowerShell 窗口运行它；`.\` 表示当前目录。启动器按需准备官方 WireGuard、生成配置和配对密钥，再启动容器，收取登录信息并续交短信。
-
-已有签名有效的 WireGuard 安装会复用，不升级或重装。首次安装 Windows 程序与创建专属 `univpn-*` 隧道可能分别需要 UAC；若安装器要求重启，启动器会停止流程并告知用户。执行策略例外只限本次 PowerShell 进程。
-
-填写网关、精确目标 CIDR 和 SSH 探针后，容器先完成认证、隧道与真实探针检查，再安装或核验 Windows 网卡。最后由 Windows 普通连接检查目标 SSH banner。连接后可以直接使用：
-
-```powershell
-ssh your-user@10.80.0.11
-curl.exe --noproxy "*" http://10.80.0.11:8080/
-```
-
-`--noproxy` 排除应用代理，目标端口以实际服务为准。Full 通过目标路由承载 TCP / UDP；探针使用 SSH，不代表转发只支持 SSH。WireGuard 位于宿主机的 `C:\Program Files\WireGuard`，容器中的 `wireguard-tools` 不能代替 Windows 网卡。
-
-启动器不修改旧 tunnel 配置，但目标 CIDR 重叠仍可能改变 Windows 实际选路，需要核对。不能把独立名称理解成所有流量都互不影响。[Full 快速开始](https://github.com/JavaZeroo/univpn-docker-gateway/blob/main/docs/quickstart.md)包含首次使用细节。
 
 ## 两版的数据面不同，认证和真实就绪判断共用
 
@@ -101,9 +138,9 @@ Full 的业务包经过 `wg0`、iptables FORWARD 与 SNAT，不经 Python 用户
 
 证书默认验证 CA 链和主机名。自签证书需要事先独立核实叶证书 SHA256，再显式批准；独立 TLS 预检不等于引擎侧连接 pinning。密码、短信不保存到参数、环境变量或配置中，也不使用桌面自动化登录。
 
-## 依赖分为共同部分与版本专用部分
+## 技术栈分为共同部分与版本专用部分
 
-用户不需要 Git、本机 Python、手工生成密钥或本地构建。两版都依赖 Docker Desktop / WSL2、Python 标准库和官方引擎；WireGuard 仅属于 Full。
+部署两版都不需要 Git、本机 Python、手工生成密钥或本地构建。共同技术栈是 Docker Desktop / WSL2、Ubuntu、Python 标准库与官方引擎，WireGuard 仅属于 Full；Lite 若使用 OpenSSH，还需本机 Ncat 等代理程序。
 
 <UniVpnDependencies />
 
@@ -130,12 +167,7 @@ Full 新增一套 VPN 时，使用不同名称、UDP 端口和接入网段：
 
 ## 两版的停止方式与短信续交命令
 
-Lite 前台 `Ctrl+C` 停止，`--rm` 移除本次容器，配置和缓存卷仍保留。运行期间可在另一终端检查：
-
-```powershell
-docker exec univpn-lite vpnctl status
-docker exec -it univpn-lite vpnctl sms
-```
+Lite 前台 `Ctrl+C` 停止，`--rm` 移除本次容器，配置和缓存卷仍保留。运行期间可在另一终端用 `docker exec univpn-lite vpnctl status` 检查状态，或用 `docker exec -it univpn-lite vpnctl sms` 续交现有短信。
 
 `sms` 只续交尚未过期的现有挑战。失败、过期或取消后，停止当前容器，再显式执行启动命令发起新尝试。
 
@@ -165,7 +197,24 @@ Full 的 `Stop` 保留 Windows 路由，目标可能继续指向已停止的入�
 
 原 Full 数据链使用 **4 个精确 `/32`**，UniVPN MTU 为 1300，WireGuard 为 1280；大 UDP 分片往返只能证明当次路径可用。探针故障没有断开厂商 VPN 会话，不能替代真实断线、重新认证或 Docker 重启恢复。DNS、IPv6、服务重建后的路由优先级也未完整验收；Lite 明确不提供 UDP 和目标域名解析。[完整实测记录](https://github.com/JavaZeroo/univpn-docker-gateway/blob/main/docs/subnet-gateway-validation.md)按各层记录证据。
 
-Lite 省去了 Windows 网卡和 WireGuard，Full 则保留原始 IP 接入；Docker Desktop / WSL2 的平台开销都还存在。镜像大小、单容器内存和整个平台占用应分别测量，不能把一次容器样本当作整机资源承诺。
+## 依赖数量与实际资源占用分别判断
+
+Lite 省的是 Windows 组件的安装与配置。Full 多了宿主机网卡、路由与授权步骤，不能因此推断其内存明显更高；两版仍运行同一官方引擎，也都依赖 Docker Desktop / WSL2。选择 Lite 还需接受逐应用设置代理的成本。
+
+镜像大小、空闲未认证容器、已认证但无业务流量的容器、实际传输负载，以及整个平台占用需要分别测量。未认证的空闲样本不能代表认证后的常驻占用，更不能当作整机资源承诺。
+
+2026-10-29 在同一 Docker Desktop 27.3.1 / Linux amd64 环境，用两版 `0.4.0` 镜像各启动一个隔离容器，限制均为 384 MiB、0.5 CPU、128 个进程。官方引擎处于未认证的 idle 状态，无业务流量；Full 的测试 `wg0` 已启动，Lite 的 SOCKS5 端口已监听。
+
+| 容器后台服务 | 5 次工作集样本（MiB） | 中位数 |
+| --- | --- | --- |
+| Lite | 34.00 / 34.00 / 34.00 / 34.00 / 34.00 | 34.00 MiB |
+| Full | 35.97 / 35.97 / 35.97 / 35.97 / 35.97 | 35.97 MiB |
+
+数据来自 `docker stats`；此处 cgroup v1 的命令行口径扣除了 `total_inactive_file`。两边均使用后台 `serve` 入口、相同官方缓存，禁用健康检查，并在无外部网络的独立命名空间采样。测量后移除了测试容器，未重新登录或重启现有 VPN。[Docker stats 的内存口径](https://docs.docker.com/reference/cli/docker/container/stats/)
+
+**本次空闲样本仅相差约 2 MiB，不能据此宣称 Lite 的实际使用内存明显更低。** 它不包含 Docker Desktop / WSL2、Windows WireGuard，也不包含 Lite 常用前台 `run` 入口的额外 Python 管理进程；认证和传输时的开销仍需分别测量。
+
+因此，Lite 的“轻”主要指少安装宿主机网络组件，代价是逐应用配置。Full 多了网卡、路由与权限准备，却更符合日常 VPN 的使用习惯。是否值得选择 Lite，主要看能否接受这些配置成本，而不是这次约 2 MiB 的差值。
 
 ## 旧 CLI 菜单与手工转发保留为参考
 
