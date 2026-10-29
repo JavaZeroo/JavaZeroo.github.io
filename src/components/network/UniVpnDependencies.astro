@@ -10,7 +10,7 @@ import FlowDiagram from '../figures/FlowDiagram.astro';
   <FlowDiagram id="univpn-host-deps" viewBox="0 0 340 328" minWidth={280}
     nodes={[
       { id: 'windows', x: 24, y: 20, w: 292, h: 58, kind: 'in', lines: ['Windows 主机', 'Docker CLI、PowerShell、WireGuard'] },
-      { id: 'desktop', x: 24, y: 126, w: 292, h: 64, kind: 'main', lines: ['Docker Desktop / Compose', '构建镜像、隔离实例、发布 UDP'] },
+      { id: 'desktop', x: 24, y: 126, w: 292, h: 64, kind: 'main', lines: ['Docker Desktop / Compose', '拉取镜像、隔离实例、发布 UDP'] },
       { id: 'vm', x: 24, y: 238, w: 292, h: 64, kind: 'mla', lines: ['WSL 2 Linux VM', '为 Linux 容器提供运行环境'] },
     ]}
     edges={[{ from: 'windows', to: 'desktop', label: '管理容器与本机入口' }, { from: 'desktop', to: 'vm', label: '本次实测使用的后端' }]}
@@ -29,13 +29,13 @@ import FlowDiagram from '../figures/FlowDiagram.astro';
 
   <FlowDiagram id="univpn-image-deps" viewBox="0 0 340 328" minWidth={280}
     nodes={[
-      { id: 'image', x: 24, y: 20, w: 292, h: 58, kind: 'in', lines: ['Ubuntu 22.04 / amd64 镜像', '默认 native 构建目标'] },
-      { id: 'control', x: 24, y: 126, w: 292, h: 64, kind: 'main', lines: ['Python 3 标准库 + 官方引擎', 'UniVPNCS、辅助服务与厂商库'] },
+      { id: 'image', x: 24, y: 20, w: 292, h: 58, kind: 'in', lines: ['Ubuntu 22.04 / amd64 公开镜像', '不包含厂商二进制'] },
+      { id: 'control', x: 24, y: 126, w: 292, h: 64, kind: 'main', lines: ['Python 标准库 + 按需获取的引擎', '首次官方下载，校验后加载'] },
       { id: 'tools', x: 24, y: 238, w: 292, h: 64, kind: 'mla', lines: ['Linux 网络与进程工具', 'iproute2、iptables、wg、tini、CA'] },
     ]}
-    edges={[{ from: 'image', to: 'control', label: '安装前端与认证运行时' }, { from: 'image', to: 'tools', path: 'M24 49 H8 V270 H22', label: '' }]}
-    label="镜像依赖：Ubuntu amd64 提供 Python 标准库、用户自备的官方引擎、网络工具、tini 和 CA；不安装图形桌面"
-    caption="厂商程序由用户自行下载后本地构建。当前前端不依赖额外 Python 第三方包，也不安装 Qt、X11 或 VNC。" />
+    edges={[{ from: 'image', to: 'control', label: '启动前获取并校验厂商组件' }, { from: 'image', to: 'tools', path: 'M24 49 H8 V270 H22', label: '' }]}
+    label="镜像预装 Python 标准库、网络工具、tini 和 CA，首次从官方获取并校验引擎；不安装图形桌面"
+    caption="厂商组件校验后保存在 vendor-cache 卷中。无需本机构建，不依赖额外 Python 第三方包，也不安装 Qt、X11 或 VNC。" />
 </div>
 
 <style>

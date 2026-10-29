@@ -6,7 +6,7 @@
 import FlowDiagram from '../figures/FlowDiagram.astro';
 
 const control = [
-  { id: 'terminal', x: 30, y: 24, w: 300, h: 60, kind: 'in', lines: ['用户终端', 'docker compose exec vpn vpnctl login'] },
+  { id: 'terminal', x: 30, y: 24, w: 300, h: 60, kind: 'in', lines: ['用户终端 · univpn.cmd', '启动器调用 vpnctl login / sms'] },
   { id: 'frontend', x: 30, y: 128, w: 300, h: 66, kind: 'main', lines: ['Python 终端前端与服务', '本地 Unix IPC · CSDK/RPC'] },
   { id: 'engine', x: 30, y: 238, w: 300, h: 66, kind: 'mla', lines: ['官方 UniVPNCS 与辅助服务', '密码与短信续交到同一认证会话'] },
   { id: 'probe', x: 30, y: 348, w: 300, h: 66, kind: 'comm', lines: ['后台业务探针', '核对认证、接口、路由与 SSH 响应'] },
