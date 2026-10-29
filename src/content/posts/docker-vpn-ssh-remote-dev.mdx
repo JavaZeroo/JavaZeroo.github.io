@@ -14,12 +14,21 @@ tags:
 
 import UniVpnArchitecture from '../../components/network/UniVpnArchitecture.astro';
 import UniVpnDependencies from '../../components/network/UniVpnDependencies.astro';
+import UniVpnOverview from '../../components/network/UniVpnOverview.astro';
 
 Windows 的 UniVPN 客户端一次只能连接一套环境。我需要保留原来的 VPN，同时访问另一套内网，又不想多开一台 Windows 虚拟机，于是把额外的 UniVPN 放进 Docker。
 
 现在的结构是：**每套 UniVPN 独占一个容器，Windows 通过 WireGuard 把指定目标的流量送进去。** 配好后，WindTerm、浏览器和其他应用直接填写原始内网 IP 与端口，无需逐个映射 SSH 入口。
 
-使用入口也收敛成了两条命令：从预构建镜像导出 Windows 启动器，然后运行它。配套项目是 [JavaZeroo/univpn-docker-gateway](https://github.com/JavaZeroo/univpn-docker-gateway)，镜像位于 [Docker Hub](https://hub.docker.com/r/javazero/univpn-docker-gateway)。本文对应 `0.2.0` 的使用方式；原数据链已有真实短信和 Windows 多协议证据，新启动器的完整接入流程仍需单独验收。
+使用入口也收敛成了两条命令：从预构建镜像导出 Windows 启动器，然后运行它。配套项目是 [JavaZeroo/univpn-docker-gateway](https://github.com/JavaZeroo/univpn-docker-gateway)，镜像位于 [Docker Hub](https://hub.docker.com/r/javazero/univpn-docker-gateway)。本文对应 `0.3.0` 的使用方式；原数据链已有真实短信和 Windows 多协议证据，新启动器的完整接入流程仍需单独验收。
+
+## 架构设计总览
+
+先按部署位置看完整关系：**WireGuard 程序和专属服务安装在 Windows 宿主机；Docker Desktop 的 Linux VM 中，一个 VPN 容器同时容纳 `wg0`、过滤规则和 UniVPN 引擎。** 容器使用 WireGuard 工具与内核接口，不在里面安装 Windows 软件。
+
+<UniVpnOverview />
+
+已有有效的 WireGuard 安装会复用，未安装时由宿主机启动器按需获取、校验并请求用户授权。下面两张详细图继续展开控制面、数据面与各层依赖。
 
 ## Windows 通过 WireGuard 接入独立的 UniVPN 容器
 
@@ -39,7 +48,7 @@ WireGuard 只连接 Windows 与本机容器，远端仍由 UniVPN 连接。容�
 
 ## 预构建镜像与按需获取的厂商引擎分开
 
-主机只需 Docker Desktop 的 Linux 容器环境和 [WireGuard for Windows](https://www.wireguard.com/install/)。用户不需要 Git、本机 Python、手工生成密钥或本地构建镜像。
+用户先安装并启动 Windows x64 上的 Docker Desktop（Linux 容器 / WSL2）。0.3.0 的 Windows 启动器会按需安装官方 WireGuard；已有有效安装直接复用，不升级或运行 MSI。用户不需要另找 WireGuard 安装步骤，也不需要 Git、本机 Python、手工生成密钥或本地构建镜像。
 
 <UniVpnDependencies />
 
@@ -54,16 +63,24 @@ WireGuard 只连接 Windows 与本机容器，远端仍由 UniVPN 连接。容�
 
 容器使用 bridge 网络，额外授予 `NET_ADMIN` 和 `/dev/net/tun`，不使用 privileged 或 host 网络。默认路径没有 Qt、X11、Xvfb、DBus、VNC，也没有额外 Python 第三方依赖。厂商程序仍遵循自身许可，项目自写代码采用 GPL-3.0-only。[架构文档](https://github.com/JavaZeroo/univpn-docker-gateway/blob/main/docs/architecture.md)记录了组件边界。
 
+## WireGuard 安装在哪，会影响现有连接吗
+
+Windows 客户端安装在宿主机的标准目录 `C:\Program Files\WireGuard`；容器里的 `wireguard-tools` 与 `wg0` 是另一端的 Linux 工具和接口。把 Linux 工具装进镜像，不能替代 Windows 的网卡与路由。
+
+启动器仅在完全未安装时，下载固定官方 MSI、校验 SHA256 与有效的 WireGuard LLC 签名后请求安装。已有有效安装直接复用；部分安装或异常服务先报错，不自动修复、升级或停止旧隧道。首次系统准备可能要求安装授权，创建专属 `univpn-*` 隧道还可能再要求一次授权；若安装器要求重启，启动器会停止连接流程并告知用户。
+
+独立服务不修改其它 tunnel 配置；目标 CIDR 重叠时，Windows 的实际选路仍可能改变，因此必须核对。不能把“独立名称”理解为任何流量都绝对互不影响。
+
 ## 首次连接只保留导出和运行两步
 
-先安装 Docker Desktop 和 WireGuard for Windows，并启动 Docker Desktop。在保存配置的目录打开 PowerShell：
+先安装并启动 Docker Desktop。在 Windows 新建一个空文件夹，例如桌面的 `vpn-demo`，在该文件夹打开 PowerShell：
 
 ```powershell
 docker run --rm -v "${PWD}:/output" javazero/univpn-docker-gateway:latest export-client
 .\univpn\univpn.cmd
 ```
 
-第一条将四个客户端文件导出到 `univpn/`：`univpn.cmd`、主 PowerShell 启动器、profile 生成器和 Windows 网关安装器。**导出不会覆盖已有目录**；以后直接运行第二条命令。cmd 只为本次 PowerShell 进程设置执行策略，不修改持久策略。
+第一条把 Windows 启动器和四个 PowerShell 辅助文件写入这个文件夹的 `univpn/` 子目录。第二条在**同一个 Windows PowerShell 窗口、同一个文件夹**执行 `univpn.cmd`；`.\` 表示当前目录。这个 cmd 是 Windows 脚本，负责检查依赖、控制 Docker 和连接流程，执行策略例外只限本次 PowerShell 进程。
 
 按提示填写：
 
@@ -73,7 +90,7 @@ docker run --rm -v "${PWD}:/output" javazero/univpn-docker-gateway:latest export
 
 启动器生成配对密钥、受限 ACL、JSON 和 Compose 配置，然后拉取并启动镜像，等待厂商组件与控制服务就绪，再在 TTY 中执行登录或短信续交。账号、密码和验证码不写配置；私钥留在本地受限文件中。
 
-容器探针通过后，启动器复用或安装独立命名的 `univpn-*` WireGuard 网卡。首次安装需要用户确认 UAC；它只调整本次新网卡的 IPv4 ActiveStore 优先级，不修改其他 VPN。最后用 Windows 普通连接检查真实目标 banner，不能仅凭认证成功或网卡 Up 就宣布连通。
+容器探针通过后，启动器复用或安装独立命名的 `univpn-*` WireGuard 网卡。安装 WireGuard 与创建隧道可能分别要求用户确认 UAC；它只调整本次新网卡的 IPv4 ActiveStore 优先级，不修改其他 VPN。最后用 Windows 普通连接检查真实目标 banner，不能仅凭认证成功或网卡 Up 就宣布连通。
 
 连接后直接使用原始 IP：
 
@@ -109,6 +126,18 @@ curl.exe --noproxy "*" http://10.80.0.11:8080/
 
 容器能隔离远端路由，但 Windows 按目的 IP 选路。两套 VPN 的目标 CIDR 重叠时，当前不能同时区分，仍需地址映射或切换使用；也不能绕过网关的账号并发限制。
 
+## 能否只拉镜像、启动容器
+
+VPN 连接本身可以全部运行在容器里。Windows 普通应用要直接访问目标原始 IP，还需要 Windows 侧的网卡与路由入口；Linux 容器和它的 `--privileged` 并不拥有修改 Windows 网络栈的权限。Docker Desktop 的 [bridge 网络不直接对宿主机可达](https://docs.docker.com/desktop/features/networking/networking-how-tos/#known-limitations)，[host networking 也仅提供 L4 能力](https://docs.docker.com/engine/network/drivers/host/#limitations)。
+
+| 访问方式 | 可以省去什么 | 需要接受的范围 |
+| --- | --- | --- |
+| 工具也运行在 VPN 容器或共享其网络的容器中 | 可省去 Windows VPN 客户端 | Windows 本地应用不会自动获得内网路由；本项目尚未封装这种单独工作流 |
+| 容器提供 HTTP/SOCKS 代理 | 可省去 Windows VPN 网卡 | 需要逐应用设置，协议与 DNS 范围取决于代理；当前镜像尚未提供该模式 |
+| Windows 按原始 IP 直接访问 | 可省去用户手动安装 WireGuard，交给启动器处理 | 仍需宿主机组件及系统授权；这是当前方案 |
+
+所以这轮简化的是**用户只需预装 Docker Desktop**，再由一个 Windows 启动器自动准备需要的组件。它没有把 Windows 的网络配置假装成容器内部操作。
+
 ## 简化的是配置操作，保留两段隧道
 
 以前需要手工维护网关 JSON、两端 WireGuard 配置、密钥权限、Compose 和服务安装命令。现在由一份 profile 生成这些文件，目标 CIDR 只输入一次；连接、状态、停止和移除也使用同一个入口。
@@ -128,6 +157,7 @@ curl.exe --noproxy "*" http://10.80.0.11:8080/
 | HTTP 下载、上传 | 双向各 1 MiB，长度与摘要匹配 |
 | UDP 往返 | 32、1200、4096 字节内容均正确返回 |
 | 临时阻断 / 恢复健康探针 | SSH、HTTP、UDP 全部阻断，恢复后再次通过，无需新验证码 |
+| 0.3.0 自动准备 WireGuard | 一次性 Windows CI 机器实装返回 Installed / Ready；本机走 Existing 复用，未重装旧客户端 |
 | 新启动器的配置与完整接入 | 镜像导出的 CMD 已实际生成密钥与 Compose 并通过只读预检；完整短信及 Windows 安装尚未验收 |
 | 公开镜像准备 | 冷缓存官方下载、无网络新容器复用缓存，以及隔离官方引擎启动均通过 |
 

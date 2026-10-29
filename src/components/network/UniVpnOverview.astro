@@ -1,0 +1,111 @@
+---
+/**
+ * 按部署位置展示 UniVPN 网关总览。上排实线是业务数据，底部虚线是
+ * Windows 引导与容器认证控制；移动端改为纵排，不改变现有详细图。无 props。
+ */
+import FlowDiagram from '../figures/FlowDiagram.astro';
+
+const controlWide = [
+  { id: 'cmd', x: 24, y: 48, w: 212, h: 62, kind: 'in', lines: ['univpn.cmd / PowerShell', 'profile · Docker · 交互登录'] },
+  { id: 'install', x: 284, y: 48, w: 212, h: 62, kind: 'main', lines: ['宿主机 WireGuard 引导', '有效安装复用，完全缺失才安装', '由用户授权安装 Windows 程序'] },
+  { id: 'rpc', x: 564, y: 48, w: 212, h: 62, kind: 'comm', lines: ['vpnctl / Python 服务', '本地 Unix IPC → CSDK/RPC'] },
+  { id: 'engine', x: 820, y: 48, w: 212, h: 62, kind: 'mla', lines: ['官方 UniVPNCS', '密码与短信续交到原会话'] },
+];
+const controlMobile = [
+  { id: 'cmd', x: 28, y: 40, w: 284, h: 54, kind: 'in', lines: ['univpn.cmd / PowerShell', 'profile · Docker · 交互登录'] },
+  { id: 'install', x: 28, y: 140, w: 284, h: 62, kind: 'main', lines: ['宿主机 WireGuard 引导', '有效安装复用，完全缺失才安装', '由用户授权安装 Windows 程序'] },
+  { id: 'rpc', x: 28, y: 284, w: 284, h: 56, kind: 'comm', lines: ['vpnctl / Python 服务', '本地 Unix IPC → CSDK/RPC'] },
+  { id: 'engine', x: 28, y: 386, w: 284, h: 54, kind: 'mla', lines: ['官方 UniVPNCS', '密码与短信续交到原会话'] },
+];
+---
+
+<section class="uvpn-overview" data-univpn-overview aria-label="UniVPN 架构设计总览，按 Windows、Docker Linux VM 与远端分组">
+  <div class="uvpn-overview-legend"><span class="data-line"></span> 业务数据 <span class="control-line"></span> 引导 / 认证 / 依赖</div>
+  <div class="uvpn-overview-grid">
+    <div class="uvpn-overview-place">
+      <h3><span>01</span> Windows 宿主机</h3>
+      <FlowDiagram id="uvpn-overview-windows" viewBox="0 0 340 440" minWidth={220}
+        nodes={[
+          { id: 'apps', x: 28, y: 52, w: 284, h: 64, kind: 'in', lines: ['Windows 应用', 'WindTerm / 浏览器 / TCP 与 UDP', '使用目标原始 IP 和端口'] },
+          { id: 'wg', x: 28, y: 170, w: 284, h: 78, kind: 'main', strong: true, lines: ['WireGuard for Windows', '独立 univpn-* 服务与网卡', '安装或复用发生在宿主机'] },
+          { id: 'udp', x: 28, y: 306, w: 284, h: 64, kind: 'comm', lines: ['localhost UDP 入口', '127.0.0.1:本实例端口', '由 Docker Desktop 发布'] },
+        ]}
+        edges={[{ from: 'apps', to: 'wg', label: '仅接管配置的目标 CIDR' }, { from: 'wg', to: 'udp', label: '本机 WireGuard 隧道' }]}
+        label="Windows 部署：应用经宿主机 WireGuard 专属服务和网卡，把选定目标流量送入 localhost UDP"
+        caption="先有 Docker Desktop；启动器按需安装或复用宿主机的 WireGuard 程序。" />
+    </div>
+
+    <div class="uvpn-overview-place">
+      <h3><span>02</span> Docker Desktop Linux VM</h3>
+      <FlowDiagram id="uvpn-overview-container" viewBox="0 0 340 440" minWidth={220}
+        groups={[{ x: 12, y: 18, w: 316, h: 328, label: '同一个 VPN 容器 · 独立网络命名空间' }]}
+        nodes={[
+          { id: 'wg', x: 30, y: 52, w: 280, h: 64, kind: 'main', lines: ['wg0：WireGuard 内核接口', '由容器里的 wireguard-tools 管理'] },
+          { id: 'filter', x: 30, y: 170, w: 280, h: 64, kind: 'comm', lines: ['iptables FORWARD + SNAT', '目标白名单 · 指定 VPN 出口', '探针失败时关闭转发'] },
+          { id: 'vpn', x: 30, y: 282, w: 280, h: 52, kind: 'mla', lines: ['UniVPNCS → cnem_vnic', '官方引擎连接远端 UniVPN'] },
+          { id: 'kernel', x: 30, y: 376, w: 280, h: 48, kind: 'in', lines: ['共享 Linux 内核与网络能力', 'WireGuard · TUN · netfilter'] },
+        ]}
+        edges={[
+          { from: 'wg', to: 'filter', label: '同一命名空间内转发' },
+          { from: 'filter', to: 'vpn', label: '只允许从 cnem_vnic 发出' },
+          { from: 'kernel', to: 'wg', dashed: true, path: 'M30 400 H4 V84 H28', lx: 32, ly: 360, label: '内核依赖，不是第二个 WG 容器' },
+        ]}
+        label="Docker 部署：同一个 VPN 容器包含 wg0、过滤与 SNAT、UniVPN 官方引擎及 cnem_vnic；内核由 Linux VM 提供"
+        caption="容器内只有工具、内核接口和官方 VPN 引擎，无需额外 WireGuard 服务或 Windows 安装程序。" />
+    </div>
+
+    <div class="uvpn-overview-place">
+      <h3><span>03</span> 远端 VPN 与业务网段</h3>
+      <FlowDiagram id="uvpn-overview-remote" viewBox="0 0 340 440" minWidth={220}
+        nodes={[
+          { id: 'gateway', x: 28, y: 52, w: 284, h: 78, kind: 'mla', lines: ['远端 UniVPN 网关', '沿用其密码 / 短信认证', '使用原有 UniVPN 隧道'] },
+          { id: 'targets', x: 28, y: 250, w: 284, h: 94, kind: 'out', strong: true, lines: ['已授权内网目标', 'SSH · HTTP · UDP 等实际服务', '远端看到容器的 VPN 来源地址'] },
+        ]}
+        edges={[{ from: 'gateway', to: 'targets', label: '由远端网关提供内网接入' }]}
+        label="远端部署：官方 UniVPN 网关完成认证与内网接入，目标业务服务器无需再安装 WireGuard"
+        caption="WireGuard 只接入本机容器；业务目标无需额外部署 WireGuard。" />
+    </div>
+  </div>
+
+  <h3 class="uvpn-overview-control-title">控制面：宿主机引导，再控制容器中的官方引擎</h3>
+  <div class="uvpn-overview-control-wide">
+    <FlowDiagram id="uvpn-overview-control-wide" viewBox="0 0 1060 144" minWidth={760}
+      nodes={controlWide}
+      groups={[{ x: 8, y: 8, w: 508, h: 126, label: 'Windows 宿主机' }, { x: 548, y: 8, w: 504, h: 126, label: '同一 VPN 容器的控制面' }]}
+      edges={[{ from: 'cmd', to: 'install', dashed: true }, { from: 'install', to: 'rpc', dashed: true, label: 'docker exec', lx: 500, ly: 39 }, { from: 'rpc', to: 'engine', dashed: true }]}
+      label="控制关系：Windows 启动器引导宿主机 WireGuard，随后通过 docker exec、vpnctl 和 Python CSDK/RPC 控制同一容器的 UniVPNCS" />
+  </div>
+  <div class="uvpn-overview-control-mobile">
+    <FlowDiagram id="uvpn-overview-control-mobile" viewBox="0 0 340 462" minWidth={220}
+      nodes={controlMobile}
+      groups={[{ x: 10, y: 10, w: 320, h: 208, label: 'Windows 宿主机' }, { x: 10, y: 250, w: 320, h: 202, label: '同一 VPN 容器的控制面' }]}
+      edges={[{ from: 'cmd', to: 'install', dashed: true }, { from: 'install', to: 'rpc', dashed: true, label: 'docker exec', lx: 36, ly: 235 }, { from: 'rpc', to: 'engine', dashed: true }]}
+      label="控制关系纵排：Windows 启动器引导宿主机 WireGuard，通过 docker exec、vpnctl 与 Python RPC 控制容器内官方引擎" />
+  </div>
+  <p class="uvpn-overview-note">安装宿主机程序与创建专属 tunnel 可能分别请求 UAC。新建 <code>univpn-*</code> 不改旧 tunnel 配置，目标网段重叠可能改变 Windows 的实际选路。</p>
+</section>
+
+<style>
+  .uvpn-overview { margin-block: 1.4rem 2rem; padding: 1rem; border: 1px solid var(--border-2); border-radius: var(--r); background: var(--surface); }
+  .uvpn-overview-legend { display: flex; align-items: center; gap: .55rem; color: var(--text-2); font-size: .82rem; margin: 0 0 1rem; }
+  .data-line, .control-line { display: inline-block; width: 28px; border-top: 2px solid var(--text-2); }
+  .control-line { margin-left: .7rem; border-top-style: dashed; }
+  .uvpn-overview-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+  .uvpn-overview-place { position: relative; min-width: 0; }
+  .uvpn-overview-place:not(:last-child)::after { content: '→'; position: absolute; z-index: 1; right: -16px; top: 37%; font-size: 22px; line-height: 1; color: var(--text-2); }
+  .uvpn-overview h3 { font-size: .9rem; margin-block: 0 .5rem; line-height: 1.55; }
+  .uvpn-overview h3 span { display: inline-block; margin-right: .3rem; color: var(--cat-cyan); font-size: .75rem; }
+  .uvpn-overview :global(.fd) { margin: 0; }
+  .uvpn-overview-control-title { margin-top: 1.15rem !important; }
+  .uvpn-overview-control-mobile { display: none; }
+  .uvpn-overview-note { margin: .8rem 0 0; color: var(--text-2); font-size: .86rem; line-height: 1.75; }
+  @media (max-width: 1100px) {
+    .uvpn-overview { padding: .8rem; }
+    .uvpn-overview-grid { grid-template-columns: minmax(0, 1fr); gap: 28px; }
+    .uvpn-overview-place { width: min(100%, 430px); justify-self: center; }
+    .uvpn-overview-place:not(:last-child)::after { content: '↓'; top: auto; right: 50%; bottom: -24px; transform: translateX(50%); }
+    .uvpn-overview-control-wide { display: none; }
+    .uvpn-overview-control-mobile { display: block; }
+    .uvpn-overview-control-mobile :global(.fd) { max-width: 430px; margin-inline: auto; }
+  }
+</style>
