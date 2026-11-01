@@ -1,0 +1,67 @@
+---
+/** Super-agent 的三张机制图。kind 选择文章架构、原型授权流程或持久化恢复流程；图中文字与正文术语一致。 */
+import FlowDiagram from '../figures/FlowDiagram.astro';
+import type { FdNode, FdEdge } from '../figures/FlowDiagram.astro';
+interface Props { kind?: 'architecture' | 'authorization' | 'recovery' }
+const { kind = 'architecture' } = Astro.props;
+const diagrams: Record<string, { nodes: FdNode[]; edges: FdEdge[]; label: string; caption: string; height: number }> = {
+  architecture: {
+    height: 470,
+    label: '文章中的两层架构：Router 统一协调，Worker 隔离执行，后续事件直达订阅者',
+    caption: '文章的逻辑架构。新任务交给 Router；已订阅 Thread 的后续事件可以直达 Worker。结果汇报给 Router，再统一回复用户。原型的实际工具权限见正文。',
+    nodes: [
+      { id: 'input', x: 160, y: 15, w: 300, h: 58, kind: 'in', lines: ['GitHub / 飞书等工作渠道', '请求、反馈、审查、CI 结果'] },
+      { id: 'router', x: 160, y: 125, w: 300, h: 70, kind: 'main', strong: true, lines: ['Router · 协调层', '全局背景、任务分派、对外沟通'] },
+      { id: 'w1', x: 30, y: 260, w: 170, h: 62, kind: 'op', lines: ['Worker A', '复现与修复 · 独立上下文'] },
+      { id: 'w2', x: 225, y: 260, w: 170, h: 62, kind: 'op', lines: ['Worker B', '开发功能 · 独立上下文'] },
+      { id: 'w3', x: 420, y: 260, w: 170, h: 62, kind: 'op', lines: ['Worker C', '代码审查 · 独立上下文'] },
+      { id: 'result', x: 160, y: 385, w: 300, h: 58, kind: 'out', lines: ['结果汇报回 Router', '统一向原渠道回复'] },
+    ],
+    edges: [
+      { from: 'input', to: 'router', label: '新任务', lx: 320, ly: 100 },
+      { from: 'router', to: 'w1' }, { from: 'router', to: 'w2' }, { from: 'router', to: 'w3' },
+      { from: 'input', to: 'w3', dashed: true, path: 'M460 44 H605 V290 H592', label: '后续事件直达', lx: 492, ly: 100 },
+      { from: 'w1', to: 'result' }, { from: 'w2', to: 'result' }, { from: 'w3', to: 'result' },
+    ],
+  },
+  authorization: {
+    height: 540,
+    label: '原型的候选任务授权：显式请求与推断候选分流，observe 不启动主动任务',
+    caption: '图中只画新工作入口。已有工单的订阅消息走另一条上下文投递路径；它不会自动扩大原工单的 Mandate。observe 只阻止推断候选自动执行，显式请求仍可工作。',
+    nodes: [
+      { id: 'source', x: 175, y: 10, w: 270, h: 54, kind: 'in', lines: ['Source → Trigger', '来源、发送者、接收范围'] },
+      { id: 'gate', x: 175, y: 100, w: 270, h: 58, kind: 'main', lines: ['程序准入检查', '身份与 admission 配置'] },
+      { id: 'explicit', x: 20, y: 215, w: 260, h: 58, kind: 'op', lines: ['explicit · 显式请求', 'Router 决定接受或其他处置'] },
+      { id: 'inferred', x: 340, y: 215, w: 260, h: 58, kind: 'op', lines: ['inferred · 推断候选', '模型评估规则、意图与范围'] },
+      { id: 'observe', x: 340, y: 335, w: 260, h: 58, kind: 'comm', lines: ['默认 observe', '记录 would_accept，不开工'] },
+      { id: 'ticket', x: 20, y: 335, w: 260, h: 58, kind: 'out', lines: ['接受 → Ticket + Mandate', '记录任务范围与授权依据'] },
+      { id: 'worker', x: 20, y: 465, w: 260, h: 54, kind: 'out', lines: ['Assignment → Worker', '独立会话与工作目录'] },
+    ],
+    edges: [
+      { from: 'source', to: 'gate' }, { from: 'gate', to: 'explicit' }, { from: 'gate', to: 'inferred' },
+      { from: 'explicit', to: 'ticket' }, { from: 'inferred', to: 'observe' },
+      { from: 'inferred', to: 'ticket', dashed: true, path: 'M340 244 H310 V364 H282', label: 'auto 且通过评估', lx: 333, ly: 307 },
+      { from: 'ticket', to: 'worker' },
+    ],
+  },
+  recovery: {
+    height: 420,
+    label: '原型先持久化状态与待执行动作，再调用外部系统，失败后重试',
+    caption: 'SQLite 事务可以一起保存内部状态和待执行动作。外部 API 成功与本地回执保存之间仍有间隙，因此不能据此宣称所有外部操作都恰好执行一次。',
+    nodes: [
+      { id: 'decision', x: 160, y: 10, w: 300, h: 54, kind: 'in', lines: ['Engine 收到命令', '接受任务、投递输入、发送回复'] },
+      { id: 'db', x: 160, y: 110, w: 300, h: 70, kind: 'main', strong: true, lines: ['同一 SQLite 事务', '任务状态 + Effects 待执行记录'] },
+      { id: 'external', x: 160, y: 240, w: 300, h: 58, kind: 'op', lines: ['提交后执行外部调用', '启动 Worker / 投递消息 / 回复渠道'] },
+      { id: 'receipt', x: 160, y: 345, w: 300, h: 54, kind: 'out', lines: ['保存结果与回执', '失败按类型退避重试'] },
+    ],
+    edges: [
+      { from: 'decision', to: 'db' }, { from: 'db', to: 'external', label: '事务提交', lx: 320, ly: 212 },
+      { from: 'external', to: 'receipt' },
+      { from: 'receipt', to: 'external', dashed: true, path: 'M460 373 H555 V269 H462', label: '重试', lx: 564, ly: 320 },
+    ],
+  },
+};
+const d = diagrams[kind];
+---
+<FlowDiagram id={`superagent-${kind}`} viewBox={`0 0 620 ${d.height}`} minWidth={540}
+  nodes={d.nodes} edges={d.edges} label={d.label} caption={d.caption} />

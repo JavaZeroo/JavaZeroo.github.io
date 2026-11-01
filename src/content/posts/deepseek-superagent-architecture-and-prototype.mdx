@@ -1,0 +1,217 @@
+---
+title: "DeepSeek Super-agent 拆解：架构设计与开源插件的实现边界"
+pubDate: 2026-11-01
+description: "对照 DeepSeek Harness 团队的 Super-agent 文章与开源代码，拆解 Router/Worker、事件订阅、任务授权和故障恢复：哪些已经实现，实验测到了什么，以及长期运行还缺什么。"
+categories:
+  - "📝学习"
+tags:
+  - "DeepSeek"
+  - "Agent"
+  - "系统设计"
+  - "开源"
+---
+
+import SuperAgentFlow from '../../components/agents/SuperAgentFlow.astro';
+
+一个 coding agent 能修好一个 bug，接下来就会遇到另一个问题：当十几个需求、代码审查和 CI 结果同时到来，谁负责记住它们的关系、把新消息送到正确的任务，并在完成后找人验收？
+
+DeepSeek Harness 团队的 [《Exploring Super-agent Design: Towards a More Autonomous Agent System》][article]讨论的就是这件事。它把瓶颈从单项任务的执行能力，移到了多项任务消耗的人类注意力。配套开源的 [dsh-superagent-prototype][repo]，则把其中一部分设计落实到了 GitHub 与飞书协作中。
+
+**这套方案最值得关注的地方，是把任务分派、上下文投递和故障恢复变成明确的系统机制。** 要判断它能不能进入自己的工作流，还得分别看文章的设计目标、公开代码的行为，以及真实部署时的权限边界。
+
+本文对应原文 §1–9，代码固定在 [`6337fc8`][snapshot]，包内版本为 `0.1.0`。以下是文档与源码分析，没有部署原型到真实团队，也没有复现作者的性能实验；文中的效果数字均来自原文。
+
+## 先分清 Harness、Super-agent 和公开原型
+
+这三个名字处于不同层级。DeepSeek Harness，简称 DSH，是运行智能体、管理会话和工具的底层框架。Super-agent 是文章提出的系统架构。`dsh-superagent` 则是依赖 DSH 的插件包，把主动编码协作做成一个具体应用。
+
+仓库的 [`package.json`][package]声明了 DSH bundle、Web 客户端入口和 DSH peer dependencies。它采用 MIT 许可证，定位于一个 GitHub 仓库，可以选接飞书。README 明确说明：公开代码经过整理，与内部版本及文章描述并不完全相同；部分设计属于未来方向。这是研究原型，并非正式 DeepSeek 产品。
+
+因此，阅读时需要保留三个不同的问题：文章认为系统应该怎样工作，团队内部已经尝试了什么，以及我们今天下载的代码到底会做什么。下文按这个顺序对照。
+
+## 两层架构把全局协调与任务执行分开
+
+文章首先指出一个冲突。把所有事情交给同一个会话，它能看到全部背景，却会被长任务阻塞，不同任务的细节也会挤在一起。每件事都开一个独立会话，又容易丢失任务间的关联，用户还得充当消息转发者。
+
+解决办法是分成两层：
+
+- **Router** 保存全局背景，接收不同渠道的输入，判断消息属于哪个任务，负责分派与对外沟通。
+- **Worker** 在独立上下文中执行一个任务，使用完整的工作工具，把关键进展和结果汇报给 Router。
+
+<SuperAgentFlow kind="architecture" />
+
+这里的 Router 与常见的多智能体团队负责人有一点区别。它不必替每个任务深入分析实现步骤；一个复杂任务可以整个交给 Worker，再由 Worker 在内部组织子智能体。Router 只需要知道任务的大致范围、状态和相互关系。这样才可能保持轻量，及时接收新消息。原文据此提出：协调层可以尝试较轻的模型，执行层则更需要强模型。
+
+这是我的解读：这种分工首先改善的是**多任务之间的协调**。把一个任务拆给更多 Worker，是否能提高正确率，属于另一个问题。任务之间耦合越强，共享代码、接口和环境的冲突就越难靠简单分派解决。
+
+### 原型保留了比理想 Router 更多的工具
+
+文章说 Router 可以连 Bash 都不配。公开原型的 [`src/app/sessions.ts`][sessions]却仍向主会话开放 `bash`、`read`、`skill` 和后台任务工具。[架构文档][architecture]也直说，避免读代码是提示词规则，而非工具层限制。
+
+代码做了部分防阻塞约束：`noWait()` 拒绝某些 `sleep` 命令、过长的 shell 等待和超过 5 秒的 job 等待；Router preset 也缩短了前台等待时间。这些措施降低协调会话被占住的概率，但不能推导成“主会话在机制上完全无法执行具体工作”。
+
+这一区别会影响对实验的理解。论文式架构图描述的是职责分工；公开版本到底把多少职责变成了不可绕过的限制，仍要看工具注册与宿主实现。
+
+## 一条 GitHub 请求如何变成可以持续推进的工单
+
+两层分工之后，还需要一个稳定的工作单位。会话可能结束、恢复或重试，任务却未必结束。原型为此引入了 **Ticket（工单）**，并让它拥有独立于 DSH Session 的生命周期。[领域模型][domain]把相关对象分得很清楚：
+
+| 对象 | 在工作流里表示什么 |
+| --- | --- |
+| Source | GitHub 或飞书这样的事件来源，保存读取位置和来源身份 |
+| Trigger | 一条带来源、发送者和时间等信息的事件 |
+| Thread | 同一 Issue、PR 讨论或聊天话题形成的事件序列 |
+| Ticket | 一项已接受、具有明确范围的工作 |
+| Mandate | 这项工作的授权依据，包括范围、策略版本和请求来源 |
+| Assignment | 某次把 Ticket 交给 Executor 执行的记录 |
+
+以一个授权用户在 Issue 中请求修复为例，Source 先把消息转成 Trigger。系统判断它能否成为请求，再由主会话决定接受、忽略或作其他处置。接受后创建 Ticket 与 Mandate，然后安排 Assignment，启动对应的 Worker 会话与目录。
+
+Worker 提交 PR 并报告 `ready`，不意味着所有工作都结束了。此时可能需要等待审查。后续评论可以继续推动同一 Ticket；重试也会复用会话、目录和分支，并建立新的 Assignment。[执行文档][execution]详细说明了这些状态。
+
+这是我的解读：工单负责描述“还欠用户什么结果”，会话负责保存“模型怎样继续工作”。把二者分开，才能区分等待审查、等待新事件、执行失败、任务完成这些不同情况。否则，一个 agent turn 结束，很容易被误当成整项工作结束。
+
+### 后续事件通过订阅直达 Worker
+
+任务建立后，每条 CI 消息或审查评论都让 Router 再转发一次，会增加延迟和推理成本。原型用 Thread 与 Ticket 的多对多订阅关系解决这件事。
+
+[`Intake.receive()`][intake]先对 Trigger 去重、记录线程关系，再把事件投递给订阅工单。对于已经由执行器负责的人类后续消息，主会话收到通知，但不能随意再次接受、附加或忽略它。执行器发现消息超出本工单范围，可以交回系统重新路由。Bot 消息的评估路径还有单独规则。
+
+这与“看到相关内容就再开一个 Agent”有实质差别：系统先检查工作是否已经有人负责，减少重复执行。需要注意，订阅只负责分发消息，并不提供共享工作环境中的互斥锁。两个 Worker 同时改到同一处，仍然可能需要协调。
+
+## 主动性由授权规则约束，默认不会自动接下推断任务
+
+原文举了一个主动工作的例子：内部实例看到群里的问题反馈后，在后台复现、尝试修复，有可用结果才交付。这种体验很吸引人，但公开原型的默认策略要保守得多。
+
+它首先区分两种输入：**explicit** 是按来源配置认定的显式请求；**inferred** 是需要进一步判断的候选工作。程序先检查发送者、接收范围和 admission 配置，再把需要语义判断的候选交给模型。[授权文档][authorization]解释了这两条路径。
+
+<SuperAgentFlow kind="authorization" />
+
+[`src/policy.ts`][policy]的 `assessmentOutcome()` 展示了接受推断任务的条件：模型必须逐项评估所有启用规则，建立明确的实施意图与目标，至少命中一条规则，并提供 `intent_evidence`。方向未定、需要额外设计决策时，不能直接接受。
+
+更重要的是 `eval.mode`：
+
+| 模式 | 对推断候选的处理 |
+| --- | --- |
+| `off` | 不把推断事件作为候选处理 |
+| `observe`，默认 | 进行评估；即使本来会接受，也只记录 `would_accept` |
+| `auto` | 通过评估的候选才可以真正建立任务 |
+
+**显式请求在这三种模式下仍可工作。** 所以 `observe` 适合观察“系统会主动做哪些事”，不能理解为整个系统只读或不会执行命令。
+
+默认规则也集中在文案修正、目标明确的局部视觉修复，要求有实施意图，避免擅自补出产品设计。原文中更广泛的静默复现与修复，是特定内部策略下的例子，不能直接套到默认安装上。
+
+这是我的解读：主动性需要同时回答“值得做吗”和“允许做吗”。模型适合判断语义；身份、模式和策略版本则应交给程序检查。原型已经把后一部分变成了可检查的字段，但“这句反馈是否构成实施意图”仍然是模型判断，结构化输出本身不会让判断天然正确。
+
+### 上下文投递不等于新的授权
+
+订阅 Thread 后，包括 Bot、CI 在内的消息都可能作为上下文到达工单，发送者不必每次重新通过新任务准入。工单仍受原来的 Mandate 限制；仅为补充背景而订阅的 Thread，也不会因此获得新的指令权限。
+
+这是一个必要区分，同时也是安全上最难的部分：模型要读取外部文本，才能继续工作；但它必须分清事实材料和越权指令。原型的授权结构能约束任务创建与恢复，不能据此宣称提示注入已经解决。
+
+## 上下文按需找回，长命令让出交互机会
+
+任务可以持续推进后，Router 很快会遇到上下文容量问题。把所有 PR、消息和工具日志永久塞进一个窗口，既昂贵，也会干扰当前判断。
+
+原文 §3.3 把上下文窗口看作有限缓存，提出两种操作：**Inline** 把近期可能需要的内容直接放进来；**Spill** 把长内容留在窗口之外，只保留摘要和可读取的引用。每次读回一个对象，又带上相邻对象的 ID，模型便能沿关系继续查找，形成 **Chain of Recall**。
+
+原型的 [`RESOURCES`][resources]已经体现了这套思路：`ticket/<id>`、`thread/<key>`、`trigger/<id>` 和任务历史、报告等子资源提供分页读取入口，返回关联对象与必要摘要。模型可以从当前评论找到工单，再找到此前关联的讨论。
+
+这是我的解读：它更接近“可以沿关系查询的任务历史”，还不足以代表成熟的长期记忆。知道信息存在哪里，与知道几个月后应该记住什么，是不同能力。原文 §8 也把长期记忆列为扩展瓶颈；原型架构文档还明确说明，历史记录目前没有清理机制，会持续增长。
+
+交互侧则解决另一个问题：工具仍在跑时，能不能接住用户的新要求？原文 §4 的答案是把耗时调用异步化，启动后先返回，完成结果作为新事件送回会话。
+
+原型的 Router/Worker preset 会在约 5 秒后把前台 shell 命令转成后台任务。[执行文档][execution]同时规定，后台工作未结束时通常继续占用 worker slot，防止“模型这一轮说完了”导致并发配额提前释放。用户的新消息可在下一次模型步骤处理；这并不意味着能在一次推理内部任意时刻打断。
+
+## 持久化与恢复流程让任务在重启后继续
+
+长时间运行的任务不能只依赖内存里的消息队列。进程可能在“已接受任务、尚未启动执行器”之间退出，也可能在“消息已发出、回执尚未保存”时断线。
+
+原型的 [`Store`][store]使用 SQLite 保存 Trigger、Thread、Ticket、Decision、待执行动作和消息回执。Engine 在事务里修改状态，外部工作通过 [`Effects`][effects]记录后再执行；[`Outbox`][outbox]把回复回执与发送动作一起入库，并管理重试。
+
+<SuperAgentFlow kind="recovery" />
+
+这些机制让“决定了要做什么”与“实际做到了哪一步”都能留下记录。重启后，未完成的 Assignment 会获得恢复说明，要求先检查工作目录、git 历史和 GitHub 状态，再继续执行，避免重复已完成的外部操作。[源码中的恢复说明][assignments]能直接看到这个要求。
+
+不过，不能因此把系统描述为端到端的 exactly-once。`Outbox.deliver()` 是先调用外部 `sources.send()`，再保存本地回执。如果外部调用成功、回执存入本地数据库前进程退出，仍然存在需要恢复判断的间隙。这是我的代码层解读：内部去重与持久化重试有明确价值，而“外部操作恰好一次”还需要各目标接口的幂等能力配合。
+
+### 原文的长期在线设计比公开部署方案更宽
+
+原文 §5 建议把三件事拆开：运行 Agent Loop 的计算、持久化的会话状态，以及代码仓库和工具链所在的执行环境。计算可以运行在云端，环境留在用户自己的机器，通过轻量 daemon 按需连接，即 BYOM（Bring Your Own Machine）。
+
+公开插件的部署文档描述的主要是专用 DSH profile、本地状态目录、SQLite、工作目录和进程管理。**本地持久化与重启恢复，不能等同于弹性云端运行和跨设备 BYOM 已经完整交付。** 我在本次审阅范围内没有找到把后者作为完整部署能力交付的依据。
+
+Watchdog 也要作同样区分。文章 §6 希望独立智能体既检查基础设施，又判断 Worker 是否陷入无效循环、偏离目标。公开文档则提供了在另一个 DSH profile 中设置每小时巡检的方案：检查服务状态、读取错误、必要时恢复，并尊重手动停止。[部署文档的 Hourly check][deployment]支持这类运维恢复，不能替代“语义进度监控已验证”的证据。
+
+## 实验支持调度收益，不能外推成编程能力提升
+
+原文 §7.1 用合成消息流比较了两层架构和带 subagent 工具的单会话方案。每次约 300 条消息，其中约 20 条是工作请求，混有闲聊、追问、取消和 CI 消息；每种方案运行 5 次。
+
+**编码工作由一个消耗时间的工具模拟。** 因而它测的是任务调度、协调和结果返回时间，没有测真实补丁是否正确。[实验原文][article]对此写得很清楚。
+
+| 指标 | 原文结果 | 能支持的判断 |
+| --- | --- | --- |
+| Super-agent 完成时间 | P50 为 12.4 分钟，P95 为 15.7 分钟 | 在该合成负载下，典型与长尾完成时间较稳定 |
+| 单会话，中性提示词 | P95 为 29.5 分钟；5 次都未使用 subagent | 只提供委派工具，不保证模型会主动委派 |
+| 单会话，优先委派提示词 | 5 次中 4 次进行了委派，整体仍慢于 Super-agent | 提示词有作用，但执行分工仍依赖临场判断 |
+| 去掉事件直达 | 完成时间接近；Router 决策次数约多 30% | 在该负载下，直达主要降低协调开销 |
+| 去掉事件直达后的 cache-read tokens | 23.2M 增到 31.8M，约多 37% | 反复经 Router 转发会增加缓存读取量 |
+
+以中性提示词的单会话为基准，P95 从 29.5 降到 15.7 分钟，计算得到约 **46.8% 的时间降幅**。这个百分比只描述该实验里的长尾完成时间；它不表示实际修 bug 快了同样比例，也不表示总费用下降。原文反而指出，多独立会话会使用更多缓存读取 token。
+
+§7.2 还单独压测了 Router：Worker 使用 mock model，Router 调用真实模型。需要决策的事件到达率从约每分钟 1 个增到 40 个时，平均批量由 1.0 增到 2.8，单次请求耗时只从 2.5 秒增到 3.9 秒，摊销到每次决策的推理时间从 6.4 秒降到 1.6 秒。
+
+这里的“请求”和“决策”不能混为一谈，一次决策可能跨多次模型调用。批处理证明了单个 Router 在这组条件下能有效吸收积压，但没有给出任意团队规模下的吞吐保证，也没有证明用户端到端等待时间都会缩短。
+
+这是我的解读：实验最有说服力的结论，是**稳定的系统分工比每次让模型临场决定是否分派，更容易控制调度长尾**。要评价真实研发收益，还需要补丁正确率、返工次数、人工审查时间和实际账单。
+
+## 真正接入团队前，要核对权限与交付边界
+
+原型已经有事件、工单、授权、重试和面板，工程内容比“给模型加几个连接器”多得多。但这些业务机制与宿主机安全隔离是两回事。
+
+[部署文档][deployment]明确说明，Router 和 Worker preset 都以 `danger-full-access` 运行，使用操作者的 OS 身份。账户包装器只是默认选择 agent 的凭据；独立工作目录也不阻止进程读取其他目录。Worker 仍可通过绝对路径执行程序。
+
+原文提醒的风险因此非常具体：一端是来自群聊和代码平台的外部文本，另一端是机器上的私有代码、服务和凭据。两者连通后，不能仅靠“为每个任务开了独立会话”来判断风险已经隔离。
+
+自动合并也有类似边界。[执行文档][execution]把 auto-merge 条件放在交付提示词中，宿主没有专门的合并决策逻辑。提示词可以要求等待批准，但强制审查要求仍应由 GitHub 的分支保护等平台机制执行。
+
+如果准备试用，我会根据这些已知边界选择一个低影响仓库、专用 OS 账户与 agent GitHub 账户，保留人工合并；先用默认 `observe` 看系统如何判断候选工作，再决定是否给特定规则开启自动执行。这是基于代码与部署文档的试用建议，不是本文完成过的实测流程。
+
+## 这次开源最值得借鉴的是工作流的显式建模
+
+读完文章再看代码，我更看重 Ticket、Mandate、Subscription 和 Effects 这些对象。它们分别回答：工作还剩什么、为什么允许做、后续消息送到哪里，以及失败后从哪一步继续。把这些问题明确表达出来，系统才有机会减少人工来回确认与同步背景的成本。
+
+| 设计目标 | 本次公开原型能确认的内容 | 仍需保留的边界 |
+| --- | --- | --- |
+| 全局协调、任务并行 | 主会话与独立 Worker，会话和目录按 Ticket 管理 | Router 仍保留 shell；共享环境冲突仍需处理 |
+| 主动发现工作 | 程序准入、语义评估、版本化授权 | 默认 observe；语义判断仍依赖模型 |
+| 跨渠道连续推进 | GitHub、可选飞书，订阅与关联资源回读 | 不等于任意渠道或成熟长期记忆 |
+| 持续运行 | SQLite、Effects、Outbox、重启恢复与外部巡检方案 | 完整 BYOM、弹性云端与语义 Watchdog 尚不能据此确认 |
+| 减少人的注意力投入 | 状态面板、结果汇报、等待人工的结构化状态 | 真实团队的人力收益仍需测量 |
+
+我的判断是：这次开源提供了一个有研究价值的团队编码协作原型，也给出了可以逐条检查的系统设计。它是否值得进入生产，应该由这些机制在自己的任务、权限和审查流程里表现如何来决定。评估时最有用的下一步，是记录它减少了多少人工切换，又新增了多少审查与维护工作。
+
+## 参考资料
+
+- [DeepSeek Harness：Exploring Super-agent Design: Towards a More Autonomous Agent System][article]，架构、内部实例与初步实验。
+- [dsh-superagent-prototype，本文审阅的固定提交][snapshot]，`6337fc823ce20251c8de8085948165c81aaa701e`。
+- [领域模型][domain]与[授权规则][authorization]，Ticket、Mandate、订阅及准入语义。
+- [执行与恢复][execution]、[部署说明][deployment]、[实现架构][architecture]，原型运行方式及边界。
+
+[article]: https://x.com/DeepSeekHarness/status/2116857257245987236
+[repo]: https://github.com/deepseek-ai/dsh-superagent-prototype
+[snapshot]: https://github.com/deepseek-ai/dsh-superagent-prototype/tree/6337fc823ce20251c8de8085948165c81aaa701e
+[package]: https://github.com/deepseek-ai/dsh-superagent-prototype/blob/6337fc823ce20251c8de8085948165c81aaa701e/package.json
+[domain]: https://github.com/deepseek-ai/dsh-superagent-prototype/blob/6337fc823ce20251c8de8085948165c81aaa701e/docs/001-domain.md
+[authorization]: https://github.com/deepseek-ai/dsh-superagent-prototype/blob/6337fc823ce20251c8de8085948165c81aaa701e/docs/002-authorization.md
+[execution]: https://github.com/deepseek-ai/dsh-superagent-prototype/blob/6337fc823ce20251c8de8085948165c81aaa701e/docs/003-execution.md
+[deployment]: https://github.com/deepseek-ai/dsh-superagent-prototype/blob/6337fc823ce20251c8de8085948165c81aaa701e/docs/006-deployment.md
+[architecture]: https://github.com/deepseek-ai/dsh-superagent-prototype/blob/6337fc823ce20251c8de8085948165c81aaa701e/docs/007-architecture.md
+[sessions]: https://github.com/deepseek-ai/dsh-superagent-prototype/blob/6337fc823ce20251c8de8085948165c81aaa701e/src/app/sessions.ts
+[intake]: https://github.com/deepseek-ai/dsh-superagent-prototype/blob/6337fc823ce20251c8de8085948165c81aaa701e/src/core/intake.ts
+[policy]: https://github.com/deepseek-ai/dsh-superagent-prototype/blob/6337fc823ce20251c8de8085948165c81aaa701e/src/policy.ts
+[resources]: https://github.com/deepseek-ai/dsh-superagent-prototype/blob/6337fc823ce20251c8de8085948165c81aaa701e/src/app/resources.ts
+[store]: https://github.com/deepseek-ai/dsh-superagent-prototype/blob/6337fc823ce20251c8de8085948165c81aaa701e/src/app/store.ts
+[effects]: https://github.com/deepseek-ai/dsh-superagent-prototype/blob/6337fc823ce20251c8de8085948165c81aaa701e/src/app/effects.ts
+[outbox]: https://github.com/deepseek-ai/dsh-superagent-prototype/blob/6337fc823ce20251c8de8085948165c81aaa701e/src/app/outbox.ts
+[assignments]: https://github.com/deepseek-ai/dsh-superagent-prototype/blob/6337fc823ce20251c8de8085948165c81aaa701e/src/core/assignments.ts
