@@ -1,5 +1,16 @@
 # Kimi K3 模型结构连载：写作大纲
 
+## 2026-11-12 续篇：K3.1 Pro 的 Gated DSA
+
+- 第 11 篇：`kimi-k3-11-k31-dsa.mdx`，归入「K3.1 更新」。读者已读第 3 篇，想从公开配置和推理代码确认 K3.1 的结构变化。
+- 资料：`refs/k31-dsa.md`、`refs/k31-config.json`、`refs/k31-sources.json`。基于固定 HF revision、vLLM/SGLang commit；不冒充论文解读。
+- 主线：93 层排布与继承模块 → 新增索引器的三路投影和打分 → top-2048 后的 Gated Sparse MLA → 两引擎代码对照 → 缓存、复杂度与证据边界。
+- 公式：从 query latent、index key、head weights 推出加权 ReLU 分数，再写集合上的 softmax 与输出门；明确实数伪代码省略量化舍入。数字从配置计算，不引用无条件性能倍数。
+- 图：`K31ArchDiagram`（主干与 DSA 所在位置），`K31DsaDiagram` 的 indexer / attention 两张算子图（筛选与实际读取分别画）。这里只有一处主结构替换，不为了凑帧拆成演进动画。
+- 已有 KDA、AttnRes、LatentMoE、视觉和 MLA 基础用站内链接；不延伸到训练配方、评测或部署教程。`full_attn_layers`、每层独立 indexer、共享工作区、NoPE 是重点澄清项。
+- 状态：正文与三张图已完成；用词扫描无提示，Astro 类型检查无错误，生产构建及全站 smoke test 通过。新文在 1280/390/320px、浅深主题下检查了公式、站内链接、图表放大与横向溢出；修正总图箭头与标签的交叉后重建复核。
+- 后续补齐：待官方公开训练细节，继续更新本篇，重点核实 DSA 引入阶段、索引器训练目标与梯度路径、热身及冻结策略、32 头/top-2048 的消融依据；用官方证据替换当前未知项，并注明资料版本和更新日期。
+
 > 目标读者：手边打开着 Kimi K3 技术报告（arXiv 2607.24653）§2 "Model Architecture"，想把每一个模块看懂的人。
 > 每篇文章对应论文的一个小节，配一张「你现在在这里」的总图高亮，加该模块自己的方块图。
 > 参考资料精读笔记在 `refs/`（Kimi Linear / Attention Residuals / LatentMoE），真实超参在 `refs/k3-config.json`。

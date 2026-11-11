@@ -1,0 +1,40 @@
+---
+/** K3.1 Pro 的 93 层主干。突出 24 个 Gated DSA 位置；下方链接复用 K3 各模块的解析。 */
+import FlowDiagram from '../figures/FlowDiagram.astro';
+import type { FdNode, FdEdge } from '../figures/FlowDiagram.astro';
+const LINKS = [
+  { name: 'KDA', href: '/2026/09/05/kimi-k3-01-kda-recurrence/' },
+  { name: 'AttnRes', href: '/2026/09/05/kimi-k3-04-attnres/' },
+  { name: 'LatentMoE', href: '/2026/09/05/kimi-k3-05-stable-latentmoe/' },
+  { name: '视觉通路', href: '/2026/09/05/kimi-k3-06-vision-and-parts/' },
+  { name: 'Gated DSA（本篇）', href: '/2026/11/12/kimi-k3-11-k31-dsa/' },
+];
+const nodes: FdNode[] = [
+  { id: 'text', x: 55, y: 20, w: 230, lines: ['文本 → Embedding', '词表 163840'], kind: 'in' },
+  { id: 'vision', x: 375, y: 20, w: 230, lines: ['图像 → MoonViT-V2 → Projector', '27 层 · 投影到 7168 维'], kind: 'vision' },
+  { id: 'input', x: 205, y: 110, w: 250, lines: ['文本与视觉 token 合并', '主干隐藏维 7168'], kind: 'in' },
+  { id: 'kda1', x: 35, y: 235, w: 125, lines: ['KDA', '固定大小递推状态'], kind: 'main' },
+  { id: 'kda2', x: 190, y: 235, w: 125, lines: ['KDA', '固定大小递推状态'], kind: 'main' },
+  { id: 'kda3', x: 345, y: 235, w: 125, lines: ['KDA', '固定大小递推状态'], kind: 'main' },
+  { id: 'dsa', x: 500, y: 235, w: 125, lines: ['Gated DSA', '先选 token，再读 KV'], kind: 'mla', strong: true },
+  { id: 'last', x: 205, y: 370, w: 250, lines: ['第 93 层：Gated DSA', '主干共 69 KDA + 24 Gated DSA'], kind: 'mla', strong: true },
+  { id: 'out', x: 205, y: 460, w: 250, lines: ['最终 AttnRes → RMSNorm → LM Head', '输出 163840 个 logit'], kind: 'out' },
+];
+const edges: FdEdge[] = [
+  { from: 'text', to: 'input' }, { from: 'vision', to: 'input' },
+  { from: 'input', to: 'kda1', path: 'M330 154 V178 H5 V257 H33' },
+  { from: 'kda1', to: 'kda2' }, { from: 'kda2', to: 'kda3' }, { from: 'kda3', to: 'dsa' },
+  { from: 'dsa', to: 'last', path: 'M562.5 279 V348 H330 V368' },
+  { from: 'last', to: 'out' },
+];
+---
+<FlowDiagram id="k31-arch" viewBox="0 0 660 525" nodes={nodes} edges={edges}
+  groups={[{ x: 15, y: 195, w: 630, h: 128, label: '这四层注意力按此顺序重复 23 次；每个注意力后面都有 FFN' }]}
+  minWidth={600} label="Kimi K3.1 Pro 的混合主干：三层 KDA 接一层 Gated DSA，重复23次，最后再接一层DSA"
+  caption="图中间只展开注意力类型。每个 decoder layer 都有 AttnRes → 注意力 → AttnRes → FFN；第 1 层用 Dense FFN，其余 92 层用 Stable LatentMoE。AttnRes 每 12 层分一块。" />
+<nav class="k31-module-links" aria-label="K3.1 各模块解析">
+  {LINKS.map(({ name, href }) => <a href={href}>{name}</a>)}
+</nav>
+<style>
+  .k31-module-links { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.5rem 1.2rem; font-size: 0.85rem; margin: -0.8rem 0 1.8rem; }
+</style>

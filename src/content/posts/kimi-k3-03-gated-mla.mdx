@@ -21,6 +21,10 @@ import BreakEven from '../../components/k3/BreakEven.astro';
 
 对应论文 §2.1 的开头和 §2.1.2，公式 (7)。前两篇讲的 KDA 用固定大小的状态换掉了 KV cache，代价是记忆有损。K3 每四层留一层 softmax 注意力做无损的全局检索，这一层是 DeepSeek-V2 的 MLA，加上两处改动：不带位置编码，输出加满秩 sigmoid 门。
 
+:::note{type="info"}
+**K3.1 更新：** 本篇讲原版 K3 的稠密 MLA。K3.1 Pro 在这些层前加入索引器，改为最多选 2048 个历史位置再做 MLA，NoPE 和输出门保留。完整结构见[第 11 篇：Gated DSA](/2026/11/12/kimi-k3-11-k31-dsa/)。
+:::
+
 <K3ArchDiagram highlight="mla" caption="你现在在这里：每个重复块的第四层，以及主干末尾额外的第 93 层。" />
 
 ## 排布：3:1，末尾再补一层

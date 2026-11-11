@@ -1,0 +1,78 @@
+{
+  "checked_on": "2026-11-12",
+  "sources": [
+    {
+      "path": "vllm/models/kimi_k3/nvidia/dsa.py",
+      "revision": "62529d6a2d22586c72c19aaf993840f4e064a680",
+      "url": "https://github.com/vllm-project/vllm/blob/62529d6a2d22586c72c19aaf993840f4e064a680/vllm/models/kimi_k3/nvidia/dsa.py",
+      "sha256": "81eee408fc8fa051a0f36b66cd9fef0f17c1f68394dac669e493ac1e19dcc964"
+    },
+    {
+      "path": "vllm/transformers_utils/configs/kimi_linear.py",
+      "revision": "62529d6a2d22586c72c19aaf993840f4e064a680",
+      "url": "https://github.com/vllm-project/vllm/blob/62529d6a2d22586c72c19aaf993840f4e064a680/vllm/transformers_utils/configs/kimi_linear.py",
+      "sha256": "bf6afbdd1ebb4fe59c5f399215f6b2ea8a3a35385b86606a699f8da8aa228ea2"
+    },
+    {
+      "path": "vllm/models/kimi_k3/nvidia/model.py",
+      "revision": "62529d6a2d22586c72c19aaf993840f4e064a680",
+      "url": "https://github.com/vllm-project/vllm/blob/62529d6a2d22586c72c19aaf993840f4e064a680/vllm/models/kimi_k3/nvidia/model.py",
+      "sha256": "2c148a35c2fe44a2ec6dd47bd12e944f5d583d41a9f1e0e30581efd820aa4936"
+    },
+    {
+      "path": "vllm/models/kimi_k3/common/dsa_cache.py",
+      "revision": "62529d6a2d22586c72c19aaf993840f4e064a680",
+      "url": "https://github.com/vllm-project/vllm/blob/62529d6a2d22586c72c19aaf993840f4e064a680/vllm/models/kimi_k3/common/dsa_cache.py",
+      "sha256": "88af8f346aa85dd8522f79f0897d2bbae21c859dc5d991976007440ab276d8e0"
+    },
+    {
+      "path": "vllm/models/kimi_k3/nvidia/ops/dsa_indexer.py",
+      "revision": "62529d6a2d22586c72c19aaf993840f4e064a680",
+      "url": "https://github.com/vllm-project/vllm/blob/62529d6a2d22586c72c19aaf993840f4e064a680/vllm/models/kimi_k3/nvidia/ops/dsa_indexer.py",
+      "sha256": "7561d52e2650fa5c8b4a9aa7a0d66813aa2b779d24600a4ee20937f0c1308ea3"
+    },
+    {
+      "path": "vllm/model_executor/layers/sparse_attn_indexer.py",
+      "revision": "62529d6a2d22586c72c19aaf993840f4e064a680",
+      "url": "https://github.com/vllm-project/vllm/blob/62529d6a2d22586c72c19aaf993840f4e064a680/vllm/model_executor/layers/sparse_attn_indexer.py",
+      "sha256": "a94f115e837a16fbaaeb67ea79157a55d49d50b7f54a0ed0048a556ad02af340"
+    },
+    {
+      "path": "python/sglang/srt/configs/kimi_linear.py",
+      "revision": "b174f4bb4fe0f316cf625aa5441f0ea5bd65cd84",
+      "url": "https://github.com/sgl-project/sglang/blob/b174f4bb4fe0f316cf625aa5441f0ea5bd65cd84/python/sglang/srt/configs/kimi_linear.py",
+      "sha256": "1e50e8715772e83c1dd2316c33e66d00b8d51c86ab7e3968aab7522a5290dd2b"
+    },
+    {
+      "path": "python/sglang/srt/models/kimi_k3.py",
+      "revision": "b174f4bb4fe0f316cf625aa5441f0ea5bd65cd84",
+      "url": "https://github.com/sgl-project/sglang/blob/b174f4bb4fe0f316cf625aa5441f0ea5bd65cd84/python/sglang/srt/models/kimi_k3.py",
+      "sha256": "d8acc09965051dbad82d4592f029fd56ddea91053c9394ccd38a758574f2da5f"
+    },
+    {
+      "path": "python/sglang/srt/models/deepseek_v2.py",
+      "revision": "b174f4bb4fe0f316cf625aa5441f0ea5bd65cd84",
+      "url": "https://github.com/sgl-project/sglang/blob/b174f4bb4fe0f316cf625aa5441f0ea5bd65cd84/python/sglang/srt/models/deepseek_v2.py",
+      "sha256": "314e533c1606278d8294334edf13a23f082f1687a06f5e9bdf92a4958775ea83"
+    },
+    {
+      "path": "python/sglang/srt/layers/attention/dsa/dsa_indexer.py",
+      "revision": "b174f4bb4fe0f316cf625aa5441f0ea5bd65cd84",
+      "url": "https://github.com/sgl-project/sglang/blob/b174f4bb4fe0f316cf625aa5441f0ea5bd65cd84/python/sglang/srt/layers/attention/dsa/dsa_indexer.py",
+      "sha256": "6c170502d7d66edd2407fa4b54184182695d50bc70a1b8ba20cbd2ec19ff3aa6"
+    },
+    {
+      "path": "config.json",
+      "revision": "d9e99b0792a5e93b78ea9bea62a68167e36ddd9e",
+      "url": "https://huggingface.co/moonshotai/Kimi-K3.1-Pro/blob/d9e99b0792a5e93b78ea9bea62a68167e36ddd9e/config.json",
+      "sha256": "28fb250eb25e1ae025ed2915d1639feb3109189c493ff130cb6d019b01c2a390"
+    },
+    {
+      "path": "README.md",
+      "revision": "d9e99b0792a5e93b78ea9bea62a68167e36ddd9e",
+      "url": "https://huggingface.co/moonshotai/Kimi-K3.1-Pro/blob/d9e99b0792a5e93b78ea9bea62a68167e36ddd9e/README.md",
+      "sha256": "a0063ac2a866e33ce1ae70c8b4b05763259df365014792223bae3d3828bf3dc1"
+    }
+  ],
+  "hash_note": "SHA256 of UTF-8 text normalized to LF with exactly one final newline."
+}

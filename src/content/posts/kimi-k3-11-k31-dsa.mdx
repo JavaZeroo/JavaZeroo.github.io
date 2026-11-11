@@ -1,0 +1,311 @@
+---
+title: "Kimi K3 模型结构（11）：从推理代码看 K3.1 Pro 的 Gated DSA"
+pubDate: 2026-11-12 12:00:00
+description: "沿 Hugging Face 配置、vLLM 和 SGLang 的推理实现拆解 Kimi K3.1 Pro：69 层 KDA 与 24 层 Gated DSA 如何混合，32 头索引器怎样选出 top-2048，NoPE、输出门、两份缓存和每层独立索引分别落在哪里。"
+categories:
+  - "📝学习"
+tags:
+  - "大模型"
+  - "Kimi K3"
+  - "Kimi K3.1"
+  - "模型结构"
+  - "DSA"
+series: kimi-k3
+part: "K3.1 更新"
+order: 11
+draft: false
+---
+
+import K31ArchDiagram from '../../components/k3/K31ArchDiagram.astro';
+import K31DsaDiagram from '../../components/k3/K31DsaDiagram.astro';
+
+这一篇补充 **Kimi K3.1 Pro** 的结构。前面的 K3 连载按技术报告展开，这次换成从推理代码往回读：以发布 checkpoint 的 `config.json` 确定维度，以 vLLM 的 K3.1 实现恢复前向计算，再用 SGLang 交叉核对。
+
+先给结论：**K3.1 Pro 仍是 KDA 与 MLA 家族注意力交替的混合 MoE。最明确的结构变化，是把原来 24 层 Gated MLA 改成 Gated DSA：先用一个小索引器选历史 token，再让 MLA 只对选中的位置做注意力，最后仍乘 sigmoid 输出门。** 69 层 KDA、Attention Residuals、Stable LatentMoE 和 MoonViT-V2 的结构配置都沿用 K3。[发布配置][cfg]与[官方模型卡][card]能直接对上这个结论。
+
+## 先固定版本，再区分模型配置和框架默认值
+
+截至 **2026-11-12**，这次核对的 HF 仓库有配置、分词器和多模态处理代码，没有 `modeling_*.py`；`auto_map` 只注册 `AutoConfig`。官方有 [K3.1 Pro tech blog](https://www.kimi.com/en/blog/kimi-k3-1-pro)，说明它从 K3 继续 post-training 而来，但我没有找到像 K3 报告那样给出结构公式和消融的完整论文。因此，这一篇的公式是**按公开推理实现整理的数学表达**，不是引用 K3.1 论文。
+
+本文固定使用下面三个版本，避免 `main` 更新后代码与文字对不上：
+
+| 资料 | revision / commit | 用来确认什么 |
+|---|---|---|
+| HF `moonshotai/Kimi-K3.1-Pro` | [`d9e99b0792a5`](https://huggingface.co/moonshotai/Kimi-K3.1-Pro/tree/d9e99b0792a5e93b78ea9bea62a68167e36ddd9e) | 这个 checkpoint 实际采用的超参数 |
+| vLLM | [`62529d6a2d22`](https://github.com/vllm-project/vllm/commit/62529d6a2d22586c72c19aaf993840f4e064a680) | K3.1 的层分派、索引器、稀疏 MLA 和缓存 |
+| SGLang | [`b174f4bb4fe0`](https://github.com/sgl-project/sglang/commit/b174f4bb4fe0f316cf625aa5441f0ea5bd65cd84) | 独立核验配置约束、索引器连接方式与输出门 |
+
+读配置类时有一个容易踩的坑：vLLM 的 `KimiLinearDSAConfig` 默认写着 `index_num_heads=16`、`index_head_dim=64`，而发布配置明确覆盖成了 **32 头、128 维**。要分析这个模型，应以 checkpoint 的值为准；框架支持的其他分支不等于这个 checkpoint 用了它们。[配置类][vcfg]里为 RoPE、RMSNorm 保留的兼容路径也是如此。
+
+## 93 层主干保留，只替换原来的 24 个 MLA 位置
+
+先确定改动在哪，再拆这一层的内部。发布配置里的层号从 1 开始，排布是：
+
+$$
+\underbrace{[\mathrm{KDA},\ \mathrm{KDA},\ \mathrm{KDA},\ \mathrm{Gated\ DSA}]\times23}_{92\text{ 层}}
++\underbrace{\mathrm{Gated\ DSA}}_{\text{第 93 层}}.
+\tag{1}
+$$
+
+<K31ArchDiagram />
+
+其中 `dsa_config.dsa_layers` 为 `4, 8, …, 92, 93`，与 `linear_attn_config.full_attn_layers` 完全相同。这里的 **`full_attn_layers` 是从 K3 沿用的层分类字段**，不能据此认定这些位置仍执行稠密注意力。vLLM 实例化每层时，先判断是不是 KDA，再判断是不是 DSA；命中后构造的是 `KimiK3DSAAttention`。[代码：`KimiDecoderLayer`][vmodel]
+
+把 K3.1 配置与本系列此前保存的 K3 配置逐项比较，结构变化可以压成这张表：
+
+| 部分 | K3 | K3.1 Pro |
+|---|---|---|
+| 主干层数、隐藏维 | 93、7168 | 相同 |
+| KDA | 69 层，96 头 × 128 维 | 相同；短卷积核 4、衰减下界 −5、满秩输出门也相同 |
+| 原 MLA 位置 | 24 层 Gated MLA | **24 层 Gated DSA** |
+| 主注意力维度 | 96 头；Q 低秩 1536；KV latent 512 | 相同 |
+| 位置编码与门 | MLA NoPE，sigmoid 输出门 | 保留；新增索引器也不加 RoPE |
+| 深度连接 | Block AttnRes，每 12 个 decoder layer 一块 | 相同 |
+| FFN | 第一层 Dense，其余 92 层 Stable LatentMoE | 相同 |
+| MoE | latent 3584；896 个 routed expert 中选 16；2 个 shared expert；expert 中间维 3072 | 相同 |
+| 视觉 | MoonViT-V2 + projector | `vision_config` 相同 |
+| 上下文上限 | 1048576 | 相同 |
+
+这张表说明的是**结构配置相同**，不代表参数权重或训练过程相同。KDA 的递推见[第 1 篇](/2026/09/05/kimi-k3-01-kda-recurrence/)，深度和宽度上的两个模块见 [AttnRes](/2026/09/05/kimi-k3-04-attnres/) 与 [Stable LatentMoE](/2026/09/05/kimi-k3-05-stable-latentmoe/)。下面只展开新加入的稀疏选择。
+
+## 索引器用三路投影，决定当前 token 读哪些历史位置
+
+K3 的 MLA 每次要对全部可见历史做注意力。历史长度到 1M 时，即使 KV 已经压到低维，逐条读取和计算仍很贵。DSA（DeepSeek Sparse Attention）的处理是先做一次较便宜的打分，只把高分位置交给主注意力。
+
+这个打分器叫 **indexer，索引器**。它选择的是历史 **token 的位置**。与 [DeepSeek-V4 的 CSA](/2026/09/05/deepseek-v4-02-lightning-indexer/)不同，这里没有先把多个 token 压成一个时间块再选择。
+
+<K31DsaDiagram stage="indexer" />
+
+令 $x_t\in\mathbb R^{7168}$ 表示本层送入注意力的隐藏态。索引器有三路输入变换，下面按 [vLLM 的 `KimiK3DSAIndexer`][vdsa] 展开。
+
+### Query 从主注意力已经算好的低秩表示分出
+
+先回顾 MLA 的 query：它先下投影到 1536 维，做 RMSNorm，再展开到各个主注意力头。索引器复用前半段：
+
+$$
+c_t^Q=\operatorname{RMSNorm}(W_q^a x_t)\in\mathbb R^{1536},
+\qquad
+q_t^I=\operatorname{reshape}_{32\times128}(W_q^I c_t^Q).
+\tag{2}
+$$
+
+主注意力的 $W_q^b$ 把同一个 $c_t^Q$ 展开成 $96\times192$，索引器的 $W_q^I$ 则展开成 $32\times128$。两者**共用 query latent，各有自己的上投影**。不能把 32 个索引头算进主注意力的 96 个头里。
+
+### Key 是每个 token 一条 128 维向量
+
+索引器的 key 直接从 $x_s$ 投影，不从主 MLA 的 512 维 KV latent 取：
+
+$$
+k_s^I=\operatorname{LayerNorm}(W_k^I x_s)\in\mathbb R^{128}.
+\tag{3}
+$$
+
+32 个索引头共用这条 key，因此历史缓存每个 token 只增加一条 128 维索引 key，而不是 $32\times128$ 个数。它与 MLA 的主 KV 是两套投影、两份缓存。
+
+这里用的是**带增益和偏置的 LayerNorm**。vLLM 的 `KimiK3DSAIndexerKNorm.forward` 在 FP32 中做归一化，再转回输入 dtype；SGLang 的 `_init_dsa` 也明确要求 `index_k_norm_type="layernorm"`。不要因为主干大量使用 RMSNorm，就把索引 key 的归一化也写成 RMSNorm。[vLLM 实现][vdsa]、[SGLang 配置][scfg]
+
+### 每个索引头还有一个输入相关的权重
+
+第三路投影给出 32 个标量：
+
+$$
+a_t=W_a^I x_t\in\mathbb R^{32}.
+\tag{4}
+$$
+
+这些权重没有经过 sigmoid，也没有经过 softmax，可以为负。代码中的 `weights_proj` 或 “head gate” 指的是这一路，和稍后讲的 **12288 维 sigmoid 输出门**是两件事。[SGLang 的 head weight 处理][sindex]
+
+## 点积经过 ReLU 后按头求和，再取 top-2048
+
+三路投影得到的是小 query、历史小 key，以及各头权重。下一步需要把 32 个头对同一个历史 token 的判断合成一个分数。
+
+忽略低精度量化与中间舍入，代码对应的打分可以写成：
+
+$$
+I_{t,s}=\frac{1}{\sqrt{32}\sqrt{128}}
+\sum_{h=1}^{32}a_{t,h}\,
+\operatorname{ReLU}\!\left((q_{t,h}^I)^\top k_s^I\right),
+\qquad s\le t.
+\tag{5}
+$$
+
+ReLU 作用在**各头点积**上，随后才乘头权重、求和。由于 $a_{t,h}$ 可以为负，最终的 $I_{t,s}$ 不必非负。这里没有沿历史位置的 softmax；此时只需要比较谁的分数更高。
+
+这是能追到内核的一步：vLLM `score()` 把 $128^{-1/2}$ 与 $32^{-1/2}$ 合到 weights 中，调用稀疏索引算子；其融合 MQA 打分内核的 [`reduce_heads`](https://github.com/vllm-project/vllm/blob/62529d6a2d22586c72c19aaf993840f4e064a680/csrc/fused_mqa_topk/common.cuh#L106)用等价形式 $\operatorname{ReLU}(z)=(z+|z|)/2$ 完成加权求和。实际 FP8 路径还会把 query 的量化 scale 合到 weights 中，再由打分内核处理 key 的 scale。[投影与量化代码][vops]
+
+在可见历史中选出位置集合：
+
+$$
+S_t=\operatorname{TopK}_{s\in\{1,\ldots,t\}}
+\left(I_{t,s},\ \min(2048,t)\right).
+\tag{6}
+$$
+
+正文的 $t$ 从 1 开始，包含当前 token。每个 query 得到一组位置，**本层所有 96 个主注意力头共用这一组位置**，然后各自计算真正的注意力分布。不同 query 可以选不同位置，不同 DSA 层也可以选不同位置。
+
+如果可见历史不足 2048 条，就没有必要丢弃任何位置。SGLang 的 `_should_skip_logits_computation` 在适用的执行路径上会直接跳过打分，让后续使用全部有效位置。这是短上下文下的等价优化，不是又多了一种模型层。[代码][sindex]
+
+:::note{type="info"}
+**NoPE 要看实际开关。** 发布配置同时设置 `mla_use_nope=true` 和 `index_rope_dim=0`，所以主 MLA 与索引器都不做 RoPE。主注意力里的 `qk_rope_head_dim=64` 仍然保留：它代表 64 维共享 key 分量，并不代表执行了旋转。SGLang 还为 K3.1 设置 `index_apply_hadamard=false`，不能把 DeepSeek 通用索引器的默认预处理原样套过来。[配置][cfg]、[SGLang 适配][scfg]
+:::
+
+## 选出位置以后，仍然是带输出门的 MLA
+
+索引分数只负责选择位置。接下来使用的是主 MLA 自己的 query、key、value，重新计算 softmax；索引器的分数不会直接拿来加权主 value。
+
+<K31DsaDiagram stage="attention" />
+
+按[第 3 篇](/2026/09/05/kimi-k3-03-gated-mla/)的维度，把主 KV 下投影的结果拆成两部分：
+
+$$
+[\bar c_s;r_s]=W_{kv}^a x_s,\qquad
+c_s=\operatorname{RMSNorm}(\bar c_s),\qquad
+c_s\in\mathbb R^{512},\ r_s\in\mathbb R^{64}.
+\tag{7}
+$$
+
+缓存的是归一化后的 $c_s$ 与共享分量 $r_s$，合计 576 个数。若按未做矩阵吸收的形式展开，第 $h$ 个主注意力头使用：
+
+$$
+q_{t,h}\in\mathbb R^{192},\qquad
+k_{s,h}=[W^K_h c_s;r_s]\in\mathbb R^{192},\qquad
+v_{s,h}=W^V_h c_s\in\mathbb R^{128}.
+\tag{8}
+$$
+
+变化只发生在参与 softmax 的集合上：
+
+$$
+p_{t,s,h}=\frac{\exp(q_{t,h}^\top k_{s,h}/\sqrt{192})}
+{\sum_{u\in S_t}\exp(q_{t,h}^\top k_{u,h}/\sqrt{192})},\quad s\in S_t,
+\qquad
+z_{t,h}=\sum_{s\in S_t}p_{t,s,h}v_{s,h}.
+\tag{9}
+$$
+
+随后沿用 K3 的满秩输出门：
+
+$$
+y_t=W_o\!\left[
+\operatorname{Concat}_{h=1}^{96}(z_{t,h})
+\odot\sigma(W_g x_t)
+\right],\qquad
+W_g:\ 7168\rightarrow12288.
+\tag{10}
+$$
+
+门放在 $W_o$ **之前**，逐通道作用于 $96\times128$ 维的注意力输出。vLLM 的融合前向返回 `o_proj(_gate_sigmoid_mul(attn_out, gate))`；SGLang 则包装 `o_proj.forward`，先做 `x * torch.sigmoid(gate)`，再执行原来的输出投影。两套实现的位置一致。[vLLM][vdsa]、[SGLang][sk3]
+
+推理时，MLA 可以把 $W^K_h$ 吸收到 query 一侧，在低维 latent 上完成计算，再恢复各头 value 输出。稀疏化没有要求显式展开所有历史 K/V。这里把展开式写出来，是为了看清楚：**DSA 限制的是注意力访问的历史位置，MLA 压缩的是每个位置的 KV 表示，Gated 控制的是注意力输出。**
+
+## 在两套引擎中追踪同一条 DSA 前向路径
+
+把数学结构对回代码时，文件名容易造成错觉：vLLM 有单独的 `dsa.py`，SGLang 却主要沿用 `DeepseekV2AttentionMLA`。类名带 V2 并不代表只实现了稠密 MLA，要继续看它是否构造 indexer、是否走 DSA 后端。
+
+| 检查点 | vLLM | SGLang |
+|---|---|---|
+| 哪些层采用 DSA | `KimiLinearConfig.is_dsa_layer` 用 `layer_idx + 1` 查 `dsa_layers` | `_init_dsa` 要求 `dsa_layers == full_attn_layers` |
+| 注意力模块 | `KimiDecoderLayer` 构造 `KimiK3DSAAttention` | `KimiK3MLAAttention` 继承 `DeepseekV2AttentionMLA` |
+| 接入索引器 | `MLAModules(indexer=..., is_sparse=True)` | 父类在 `use_dsa` 路径构造 `Indexer` |
+| 索引器投影 | `wq_index`、合并的 `wkv_index` | `wq_b`、`wk`、`weights_proj`，也可融合 |
+| 输出门 | `_gate_sigmoid_mul` 后执行 `o_proj` | 包装 `o_proj.forward`，在投影前乘门 |
+| 避免漏接 DSA | 检查实际构造的 DSA 层数与配置一致 | `_check_dsa_indexer_loaded` 检查索引器权重全部加载 |
+
+对应源码分别是 [vLLM model.py][vmodel]、[dsa.py][vdsa]，以及 [SGLang kimi_k3.py][sk3]、[deepseek_v2.py][sdeep]、[dsa_indexer.py][sindex]。
+
+### 权重重命名和融合不代表模型又变了一次
+
+checkpoint 的索引器权重放在 `self_attn.indexer` 下。vLLM 加载时做了如下映射：
+
+| checkpoint 名称 | vLLM 模块名称 | 作用 |
+|---|---|---|
+| `indexer.wq_b` | `dsa_indexer.wq_index` | 1536 → 32×128 的 query 投影 |
+| `indexer.wk` | `dsa_indexer.wkv_index` 的一部分 | 7168 → 128 的 key 投影 |
+| `indexer.weights_proj` | `dsa_indexer.wkv_index` 的另一部分 | 7168 → 32 的头权重投影 |
+| `indexer.k_norm` | `dsa_indexer.k_index_norm` | 索引 key 的 LayerNorm |
+
+key 和头权重都来自同一个 $x_t$，可以把两组矩阵拼起来做一次 GEMM。满足条件时，`pack_projections()` 还会把主注意力和索引器的部分投影进一步打包。读结构时把它们拆回各自的输出维度即可。[权重映射][vmodel]、[投影融合][vdsa]
+
+### 共享 top-k 工作缓冲，不是跨层共享选择结果
+
+vLLM 在模型级分配了一个 `topk_indices_buffer`，依次交给各个 DSA 层使用。这个 buffer 共享的是**临时存储空间**：一层计算完之后，下一层可以覆盖同一块内存。
+
+模型本身设置 `index_topk_freq=1`。vLLM 与 SGLang 都拒绝把 K3.1 配成其他频率，并明确说明每个 DSA 层运行自己的 indexer。因此不能看到共享 buffer，就把它解释成 [DeepSeek-V4.1 的 Reuse](/2026/10/02/deepseek-v41-02-csa2/) 那样跨层复用 top-k。配置里的 `index_skip_topk_offset` 也不能单独用来推断有索引复用。[vLLM][vdsa]、[SGLang][scfg]
+
+把推理优化拿掉后，索引部分可以用下面这段**说明性伪代码**表示。它省略量化、页面映射、并行和舍入，不是可直接加载 checkpoint 的实现：
+
+```python title="一个 query 的逻辑前向；省略量化与并行"
+# x: [7168]，q_latent 同时供主 MLA 和索引器使用
+q_latent = q_rmsnorm(q_a_proj(x))                 # [1536]
+index_q = index_wq(q_latent).reshape(32, 128)
+index_k = index_layernorm(index_wk(x))             # [128]
+head_weights = index_weights_proj(x)              # [32]，无 sigmoid
+
+index_cache.append(index_k)                       # 先包含当前位置
+per_head = relu(index_q @ index_cache.T)           # [32, t]
+scores = (head_weights[:, None] * per_head).sum(0)
+scores = scores / sqrt(32 * 128)
+selected = topk_indices(scores, min(2048, len(scores)))
+
+# 主 KV 也已写入当前位置；sparse_mla 内使用主 Q/K 的 softmax
+z = sparse_mla(q_latent, main_kv_cache, selected)  # [96 * 128]
+y = o_proj(z * sigmoid(g_proj(x)))                # [7168]
+```
+
+## 稀疏化减少主注意力读取量，缓存仍随历史增长
+
+理解了选择流程，就可以回答两个实际问题：省掉了什么计算，又需要存什么。
+
+**首先，top-2048 不是缓存容量。** 今天这个 query 没选中的历史位置，下一步可能被选中。DSA 仍要保存全部可用历史的主 KV，以及用来重新打分的索引 key。
+
+在每个 DSA 层，逻辑内容是：
+
+| 持久状态 | 每个 token 的逻辑内容 | 用途 |
+|---|---|---|
+| 主 MLA cache | 512 维 latent + 64 维共享 key | 读取被选中位置，计算主注意力 |
+| indexer cache | 128 维共享 key | 给历史位置打分 |
+| top-k 工作缓冲 | 每个当前 query 最多 2048 个位置编号 | 本次计算使用；不是历史内容的替代品 |
+
+如果只比较结构，假设所有缓存数都用 BF16，原 K3 的 24 层 MLA 在 1M 历史下需要 $24\times576\times2\times1048576=27$ GiB；K3.1 增加索引 key 后，同一假设下是 $24\times(576+128)\times2\times1048576=33$ GiB。**这是按维度算出的对照，不是引擎的实测显存。** 它说明稀疏选择本身不减少历史存储。
+
+实际部署会量化缓存。本文固定版本的 vLLM NVIDIA 路径，主缓存 `fp8_ds_mla` 的内容是 512 字节 FP8 latent、4 个 FP32 scale，以及 64 个 BF16 共享 key，合计 **656 B/token/层**。默认 FP8 索引 key 是 128 字节数据加 4 字节 scale，合计 **132 B**。两者是 788 B，24 层、1M token 的内容大小约 **18.47 GiB**。[主缓存写入][vops]、[索引缓存格式][vcache]
+
+这个数不包含权重、KDA 状态、页面对齐、并行副本或临时工作区。也不能拿它与前面的 27 GiB 直接比较，然后说是 DSA 把显存压小了：两者使用了不同的缓存精度。索引缓存还可显式选择后端支持的 MXFP4 格式。**权重量化、索引缓存量化和主 KV 格式分别配置**，发布 MXFP4 权重不代表所有缓存都用 FP4。
+
+**其次，主注意力的候选数固定，不代表整段 prefill 变成线性复杂度。** 对长度为 $t$ 的可见历史，索引器仍需给历史 key 打分；只看点积，它约需 $2\times32\times128\times t$ 次浮点运算。较昂贵的主注意力只访问 $\min(2048,t)$ 个位置。
+
+因此可以分别写成：
+
+| 部分 | 单个 query 随历史长度的增长 | 整段长度 $n$ 的 prefill |
+|---|---|---|
+| 索引器打分 | $O(t)$，32 头 × 128 维，低精度实现 | 仍含 $O(n^2)$ 个因果位置对 |
+| 稀疏 MLA 核心 | $O(\min(2048,t))$，另乘头数和维度常数 | $O(n\cdot2048)$ 的上界 |
+
+在 1048576 条可见历史的末端 query 上，2048 条占 **1/512，约 0.195%**。这是主注意力读取位置的比例，不是端到端提速 512 倍。索引打分、TopK、投影、MoE、KDA 和通信仍要执行；仅凭结构无法给出实际延迟。
+
+## 能确认前向结构，不能据此补出训练配方
+
+从配置与两套 serving 实现，现在可以确认：**69 层 KDA + 24 层 Gated DSA；DSA 内是 32×128 的逐层独立索引器、top-2048、96 头 NoPE MLA，以及投影前的 sigmoid 输出门。** 主干其余模块的结构配置沿用 K3。
+
+但推理代码没有提供索引器的训练损失。DeepSeek 的 DSA 有自己的训练方法；同样使用 DSA，不足以证明 Kimi 使用相同的 KL 蒸馏、热身步数、冻结策略或数据量。为什么选 32 头、为什么 top-k 是 2048，也需要训练实验或消融才能回答。本文只解释这些选择在前向计算中意味着什么。
+
+另一个边界是 MTP：公开配置的 `num_nextn_predict_layers=0`，所以图里不额外挂训练用的预测头；这个值也不能证明 K3.1 训练时从未使用 MTP。后续若有完整报告，可以再把这些空缺接上。
+
+## 资料与代码入口
+
+- [K3.1 Pro 官方模型卡][card]、[固定版本 config.json][cfg]。
+- vLLM：[配置与层号][vcfg]、[层分派及权重映射][vmodel]、[DSA 注意力与索引器][vdsa]、[量化与缓存写入][vops]、[索引缓存格式][vcache]。
+- SGLang：[K3.1 DSA 配置适配][scfg]、[K3 主干与输出门][sk3]、[MLA 中的 DSA 实现][sdeep]、[通用索引器][sindex]。
+- 官方说明：[Kimi K3.1 Pro tech blog](https://www.kimi.com/en/blog/kimi-k3-1-pro)。
+
+[cfg]: https://huggingface.co/moonshotai/Kimi-K3.1-Pro/blob/d9e99b0792a5e93b78ea9bea62a68167e36ddd9e/config.json
+[card]: https://huggingface.co/moonshotai/Kimi-K3.1-Pro/blob/d9e99b0792a5e93b78ea9bea62a68167e36ddd9e/README.md
+[vcfg]: https://github.com/vllm-project/vllm/blob/62529d6a2d22586c72c19aaf993840f4e064a680/vllm/transformers_utils/configs/kimi_linear.py
+[vmodel]: https://github.com/vllm-project/vllm/blob/62529d6a2d22586c72c19aaf993840f4e064a680/vllm/models/kimi_k3/nvidia/model.py#L692
+[vdsa]: https://github.com/vllm-project/vllm/blob/62529d6a2d22586c72c19aaf993840f4e064a680/vllm/models/kimi_k3/nvidia/dsa.py
+[vops]: https://github.com/vllm-project/vllm/blob/62529d6a2d22586c72c19aaf993840f4e064a680/vllm/models/kimi_k3/nvidia/ops/dsa_indexer.py
+[vcache]: https://github.com/vllm-project/vllm/blob/62529d6a2d22586c72c19aaf993840f4e064a680/vllm/models/kimi_k3/common/dsa_cache.py
+[scfg]: https://github.com/sgl-project/sglang/blob/b174f4bb4fe0f316cf625aa5441f0ea5bd65cd84/python/sglang/srt/configs/kimi_linear.py#L137
+[sk3]: https://github.com/sgl-project/sglang/blob/b174f4bb4fe0f316cf625aa5441f0ea5bd65cd84/python/sglang/srt/models/kimi_k3.py#L2530
+[sdeep]: https://github.com/sgl-project/sglang/blob/b174f4bb4fe0f316cf625aa5441f0ea5bd65cd84/python/sglang/srt/models/deepseek_v2.py#L2164
+[sindex]: https://github.com/sgl-project/sglang/blob/b174f4bb4fe0f316cf625aa5441f0ea5bd65cd84/python/sglang/srt/layers/attention/dsa/dsa_indexer.py

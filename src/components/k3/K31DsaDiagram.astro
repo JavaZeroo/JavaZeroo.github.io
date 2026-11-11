@@ -1,0 +1,47 @@
+---
+/** Gated DSA 两个阶段的算子图。stage=indexer 画选位置，stage=attention 画被选 KV 的 MLA 和输出门。 */
+import FlowDiagram from '../figures/FlowDiagram.astro';
+import type { FdNode, FdEdge } from '../figures/FlowDiagram.astro';
+interface Props { stage: 'indexer' | 'attention' }
+const { stage } = Astro.props;
+const isIndexer = stage === 'indexer';
+const nodes: FdNode[] = isIndexer ? [
+  { id: 'x', x: 220, y: 15, w: 220, lines: ['注意力输入 $x_t$', '7168 维'], kind: 'in' },
+  { id: 'qc', x: 20, y: 110, w: 190, lines: ['Query 下投影 + RMSNorm', '7168 → 1536；与主 query 共用'], kind: 'main' },
+  { id: 'ki', x: 235, y: 110, w: 190, lines: ['索引 Key 投影 + LayerNorm', '7168 → 128；含偏置，无 RoPE'], kind: 'attnres' },
+  { id: 'w', x: 450, y: 110, w: 190, lines: ['索引头权重投影', '7168 → 32；没有 sigmoid'], kind: 'attnres' },
+  { id: 'qi', x: 20, y: 210, w: 190, lines: ['索引 Query 上投影', '1536 → 32 × 128'], kind: 'main' },
+  { id: 'cache', x: 235, y: 210, w: 190, lines: ['索引 Key cache', '每个历史 token 一条 128 维 key'], kind: 'attnres' },
+  { id: 'score', x: 220, y: 310, w: 220, lines: ['各头点积 → ReLU → 加权求和', '只给因果可见的 token 打分'], kind: 'mla' },
+  { id: 'select', x: 220, y: 400, w: 220, lines: ['TopK：最多选 2048 个位置', '选出的 $S_t$ 供 96 个 MLA 头共用'], kind: 'mla', strong: true },
+] : [
+  { id: 'x', x: 215, y: 15, w: 230, lines: ['注意力输入 $x_t$', '7168 维'], kind: 'in' },
+  { id: 'q', x: 20, y: 110, w: 190, lines: ['主 Query 低秩投影', '7168 → 1536 → 96 × 192'], kind: 'main' },
+  { id: 'kv', x: 235, y: 110, w: 190, lines: ['主 KV 投影与缓存', '512 维 latent + 64 维共享 key'], kind: 'attnres' },
+  { id: 'gate', x: 450, y: 110, w: 190, lines: ['输出门：Linear + Sigmoid', '7168 → 12288'], kind: 'out' },
+  { id: 'indices', x: 450, y: 210, w: 190, lines: ['索引器给出 $S_t$', '历史位置编号，最多 2048 个'], kind: 'mla' },
+  { id: 'read', x: 235, y: 210, w: 190, lines: ['按 $S_t$ 读取主 KV', '其他位置仍保留在 cache 中'], kind: 'attnres' },
+  { id: 'attn', x: 235, y: 310, w: 190, lines: ['MLA：所选集合上的 Softmax', '96 头，各输出 128 维'], kind: 'mla', strong: true },
+  { id: 'mul', x: 235, y: 400, w: 190, lines: ['注意力输出 × 输出门', '逐通道相乘，12288 维'], kind: 'out' },
+  { id: 'out', x: 235, y: 490, w: 190, lines: ['输出投影 $W_o$', '12288 → 7168'], kind: 'out' },
+];
+const edges: FdEdge[] = isIndexer ? [
+  { from: 'x', to: 'qc' }, { from: 'x', to: 'ki' }, { from: 'x', to: 'w' },
+  { from: 'qc', to: 'qi' }, { from: 'ki', to: 'cache' },
+  { from: 'qi', to: 'score', path: 'M115 254 V280 H265 V308' },
+  { from: 'cache', to: 'score' },
+  { from: 'w', to: 'score', path: 'M545 154 V280 H395 V308' },
+  { from: 'score', to: 'select' },
+] : [
+  { from: 'x', to: 'q' }, { from: 'x', to: 'kv' }, { from: 'x', to: 'gate' },
+  { from: 'kv', to: 'read' },
+  { from: 'indices', to: 'read', path: 'M450 232 H427', dashed: true },
+  { from: 'q', to: 'attn', path: 'M115 154 V332 H233' },
+  { from: 'read', to: 'attn' }, { from: 'attn', to: 'mul' },
+  { from: 'gate', to: 'mul', path: 'M640 132 H650 V422 H427' },
+  { from: 'mul', to: 'out' },
+];
+---
+<FlowDiagram id={`k31-${stage}`} viewBox={`0 0 670 ${isIndexer ? 465 : 555}`} nodes={nodes} edges={edges} minWidth={600}
+  label={isIndexer ? 'K3.1 索引器：query、key和头权重三路投影，打分后选出top-2048历史位置' : 'K3.1 稀疏MLA：按索引读取主KV，做softmax注意力，乘sigmoid输出门后投影'}
+  caption={isIndexer ? '索引器只返回位置，不生成主注意力的 value，也不把索引分数当成主注意力的 softmax 权重。每个 DSA 层都有自己的这套参数。' : '逻辑计算图，省略投影融合、量化和 MLA 的矩阵吸收。主 query 和索引 query 共用归一化后的 1536 维 latent；96 个主头在同一组选中位置上各自计算注意力。'} />
