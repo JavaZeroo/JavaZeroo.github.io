@@ -6,23 +6,19 @@ on:
   pull_request:
   workflow_dispatch:
 
-# A newer push supersedes a queued deploy, but never interrupts one midway.
+# PRs do not queue behind production deploys. Never interrupt a deploy midway.
 concurrency:
-  group: pages
-  cancel-in-progress: false
+  group: ${{ github.event_name == 'pull_request' && format('pages-pr-{0}', github.event.pull_request.number) || 'pages' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: write
 
 jobs:
   build:
-    # Keep browser-rendering dependencies on the previously validated LTS image.
-    # ubuntu-latest moved to 26 and made apt font installation much slower.
+    # Keep browser-rendering dependencies on the validated LTS image.
     runs-on: ubuntu-24.04
-    env:
-      # Optional second target; see the EdgeOne step below. Unset on forks and
-      # pull requests, which skips that step.
-      EDGEONE_API_TOKEN: ${{ secrets.EDGEONE_API_TOKEN }}
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
 
@@ -32,19 +28,40 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --prefer-offline --no-audit --no-fund
 
-      # Mermaid diagrams are rendered to SVG at build time, which needs a real
-      # browser. Cache the download; the install step still runs every time so
-      # the apt-level system libraries are always present.
+      # All browser consumers use the default headless shell. Key on the browser
+      # manifest so unrelated dependency updates don't invalidate the download.
       - name: Cache Playwright browsers
         uses: actions/cache@v6
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          key: playwright-shell-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('node_modules/playwright-core/browsers.json') }}
 
       - name: Install Chromium
-        run: npx playwright install --with-deps chromium
+        timeout-minutes: 5
+        env:
+          PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT: 60000
+        run: |
+          npx playwright install --only-shell chromium
+          # Runner images often already have the required libraries. Verify by
+          # launching, and install system dependencies only if the probe fails.
+          if ! node --input-type=module -e "import { chromium } from 'playwright'; const browser = await chromium.launch(); await browser.close();"; then
+            npx playwright install-deps chromium
+            node --input-type=module -e "import { chromium } from 'playwright'; const browser = await chromium.launch(); await browser.close();"
+          fi
+
+      # Content-addressed image caches only; do not restore generated content
+      # stores or dist, which could retain deleted posts.
+      - name: Cache generated images
+        uses: actions/cache@v6
+        with:
+          path: |
+            node_modules/.astro/assets
+            node_modules/.cache/blog-og
+          key: images-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('package-lock.json', '.nvmrc') }}-${{ github.sha }}
+          restore-keys: |
+            images-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('package-lock.json', '.nvmrc') }}-
 
       - name: Type check
         run: npm run check
@@ -67,12 +84,3 @@ jobs:
           publish_dir: ./dist
           cname: blog.javazero.top
           force_orphan: true
-
-      # Same dist/ mirrored to Tencent EdgeOne Pages, whose Hong Kong and Tokyo
-      # edges reach mainland China far better than GitHub Pages does. DNS at
-      # DNSPod sends 境内 traffic here and everything else to GitHub Pages, so
-      # either target alone still serves the whole site. The project is created
-      # on first deploy; no ICP filing is needed for the non-mainland zone.
-      - name: Deploy to EdgeOne Pages
-        if: github.event_name != 'pull_request' && env.EDGEONE_API_TOKEN != ''
-        run: npx --yes edgeone@1.6.41 makers deploy ./dist -n javazero-blog -a overseas -t "$EDGEONE_API_TOKEN"

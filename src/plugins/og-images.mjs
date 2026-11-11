@@ -1,11 +1,31 @@
 import { chromium } from 'playwright';
 import sharp from 'sharp';
-import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
 
 const POSTS = 'src/content/posts';
 const SERIES = 'src/content/series';
+const CACHE = 'node_modules/.cache/blog-og';
+
+// Hash renderer code, dependencies and every visual asset, not article bodies.
+// A title/date/series change invalidates one card; a template/font change all.
+async function rendererHash(root) {
+  const hash = createHash('sha256');
+  hash.update(`${process.platform}:${process.arch}:${process.version}`);
+  for (const path of [fileURLToPath(import.meta.url), 'package-lock.json', `${root}images/avatar-64.webp`]) {
+    hash.update(await readFile(path));
+  }
+  for (const weight of ['400', '700']) {
+    const fonts = `${root}fonts/harmonyos-sans-sc/${weight}`;
+    for (const file of (await readdir(fonts)).sort()) {
+      hash.update(`${weight}/${file}`);
+      hash.update(await readFile(`${fonts}/${file}`));
+    }
+  }
+  return hash.digest('hex');
+}
 
 /** Front matter only; the body is irrelevant to the card. */
 async function frontmatter(path) {
@@ -45,25 +65,50 @@ export function ogImages() {
           posts.push({ id: f.replace(/\.mdx?$/, ''), title: fm.title ?? '', kicker, date: fmtDate(fm.pubDate) });
         }
 
+        await mkdir(`${root}og`, { recursive: true });
+        await mkdir(CACHE, { recursive: true });
+        const renderer = await rendererHash(root);
+        const pending = [];
+        for (const post of posts) {
+          const key = createHash('sha256').update(renderer).update(JSON.stringify(post)).digest('hex');
+          const cached = `${CACHE}/${key}.png`;
+          const output = `${root}og/${post.id}.png`;
+          try {
+            await copyFile(cached, output);
+          } catch (error) {
+            if (error.code !== 'ENOENT') throw error;
+            pending.push({ post, cached, output });
+          }
+        }
+        if (!pending.length) {
+          logger.info(`reused ${posts.length} share images; rendered 0`);
+          return;
+        }
+
         // Written into dist so the card's relative font URLs resolve, and so
         // Chromium is loading everything over file:// from one directory.
         const card = `${root}_og-card.html`;
         await writeFile(card, TEMPLATE);
-        await mkdir(`${root}og`, { recursive: true });
-
-        const browser = await chromium.launch();
-        const page = await browser.newPage({ viewport: { width: 1200, height: 630 } });
-        await page.goto(`file://${card}`);
-        await page.evaluate(() => document.fonts.ready);
-
-        for (const post of posts) {
-          await page.evaluate((p) => window.render(p), post);
-          const shot = await page.screenshot({ type: 'png' });
-          await sharp(shot).png({ compressionLevel: 9, palette: true }).toFile(`${root}og/${post.id}.png`);
+        let browser;
+        try {
+          browser = await chromium.launch();
+          const page = await browser.newPage({ viewport: { width: 1200, height: 630 } });
+          await page.goto(`file://${card}`);
+          for (const { post, cached, output } of pending) {
+            await page.evaluate((p) => window.render(p), post);
+            await page.evaluate(() => document.fonts.ready);
+            const shot = await page.screenshot({ type: 'png' });
+            await sharp(shot).png({ compressionLevel: 9, palette: true }).toFile(output);
+            // Never leave a partially written cache entry after interruption.
+            const temp = `${cached}.${process.pid}.tmp`;
+            await copyFile(output, temp);
+            await rename(temp, cached);
+          }
+        } finally {
+          await browser?.close();
+          await rm(card, { force: true });
         }
-        await browser.close();
-        await rm(card);
-        logger.info(`rendered ${posts.length} share images`);
+        logger.info(`reused ${posts.length - pending.length} share images; rendered ${pending.length}`);
       },
     },
   };

@@ -66,9 +66,18 @@ front-matter 由 `src/content.config.ts` 的 zod schema 校验，字段写错构
 
 `npm run test:smoke` 使用临时本地端口检查 `dist/`，覆盖桌面与 390/320px 手机布局、字体请求预算、图表放大交互、弹窗焦点、主题、站内导航、真实搜索和乱序搜索响应。设置 `SMOKE_SCREENSHOTS=/tmp/blog-smoke` 可保存截图。
 
-EdgeOne 仅对带哈希的字体文件和 `/_astro/` 资源启用一年缓存；字体 CSS 和 Pagefind 资源需要重新验证，避免发布后继续使用旧入口。缓存规则遵循 [EdgeOne URL 路径匹配语法](https://pages.edgeone.ai/document/edgeone-json)。GitHub Pages 的响应头由平台管理，修改此配置不会更改其缓存策略。
+站点仅部署到 GitHub Pages，响应头及缓存策略由 GitHub Pages 管理。
 
 推送到 `hexo`（默认分支，或 `main`）后由 `.github/workflows/deploy.yml` 构建并把 `dist/` 推到 `gh-pages` 分支，GitHub Pages 从该分支提供服务（Settings → Pages → Source: Deploy from a branch → `gh-pages`）。
+
+自定义域名 `blog.javazero.top` 在 DNSPod 中应将 `blog` 的 CNAME 指向 `javazeroo.github.io`，所有线路统一使用此目标。迁出 EdgeOne 时需要删除或替换原有境内线路解析；仅停止 CI 部署不会改变 DNS。确认域名已经由 GitHub Pages 提供服务后，再解绑 EdgeOne 中的域名并清理旧项目。仓库不再使用 `EDGEONE_API_TOKEN`，可在 GitHub Actions Secrets 中删除该凭据。配置依据见 [GitHub Pages 自定义子域名文档](https://docs.github.com/en/pages/configuring-a-custom-domain-for-your-github-pages-site/managing-a-custom-domain-for-your-github-pages-site#configuring-a-subdomain)。
+
+### CI 缓存与超时
+
+- npm 优先使用下载缓存；Chromium 只安装默认无头模式所需的 headless shell，缓存按 Playwright 浏览器清单失效。每次实际启动浏览器验证系统依赖，失败才运行 `install-deps`；安装步骤最多 5 分钟，整个任务最多 20 分钟。
+- 跨提交复用 `node_modules/.astro/assets` 图片转换缓存和 `node_modules/.cache/blog-og` 分享图缓存，不缓存 `dist` 或内容数据存储。分享图按标题、日期、分类/系列文案、渲染代码、字体、头像、依赖锁文件和 Node 版本判定是否重绘；修改正文可直接复用。日志显示 `reused …; rendered …`。需要强制重绘时删除 `node_modules/.cache/blog-og`，CI 中删除对应的 `images-v1-…` 缓存。
+- PR 按编号独立排队，新提交取消该 PR 的旧任务；生产发布仍串行完成，避免中途取消部署。类型检查和浏览器回归检查仍然每次执行。
+- 验证分享图缓存：`node --test scripts/og-cache.test.mjs`。首次构建需要填充缓存，后续收益取决于图片改动量；部署网络耗时仍需在 Actions 中观察。
 
 ## 目录
 
