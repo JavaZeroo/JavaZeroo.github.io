@@ -1,0 +1,95 @@
+---
+/** 合成单头示例：改变 k 或故意漏掉最大权重，比较保留质量、输出误差与 2Mε。无 props。 */
+import { texMix } from '../figures/tex';
+const probabilities = [0.03, 0.05, 0.40, 0.02, 0.25, 0.10, 0.08, 0.07];
+const values = [-0.8, 0.2, 1, -0.4, -0.6, 0.3, 0.9, -1];
+---
+<figure class="dsa-mass-demo" data-dsa-mass data-probs={JSON.stringify(probabilities)} data-values={JSON.stringify(values)}
+  aria-label="合成注意力实验：选择数量和漏选如何影响保留质量与输出误差">
+  <div class="dsa-mass-controls">
+    <label><span>保留数量 k = <output data-k-out>2</output></span>
+      <input data-k type="range" min="1" max="8" value="2" step="1" aria-label="保留 token 的数量" />
+    </label>
+    <label>选择方式
+      <select data-mode aria-label="选择 token 的排序方式">
+        <option value="best">按真实注意力选 top-k</option>
+        <option value="miss">索引器把最大项排到最后</option>
+      </select>
+    </label>
+  </div>
+  <ul class="dsa-mass-bars" aria-label="8 个位置的注意力权重">
+    {probabilities.map((p, i) => <li data-row={i} data-selected={i === 2 || i === 4 ? 'true' : 'false'}>
+      <span class="dsa-mass-token">位置 {i + 1}</span>
+      <span class="dsa-mass-track"><span style={`width:${p * 200}%`} /></span>
+      <span class="dsa-mass-weight">{(p * 100).toFixed(0)}%</span>
+      <span class="dsa-mass-choice" data-choice>{i === 2 || i === 4 ? '保留' : '丢弃'}</span>
+    </li>)}
+  </ul>
+  <div class="dsa-mass-stats" aria-live="polite" aria-atomic="true">
+    <div><span>保留质量</span><strong data-mass>65.0%</strong></div>
+    <div><span>实际输出误差</span><strong data-error>0.1246</strong></div>
+    <div><span set:html={texMix('误差上界 $2M\\varepsilon$')} /><strong data-bound>0.7000</strong></div>
+  </div>
+  <p class="dsa-mass-output">稠密输出 <span data-dense>0.2600</span> → 稀疏输出 <span data-sparse>0.3846</span>；本例 M = 1。</p>
+  <figcaption>合成数据，非 DeepSeek 实测。每个位置的 value 固定为 −0.8、0.2、1、−0.4、−0.6、0.3、0.9、−1。条形长度表示原注意力概率；稀疏输出会重新归一化。误差上界随丢弃质量下降，实际误差也受 value 的方向影响。</figcaption>
+</figure>
+<style>
+  .dsa-mass-demo { margin: 2rem 0; padding: 1.1rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); }
+  .dsa-mass-controls { display: flex; flex-wrap: wrap; gap: 1rem 2rem; align-items: start; }
+  .dsa-mass-controls label { flex: 1 1 230px; display: grid; gap: .4rem; font-size: .9rem; color: var(--text-2); }
+  .dsa-mass-controls output { display: inline; color: var(--text); font-weight: 700; }
+  .dsa-mass-controls input { width: 100%; accent-color: var(--accent); }
+  .dsa-mass-controls select { min-width: 0; width: 100%; color: var(--text); background: var(--bg-2); border: 1px solid var(--border-2); border-radius: 5px; padding: .45rem; font: inherit; }
+  .dsa-mass-bars { list-style: none; padding: 0; margin: 1.2rem 0; display: grid; gap: .3rem; }
+  .dsa-mass-bars li { display: grid; grid-template-columns: 4rem minmax(0, 1fr) 2.5rem 2rem; align-items: center; gap: .5rem; font-size: .85rem; }
+  .dsa-mass-track { height: 14px; border-radius: 3px; background: var(--bg-2); }
+  .dsa-mass-track > span { display: block; height: 100%; border-radius: 3px; background: var(--muted); opacity: .45; }
+  [data-selected='true'] .dsa-mass-track > span { background: var(--accent); opacity: 1; }
+  [data-selected='true'] .dsa-mass-choice { color: var(--accent); font-weight: 600; }
+  .dsa-mass-weight, .dsa-mass-choice { text-align: right; color: var(--text-2); }
+  .dsa-mass-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .5rem; padding: .8rem 0; border-block: 1px solid var(--border); }
+  .dsa-mass-stats div { display: grid; gap: .2rem; }
+  .dsa-mass-stats span { color: var(--text-2); font-size: .8rem; }
+  .dsa-mass-stats strong { font-size: 1.25rem; font-variant-numeric: tabular-nums; color: var(--text); }
+  .dsa-mass-output { font-size: .85rem; color: var(--text-2); font-variant-numeric: tabular-nums; }
+  .dsa-mass-demo figcaption { font-size: .85rem; line-height: 1.7; color: var(--text-2); margin-top: .7rem; }
+  @media (max-width: 380px) { .dsa-mass-demo { padding: .8rem; } .dsa-mass-stats { grid-template-columns: 1fr; } .dsa-mass-stats div { grid-template-columns: 1fr auto; align-items: center; } }
+</style>
+<script>
+  function initMassDemo() {
+    document.querySelectorAll<HTMLElement>('[data-dsa-mass]').forEach((root) => {
+      if (root.dataset.ready) return;
+      root.dataset.ready = '1';
+      const p: number[] = JSON.parse(root.dataset.probs!);
+      const values: number[] = JSON.parse(root.dataset.values!);
+      const slider = root.querySelector<HTMLInputElement>('[data-k]')!;
+      const mode = root.querySelector<HTMLSelectElement>('[data-mode]')!;
+      const set = (key: string, value: string) => { root.querySelector<HTMLElement>(`[data-${key}]`)!.textContent = value; };
+      const render = () => {
+        const k = Number(slider.value);
+        const order = p.map((_, i) => i).sort((a, b) => p[b] - p[a]);
+        if (mode.value === 'miss') order.push(order.shift()!);
+        const chosen = new Set(order.slice(0, k));
+        const mass = p.reduce((a, v, i) => a + (chosen.has(i) ? v : 0), 0);
+        const dense = p.reduce((a, v, i) => a + v * values[i], 0);
+        const sparse = p.reduce((a, v, i) => a + (chosen.has(i) ? v * values[i] : 0), 0) / mass;
+        root.querySelectorAll<HTMLElement>('[data-row]').forEach((row) => {
+          const selected = chosen.has(Number(row.dataset.row));
+          row.dataset.selected = String(selected);
+          row.querySelector('[data-choice]')!.textContent = selected ? '保留' : '丢弃';
+        });
+        set('k-out', String(k));
+        set('mass', `${(100 * mass).toFixed(1)}%`);
+        set('error', Math.abs(dense - sparse).toFixed(4));
+        set('bound', (2 * Math.max(0, 1 - mass)).toFixed(4));
+        set('dense', dense.toFixed(4));
+        set('sparse', sparse.toFixed(4));
+      };
+      slider.addEventListener('input', render);
+      mode.addEventListener('change', render);
+      render();
+    });
+  }
+  initMassDemo();
+  document.addEventListener('astro:page-load', initMassDemo);
+</script>

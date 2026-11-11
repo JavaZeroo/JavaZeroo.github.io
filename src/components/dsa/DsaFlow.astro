@@ -1,0 +1,26 @@
+---
+/** DSA 的双路径：索引器扫描全部历史，主 MLA 只读取被选中的 KV。无 props。 */
+import FlowDiagram from '../figures/FlowDiagram.astro';
+const nodes = [
+  { id: 'h', x: 125, y: 12, w: 250, h: 44, kind: 'in', lines: ['当前 token 的隐藏状态', '$h_t: [7168]$'] },
+  { id: 'qr', x: 22, y: 90, w: 210, h: 50, kind: 'mla', lines: ['共享 query latent', '$c_t^Q: [1536]$'] },
+  { id: 'q', x: 22, y: 183, w: 210, h: 54, kind: 'mla', lines: ['主 MLA query', '吸收后 $[128, 576]$'] },
+  { id: 'idx', x: 280, y: 90, w: 210, h: 64, kind: 'main', lines: ['lightning indexer', '$q_t^I: [64,128]$', '$k_s^I: [128],\\ w_t^I: [64]$'] },
+  { id: 'score', x: 280, y: 183, w: 210, h: 54, kind: 'main', lines: ['扫描全部索引 key', 'ReLU → 头加权求和'] },
+  { id: 'cache', x: 22, y: 285, w: 210, h: 54, kind: 'mla', lines: ['主 MLA 缓存仍保留全部历史', '$[N, 512+64]$'] },
+  { id: 'sel', x: 280, y: 285, w: 210, h: 54, kind: 'main', strong: true, lines: ['因果约束 → top-2048', '所有主注意力头共享下标'] },
+  { id: 'attn', x: 125, y: 390, w: 270, h: 66, kind: 'out', lines: ['只对选中 KV 做主注意力', 'QK → softmax → 加权 value', 'MLA 投影 → 输出'] },
+];
+const edges = [
+  { from: 'h', to: 'qr' }, { from: 'h', to: 'idx' },
+  { from: 'qr', to: 'q' },
+  { from: 'qr', to: 'idx', path: 'M232 115 H278', label: '$c_t^Q$', lx: 239, ly: 102 },
+  { from: 'idx', to: 'score' }, { from: 'score', to: 'sel' },
+  { from: 'cache', to: 'attn', label: '按下标读取', lx: 70, ly: 367 },
+  { from: 'sel', to: 'attn', label: '下标', lx: 362, ly: 367 },
+  { from: 'q', to: 'attn', path: 'M22 210 H8 V423 H123' },
+];
+---
+<FlowDiagram id="dsa-flow" viewBox="0 0 512 478" minWidth={460} nodes={nodes} edges={edges}
+  label="DSA 双路径：索引器打分全部历史，主 MLA 共享 top-k 下标并只读取选中的 KV"
+  caption="图中省略了缓存写入与量化。左边使用 MLA 的 MQA 吸收形式；右边的索引 key 是额外缓存。选中集合随 query 和层改变。" />

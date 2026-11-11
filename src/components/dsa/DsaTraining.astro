@@ -1,0 +1,41 @@
+---
+/** 两阶段训练的梯度边界。两张窄图并排或纵排，虚线表示已 detach 的教师目标。 */
+import FlowDiagram from '../figures/FlowDiagram.astro';
+const warmNodes = [
+  { id: 'main', x: 25, y: 25, w: 300, h: 54, kind: 'mla', lines: ['主模型：冻结参数，稠密注意力', '提供 hidden、query latent、各头概率'] },
+  { id: 'idx', x: 25, y: 120, w: 165, h: 54, kind: 'main', lines: ['indexer', '预测全部历史的分布'] },
+  { id: 'kl', x: 95, y: 215, w: 230, h: 54, kind: 'out', lines: ['全局 KL', '反向只更新 indexer'] },
+];
+const warmEdges = [
+  { from: 'main', to: 'idx', label: '冻结表示', lx: 35, ly: 101 },
+  { from: 'main', to: 'kl', path: 'M325 52 H340 V242 H327', dashed: true },
+  { from: 'idx', to: 'kl', label: '预测分布', lx: 95, ly: 199 },
+];
+const sparseNodes = [
+  { id: 'main', x: 15, y: 25, w: 150, h: 54, kind: 'mla', lines: ['主模型表示', '$h, c^Q$'] },
+  { id: 'idx', x: 200, y: 25, w: 150, h: 54, kind: 'main', lines: ['indexer', '打分 → top-k'] },
+  { id: 'attn', x: 15, y: 126, w: 150, h: 54, kind: 'mla', lines: ['稀疏主注意力', '只看所选集合'] },
+  { id: 'kl', x: 200, y: 215, w: 150, h: 54, kind: 'out', lines: ['集合内 KL', '只更新 indexer'] },
+  { id: 'lm', x: 15, y: 215, w: 150, h: 54, kind: 'out', lines: ['语言模型损失', '只更新主模型'] },
+];
+const sparseEdges = [
+  { from: 'main', to: 'idx', label: 'detach', lx: 166, ly: 40 },
+  { from: 'main', to: 'attn' },
+  { from: 'idx', to: 'attn', path: 'M275 79 V103 H90 V124', label: '下标无梯度', lx: 174, ly: 96 },
+  { from: 'attn', to: 'lm' },
+  { from: 'idx', to: 'kl', path: 'M350 52 H363 V242 H352' },
+  { from: 'attn', to: 'kl', path: 'M165 153 H275 V213', dashed: true, label: '教师 detach', lx: 195, ly: 143 },
+];
+---
+<div class="dsa-training-panels">
+  <FlowDiagram id="dsa-warmup" viewBox="0 0 365 290" minWidth={0} nodes={warmNodes} edges={warmEdges}
+    label="阶段 A：冻结稠密主模型，全局 KL 只训练索引器"
+    caption="阶段 A：主模型保持稠密，教师覆盖全部合法历史。" />
+  <FlowDiagram id="dsa-sparse" viewBox="0 0 380 290" minWidth={0} nodes={sparseNodes} edges={sparseEdges}
+    label="阶段 B：主模型由语言损失训练，索引器由选中集合内 KL 训练，输入和教师 detach"
+    caption="阶段 B：两条优化路径分开；虚线是无梯度的教师目标。" />
+</div>
+<style>
+  .dsa-training-panels { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .7rem; }
+  @media (max-width: 760px) { .dsa-training-panels { grid-template-columns: 1fr; gap: 0; } }
+</style>
