@@ -1,0 +1,19 @@
+---
+/** DSA 图解的响应式画布。columns 控制桌面面板数；窄屏逐张排列。 */
+interface Props { label: string; caption: string; columns?: 1 | 2 | 3 }
+const { label, caption, columns = 2 } = Astro.props;
+---
+<figure class="dsa-figure" aria-label={label} data-dsa-diagram>
+  <div class="dsa-panels" style={`--dsa-columns:${columns}`}><slot /></div>
+  <figcaption>{caption}</figcaption>
+</figure>
+<style>
+  .dsa-figure { margin: 1.8rem 0; padding: 1rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); }
+  .dsa-panels { display: grid; grid-template-columns: repeat(var(--dsa-columns), minmax(0, 1fr)); gap: 1.2rem; align-items: start; }
+  .dsa-panels :global(svg.dsa-svg) { display: block; width: 100%; height: auto; max-width: 520px; margin-inline: auto; font-family: var(--font-sans); }
+  .dsa-panels :global(.dsa-axis) { fill: none; stroke: var(--border-2); stroke-width: 1.5; }
+  .dsa-panels :global(.dsa-arrow) { fill: none; stroke: var(--text-2); stroke-width: 1.5; }
+  figcaption { margin-top: .7rem; font-size: .84rem; color: var(--text-2); line-height: 1.65; }
+  @media (max-width: 760px) { .dsa-panels { grid-template-columns: 1fr; gap: 1.5rem; } }
+  @media (max-width: 380px) { .dsa-figure { padding: .6rem; } }
+</style>

@@ -19,7 +19,7 @@ const values = [-0.8, 0.2, 1, -0.4, -0.6, 0.3, 0.9, -1];
   </div>
   <ul class="dsa-mass-bars" aria-label="8 个位置的注意力权重">
     {probabilities.map((p, i) => <li data-row={i} data-selected={i === 2 || i === 4 ? 'true' : 'false'}>
-      <span class="dsa-mass-token">位置 {i + 1}</span>
+      <span class="dsa-mass-token" title={`value = ${values[i]}`}>位置 {i + 1}</span>
       <span class="dsa-mass-track"><span style={`width:${p * 200}%`} /></span>
       <span class="dsa-mass-weight">{(p * 100).toFixed(0)}%</span>
       <span class="dsa-mass-choice" data-choice>{i === 2 || i === 4 ? '保留' : '丢弃'}</span>
@@ -31,7 +31,7 @@ const values = [-0.8, 0.2, 1, -0.4, -0.6, 0.3, 0.9, -1];
     <div><span set:html={texMix('误差上界 $2M\\varepsilon$')} /><strong data-bound>0.7000</strong></div>
   </div>
   <p class="dsa-mass-output">稠密输出 <span data-dense>0.2600</span> → 稀疏输出 <span data-sparse>0.3846</span>；本例 M = 1。</p>
-  <figcaption>合成数据，非 DeepSeek 实测。每个位置的 value 固定为 −0.8、0.2、1、−0.4、−0.6、0.3、0.9、−1。条形长度表示原注意力概率；稀疏输出会重新归一化。误差上界随丢弃质量下降，实际误差也受 value 的方向影响。</figcaption>
+  <figcaption>合成数据，非模型实测。保留项重新归一化；误差上界随丢弃质量下降，实际误差还受 value 方向影响。</figcaption>
 </figure>
 <style>
   .dsa-mass-demo { margin: 2rem 0; padding: 1.1rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); }

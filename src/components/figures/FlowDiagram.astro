@@ -5,6 +5,7 @@
  *
  * 边默认自动走线：同一行直连；目标在下方走「下 → 横 → 下」的折线；目标在右侧走「右 → 竖 → 右」；
  * orient: 'h' 强制横向进入；path 直接给完整路径。
+ * fontScale 可放大节点与边标签，默认 1 保持既有图的排版。
  */
 import SvgTex from './SvgTex.astro';
 import { texMix } from './tex';
@@ -15,9 +16,9 @@ export interface FdGroup { x: number; y: number; w: number; h: number; label?: s
 
 interface Props {
   id: string; viewBox: string; nodes: FdNode[]; edges: FdEdge[]; groups?: FdGroup[];
-  caption?: string; minWidth?: number; label: string;
+  caption?: string; minWidth?: number; label: string; fontScale?: number;
 }
-const { id, viewBox, nodes, edges, groups = [], caption, minWidth = 640, label } = Astro.props;
+const { id, viewBox, nodes, edges, groups = [], caption, minWidth = 640, label, fontScale = 1 } = Astro.props;
 
 const H0 = 44;
 const full = nodes.map((n) => ({ ...n, h: n.h ?? H0 }));
@@ -45,9 +46,9 @@ function route(e: FdEdge) {
   return { d: r.d, lx: e.lx ?? r.lx, ly: e.ly ?? r.ly };
 }
 
-// 节点内多行文字的垂直排布：首行 13px 高（粗），其余 12px
+// 节点内行高随 fontScale 缩放，整组文字保持居中。
 const lineBoxes = (n: (typeof full)[number]) => {
-  const hs = n.lines.map((_, i) => (i === 0 ? 14 : 12));
+  const hs = n.lines.map((_, i) => (i === 0 ? 14 : 12) * fontScale);
   const total = hs.reduce((a, b) => a + b, 0);
   let y = n.y + n.h / 2 - total / 2;
   return hs.map((h) => { const cy = y + h / 2; y += h; return cy; });
@@ -74,7 +75,7 @@ const lineBoxes = (n: (typeof full)[number]) => {
       return (
         <g>
           <path class:list={['edge', { dashed: e.dashed }]} d={r.d} marker-end={`url(#fd-arrow-${id})`} />
-          {e.label && <SvgTex x={r.lx} y={r.ly} w={200} size={9.5} align="start" color="var(--muted)" src={e.label} />}
+          {e.label && <SvgTex x={r.lx} y={r.ly} w={200} size={9.5 * fontScale} align="start" color="var(--muted)" src={e.label} />}
         </g>
       );
     })}
@@ -87,8 +88,8 @@ const lineBoxes = (n: (typeof full)[number]) => {
           <rect x={n.x} y={n.y} width={n.w} height={n.h} rx="7" />
           {n.lines.map((t, i) => (
             i === 0
-              ? <SvgTex x={n.x + n.w / 2} y={ys[i]} w={n.w} size={11.5} weight={600} src={t} />
-              : <SvgTex x={n.x + n.w / 2} y={ys[i]} w={n.w} size={9.5} color="var(--text-2)" src={t} />
+              ? <SvgTex x={n.x + n.w / 2} y={ys[i]} w={n.w} size={11.5 * fontScale} weight={600} src={t} />
+              : <SvgTex x={n.x + n.w / 2} y={ys[i]} w={n.w} size={9.5 * fontScale} color="var(--text-2)" src={t} />
           ))}
         </g>
       );

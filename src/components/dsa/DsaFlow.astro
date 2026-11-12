@@ -1,26 +1,43 @@
 ---
-/** DSA 的双路径：索引器扫描全部历史，主 MLA 只读取被选中的 KV。无 props。 */
-import FlowDiagram from '../figures/FlowDiagram.astro';
-const nodes = [
-  { id: 'h', x: 125, y: 12, w: 250, h: 44, kind: 'in', lines: ['当前 token 的隐藏状态', '$h_t: [7168]$'] },
-  { id: 'qr', x: 22, y: 90, w: 210, h: 50, kind: 'mla', lines: ['共享 query latent', '$c_t^Q: [1536]$'] },
-  { id: 'q', x: 22, y: 183, w: 210, h: 54, kind: 'mla', lines: ['主 MLA query', '吸收后 $[128, 576]$'] },
-  { id: 'idx', x: 280, y: 90, w: 210, h: 64, kind: 'main', lines: ['lightning indexer', '$q_t^I: [64,128]$', '$k_s^I: [128],\\ w_t^I: [64]$'] },
-  { id: 'score', x: 280, y: 183, w: 210, h: 54, kind: 'main', lines: ['扫描全部索引 key', 'ReLU → 头加权求和'] },
-  { id: 'cache', x: 22, y: 285, w: 210, h: 54, kind: 'mla', lines: ['主 MLA 缓存仍保留全部历史', '$[N, 512+64]$'] },
-  { id: 'sel', x: 280, y: 285, w: 210, h: 54, kind: 'main', strong: true, lines: ['因果约束 → top-2048', '所有主注意力头共享下标'] },
-  { id: 'attn', x: 125, y: 390, w: 270, h: 66, kind: 'out', lines: ['只对选中 KV 做主注意力', 'QK → softmax → 加权 value', 'MLA 投影 → 输出'] },
-];
-const edges = [
-  { from: 'h', to: 'qr' }, { from: 'h', to: 'idx' },
-  { from: 'qr', to: 'q' },
-  { from: 'qr', to: 'idx', path: 'M232 115 H278', label: '$c_t^Q$', lx: 239, ly: 102 },
-  { from: 'idx', to: 'score' }, { from: 'score', to: 'sel' },
-  { from: 'cache', to: 'attn', label: '按下标读取', lx: 70, ly: 367 },
-  { from: 'sel', to: 'attn', label: '下标', lx: 362, ly: 367 },
-  { from: 'q', to: 'attn', path: 'M22 210 H8 V423 H123' },
-];
+/** 用 8 选 2 对照全量索引扫描与稀疏主 KV 读取。无 props。 */
+import DsaFigure from './DsaFigure.astro';
+import SvgTex from '../figures/SvgTex.astro';
+const scores = [0.13, 0.22, 0.92, 0.18, 0.68, 0.34, 0.27, 0.3];
+const selected = (i: number) => i === 2 || i === 4;
+const cx = (i: number) => 28 + i * 38;
 ---
-<FlowDiagram id="dsa-flow" viewBox="0 0 512 478" minWidth={460} nodes={nodes} edges={edges}
-  label="DSA 双路径：索引器打分全部历史，主 MLA 共享 top-k 下标并只读取选中的 KV"
-  caption="图中省略了缓存写入与量化。左边使用 MLA 的 MQA 吸收形式；右边的索引 key 是额外缓存。选中集合随 query 和层改变。" />
+<DsaFigure label="DSA 的两步：索引器扫描全部小 key，主注意力只读取选中的大 KV"
+  caption="示意为 8 选 2；V3.2 实际每个 query 最多选 2048 个位置。同层各主注意力头共享下标，选择随 query 和层变化。">
+  <svg class="dsa-svg" viewBox="0 0 320 325" role="img" aria-label="索引器给全部历史位置打分，选出第 3 和第 5 个位置">
+    <SvgTex x={160} y={18} size={17} weight={600} src="① 小索引器：扫描全部历史" />
+    <rect x="85" y="44" width="150" height="36" rx="8" fill="var(--bg-2)" stroke="var(--cat-cyan)" />
+    <SvgTex x={160} y={62} size={14} src="当前 query" />
+    <path class="dsa-arrow" d="M160 80 V102 H28 M160 102 H294" />
+    {scores.map((_, i) => <g>
+      <path class="dsa-arrow" d={`M${cx(i)} 102 V118`} />
+      <rect x={cx(i) - 14} y="118" width="28" height="18" rx="3" fill="var(--cat-cyan)" opacity=".65" />
+      <SvgTex x={cx(i)} y={153} size={13} src={String(i + 1)} />
+    </g>)}
+    <SvgTex x={160} y={184} size={13} color="var(--text-2)" src="点积 → ReLU → 按头加权" />
+    {scores.map((s, i) => <rect x={cx(i) - 12} y={247 - s * 45} width="24" height={s * 45} rx="2"
+      fill={selected(i) ? 'var(--cat-cyan)' : 'var(--muted)'} opacity={selected(i) ? 1 : .3} />)}
+    <path class="dsa-axis" d="M12 248 H310" />
+    <SvgTex x={160} y={280} size={16} weight={600} color="var(--cat-cyan)" src="top-k 下标：3、5" />
+    <SvgTex x={160} y={303} size={12} color="var(--text-2)" src="索引 key：每个位置一份低维向量" />
+  </svg>
+  <svg class="dsa-svg" viewBox="0 0 320 325" role="img" aria-label="主 MLA 保留全部缓存，但这一步只读取第 3 和第 5 个 KV">
+    <SvgTex x={160} y={18} size={17} weight={600} src="② 主注意力：只计算选中项" />
+    <SvgTex x={160} y={61} size={14} color="var(--text-2)" src="主 KV 缓存仍保存全部历史" />
+    {scores.map((_, i) => <g opacity={selected(i) ? 1 : .28}>
+      <rect x={cx(i) - 14} y="89" width="28" height="63" rx="4" fill="var(--bg-2)" stroke={selected(i) ? 'var(--cat-indigo)' : 'var(--muted)'} stroke-width={selected(i) ? 2 : 1} />
+      {[0, 1, 2].map(n => <rect x={cx(i) - 9} y={99 + n * 15} width="18" height="8" rx="1" fill={selected(i) ? 'var(--cat-indigo)' : 'var(--muted)'} opacity=".65" />)}
+      <SvgTex x={cx(i)} y={168} size={13} src={String(i + 1)} />
+    </g>)}
+    <path class="dsa-arrow" d="M104 179 V194 H160 V208 M180 179 V194" />
+    <rect x="24" y="209" width="272" height="42" rx="8" fill="var(--bg-2)" stroke="var(--cat-indigo)" />
+    <SvgTex x={160} y={230} size={14} src="自己的 QK → softmax → 加权 value" />
+    <path class="dsa-arrow" d="M160 252 V267 M155 261 L160 267 L165 261" />
+    <SvgTex x={160} y={286} size={16} weight={600} color="var(--cat-emerald)" src="输出当前 token 的表示" />
+    <SvgTex x={160} y={309} size={12} color="var(--text-2)" src="索引分数只决定选谁" />
+  </svg>
+</DsaFigure>

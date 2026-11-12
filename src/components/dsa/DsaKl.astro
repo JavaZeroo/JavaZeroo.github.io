@@ -1,0 +1,27 @@
+---
+/** KL 的 logit 梯度 r−p：通过合成概率对比展示抬高与压低分数的方向。无 props。 */
+import DsaFigure from './DsaFigure.astro';
+import SvgTex from '../figures/SvgTex.astro';
+const p = [.1, .6, .2, .1];
+const r = [.25, .25, .25, .25];
+---
+<DsaFigure columns={1} label="KL 蒸馏：索引器低估的位置抬高分数，高估的位置压低分数"
+  caption="合成数据。绿色是教师概率，紫色是索引器概率；下方箭头表示梯度下降对索引 logit 的更新方向。">
+  <svg class="dsa-svg" viewBox="0 0 320 277" role="img" aria-label="教师对位置 2 给出 60% 的概率，索引器仅给 25%，训练应抬高它的分数">
+    <rect x="53" y="12" width="12" height="12" rx="2" fill="var(--cat-emerald)" />
+    <SvgTex x={73} y={18} size={13} align="start" src="教师 p" />
+    <rect x="183" y="12" width="12" height="12" rx="2" fill="var(--cat-indigo)" />
+    <SvgTex x={203} y={18} size={13} align="start" src="索引 r" />
+    {p.map((v, i) => <g>
+      <rect x={29 + i * 75} y={186 - v * 200} width="20" height={v * 200} rx="3" fill="var(--cat-emerald)" />
+      <rect x={52 + i * 75} y={186 - r[i] * 200} width="20" height={r[i] * 200} rx="3" fill="var(--cat-indigo)" />
+      <SvgTex x={39 + i * 75} y={173 - v * 200} size={12} src={`${v * 100}%`} />
+      <SvgTex x={62 + i * 75} y={173 - r[i] * 200} size={12} src="25%" />
+      <SvgTex x={50 + i * 75} y={207} size={13} src={`位置 ${i + 1}`} />
+      <path d={i === 1 ? `M${50 + i * 75} 244 V225 m-5 6 l5 -6 l5 6` : `M${50 + i * 75} 225 V244 m-5 -6 l5 6 l5 -6`}
+        fill="none" stroke={i === 1 ? 'var(--cat-emerald)' : 'var(--muted)'} stroke-width="2" />
+      <SvgTex x={50 + i * 75} y={265} size={13} color={i === 1 ? 'var(--cat-emerald)' : 'var(--text-2)'} src={i === 1 ? '抬高分数' : '压低分数'} />
+    </g>)}
+    <path class="dsa-axis" d="M20 187 H305" />
+  </svg>
+</DsaFigure>

@@ -1,0 +1,31 @@
+---
+/** 固定 FP8 主缓存格式，以真实比例对照单层 decode 的算术、读取和存储；均为估算。无 props。 */
+import DsaFigure from './DsaFigure.astro';
+import SvgTex from '../figures/SvgTex.astro';
+const N = 131072, k = 2048;
+const charts = [
+  { title: '注意力矩阵乘法', unit: 'GFLOP', dense: 2 * 128 * (576 + 512) * N / 1e9,
+    main: 2 * 128 * (576 + 512) * k / 1e9, index: 2 * 64 * 128 * N / 1e9, note: '主注意力少算，索引器仍要算' },
+  { title: '理想缓存读取量', unit: 'MiB', dense: 656 * N / 2 ** 20,
+    main: 656 * k / 2 ** 20, index: 132 * N / 2 ** 20, note: '扫小索引，再读少量大 KV' },
+  { title: '缓存容量', unit: 'MiB', dense: 656 * N / 2 ** 20,
+    main: 656 * N / 2 ** 20, index: 132 * N / 2 ** 20, note: '保留全部主 KV，另加索引' },
+];
+---
+<DsaFigure columns={3} label="DSA 的三种成本：算术和理想读取量下降，缓存容量上升"
+  caption="按 128K 历史、top-2048、单层单次 decode 估算；同用 FP8 主缓存格式。紫色为主注意力／主 KV，青色为索引器。未计投影、top-k、量化、调度等开销，非实测加速比。">
+  {charts.map(c => {
+    const scale = 260 / Math.max(c.dense, c.main + c.index);
+    return <svg class="dsa-svg" viewBox="0 0 300 217" role="img" aria-label={`${c.title}：dense ${c.dense.toFixed(2)}，DSA ${(c.main + c.index).toFixed(2)} ${c.unit}`}>
+      <SvgTex x={150} y={18} size={17} weight={600} src={c.title} />
+      <SvgTex x={20} y={52} size={13} align="start" src="Dense" />
+      <SvgTex x={280} y={52} size={13} align="end" src={`${c.dense.toFixed(2)} ${c.unit}`} />
+      <rect x="20" y="67" width={c.dense * scale} height="27" rx="3" fill="var(--cat-indigo)" opacity=".65" />
+      <SvgTex x={20} y={126} size={13} align="start" src="DSA" />
+      <SvgTex x={280} y={126} size={13} align="end" weight={600} src={`${(c.main + c.index).toFixed(2)} ${c.unit}`} />
+      <rect x="20" y="141" width={c.main * scale} height="27" fill="var(--cat-indigo)" />
+      <rect x={20 + c.main * scale} y="141" width={c.index * scale} height="27" fill="var(--cat-cyan)" />
+      <SvgTex x={150} y={201} size={13} color="var(--text-2)" src={c.note} />
+    </svg>;
+  })}
+</DsaFigure>

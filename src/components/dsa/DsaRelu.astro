@@ -1,0 +1,35 @@
+---
+/** 固定 q₁=1、q₂=−1、w₁=w₂=1，比较线性合并与 ReLU 的分段线性响应。无 props。 */
+import DsaFigure from './DsaFigure.astro';
+import SvgTex from '../figures/SvgTex.astro';
+---
+<DsaFigure label="ReLU 为什么有用：两个相反的 query 方向在线性相加时抵消，经过 ReLU 后得到绝对值形状"
+  caption="我的解读：取两个 query 为 1、−1，权重都为 1。加 ReLU 后，两侧的 key 都能获高分；这个例子只说明非线性表达能力。">
+  <svg class="dsa-svg" viewBox="0 0 320 298" role="img" aria-label="没有 ReLU，k 与负 k 相加恒为零">
+    <SvgTex x={160} y={20} size={16} weight={600} src="没有 ReLU：可合成单个点积" />
+    <path class="dsa-axis" d="M30 151 H290 M160 48 V237" />
+    <SvgTex x={179} y={53} size={12} color="var(--text-2)" src="分数" />
+    <SvgTex x={289} y={170} size={12} color="var(--text-2)" src="key" />
+    <path d="M50 231 L270 71" fill="none" stroke="var(--cat-cyan)" stroke-width="2" stroke-dasharray="5 4" />
+    <path d="M50 71 L270 231" fill="none" stroke="var(--cat-indigo)" stroke-width="2" stroke-dasharray="5 4" />
+    <path d="M50 151 H270" fill="none" stroke="var(--cat-emerald)" stroke-width="4" />
+    <SvgTex x={278} y={56} size={14} color="var(--cat-cyan)" src="$k$" />
+    <SvgTex x={278} y={246} size={14} color="var(--cat-indigo)" src="$-k$" />
+    <SvgTex x={210} y={131} size={14} color="var(--cat-emerald)" src="相加 = 0" />
+    <SvgTex x={160} y={279} size={16} src="$k+(-k)=0$" />
+  </svg>
+  <svg class="dsa-svg" viewBox="0 0 320 298" role="img" aria-label="加入 ReLU，两段正响应相加为绝对值 k，左右两侧都能得到高分">
+    <SvgTex x={160} y={20} size={16} weight={600} src="加入 ReLU：不同 key 激活不同头" />
+    <path class="dsa-axis" d="M30 211 H290 M160 48 V237" />
+    <SvgTex x={179} y={53} size={12} color="var(--text-2)" src="分数" />
+    <SvgTex x={289} y={230} size={12} color="var(--text-2)" src="key" />
+    <path d="M50 76 L160 211 L270 76" fill="none" stroke="var(--cat-emerald)" stroke-width="4" stroke-linejoin="round" />
+    <path d="M50 76 L160 211" fill="none" stroke="var(--cat-indigo)" stroke-width="2" stroke-dasharray="5 4" />
+    <path d="M160 211 L270 76" fill="none" stroke="var(--cat-cyan)" stroke-width="2" stroke-dasharray="5 4" />
+    <SvgTex x={66} y={60} size={13} color="var(--cat-indigo)" src="头 2 起作用" />
+    <SvgTex x={254} y={60} size={13} color="var(--cat-cyan)" src="头 1 起作用" />
+    <SvgTex x={64} y={235} size={13} src="$k<0$" />
+    <SvgTex x={256} y={235} size={13} src="$k>0$" />
+    <SvgTex x={160} y={279} size={15} src="$\mathrm{ReLU}(k)+\mathrm{ReLU}(-k)=|k|$" />
+  </svg>
+</DsaFigure>
