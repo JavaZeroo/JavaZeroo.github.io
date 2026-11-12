@@ -1,7 +1,7 @@
 ---
-title: "图解 DeepSeek DSA：从数学直觉到两阶段训练"
+title: "从 MLA 到 DSA：一步步看懂 indexer 在学什么"
 pubDate: 2026-11-12 10:00:00
-description: "用概率条形图、ReLU 曲线和训练流程图理解 DSA：为什么选 top-k，为什么需要小索引器，以及怎样用注意力蒸馏把它训练出来。"
+description: "从 MLA 的全量注意力出发，逐步加入小 key、索引 query、多头打分和 top-k。用同一个四位置例子讲清 indexer 的输入、学习目标、KL loss 与两阶段训练。"
 categories:
   - "📝学习"
 tags:
@@ -12,119 +12,122 @@ tags:
 draft: false
 ---
 
-import DsaFlow from '../../components/dsa/DsaFlow.astro';
-import AttentionMassDemo from '../../components/dsa/AttentionMassDemo.astro';
+import MlaToDsa from '../../components/dsa/MlaToDsa.astro';
+import IndexerInputs from '../../components/dsa/IndexerInputs.astro';
 import SharedSelection from '../../components/dsa/SharedSelection.astro';
-import DsaRelu from '../../components/dsa/DsaRelu.astro';
-import DsaKl from '../../components/dsa/DsaKl.astro';
+import IndexerLearning from '../../components/dsa/IndexerLearning.astro';
 import DsaTraining from '../../components/dsa/DsaTraining.astro';
+import DsaRelu from '../../components/dsa/DsaRelu.astro';
+import AttentionMassDemo from '../../components/dsa/AttentionMassDemo.astro';
 import DsaCost from '../../components/dsa/DsaCost.astro';
 
-DSA（DeepSeek Sparse Attention）首次随 **2025-09-29 的 V3.2-Exp** 发布，正式 V3.2 沿用。核心思路：**先用便宜的索引器找位置，再让昂贵的主注意力只计算这些位置。**[发布公告](https://www.deepseek.com/en/news/v3-2-exp/)
+**DSA 保留 MLA 的主注意力，在旁边增加一个 indexer：先预测值得看的历史位置，再让 MLA 只计算选中位置。** indexer 学的是“当前 query 会关注哪些位置”，监督来自主 MLA 自己的注意力概率。
 
-本文对应[报告 §2.1–2.3](https://arxiv.org/html/2512.02556v1#S2.SS1)。下面的数学推演是我的解读，用来解释设计选择，不代表作者真实的研究顺序。
+DSA 首发于 [2025-09-29 的 DeepSeek-V3.2-Exp](https://www.deepseek.com/en/news/v3-2-exp/)，正式 V3.2 沿用。本文对应[报告 §2.1](https://arxiv.org/html/2512.02556v1#S2.SS1)；“为什么这样设计”的推演是我的解读，不是作者研究过程的记录。
 
-## 1. 把全量扫描交给小索引器
+## 1. MLA 仍对全部压缩 KV 计算注意力
 
-长上下文里，每个 query 都扫描完整主 KV 太贵。DSA 增加一条更便宜的打分路径：
+先固定**某一层、当前一个 query**。MLA 把历史 token 的 K/V 信息存成压缩表示，减少单条缓存的大小；但历史有 $N$ 个可见位置，这个 query 通常仍要对全部 $N$ 条计算注意力。
 
-<DsaFlow />
+DSA 想进一步减少这个“$N$”：先选出最多 $k$ 个位置，让主 MLA 只处理它们。两者的差异是：
 
-**索引器负责选谁；主注意力仍计算自己的权重。** 只保留哪些位置，才能尽量不损伤输出？
+| 看哪个部分 | 原来的稠密 MLA | 加入 DSA 后 |
+|---|---|---|
+| 主 KV 的表示 | MLA 压缩表示 | 沿用 MLA 压缩表示 |
+| 主注意力计算范围 | 全部合法位置 | 索引器选出的集合 $\mathcal S_t$ |
+| 新增什么 | — | 小索引器、索引 key 缓存、top-k 选择 |
+| 最后谁计算输出 | 主 MLA | 仍是主 MLA，在集合内重新 softmax |
 
-## 2. 从输出误差推到共享 top-k
+## 2. 先增加便宜的打分路径，再接到主 MLA
 
-对固定 query、固定注意力头，原输出是 $u=\sum_s a_s v_s$。丢弃的注意力概率质量记为 $\varepsilon$；在保留集合上重新归一化，得到 $\widetilde u$。若 $\lVert v_s\rVert\le M$，则：
+直接按主 MLA 的注意力选 top-k 有一个问题：**为了知道该选谁，已经算完了昂贵的全量注意力。** 所以需要一个更便宜的预测器，先给候选位置排序。
 
-$$
-\boxed{\lVert u-\widetilde u\rVert\le 2M\varepsilon.}
-\tag{A}
-$$
+下面每点一次“下一步”，只增加一个环节。左侧保留 MLA 主路，右侧逐步长出 indexer：
 
-因此，**固定只看 $k$ 个位置时，尽量少丢概率质量**是一个有数学依据的代理目标。拖动下图，或故意漏掉最大项：
+<MlaToDsa />
 
-<AttentionMassDemo />
+最后一步只把**位置下标**交给主 MLA。MLA 会为选中的 KV 重新计算自己的 QK 分数、softmax 和 value 加权；索引分数 $I$ 不会直接充当主注意力权重。主 KV 仍全部保留，因为下一个 query 可能选到别的位置。
 
-:::details[误差界的三步推导]
-设保留集合非空，$0<\varepsilon<1$，丢弃部分归一化后的输出为 $u_{\rm drop}$。保持同一组 Q、K、V：
+## 3. indexer 怎么设计：小 key、多 query、一个位置分数
 
-$$
-\begin{aligned}
-u&=(1-\varepsilon)\widetilde u+\varepsilon u_{\rm drop},\\
-u-\widetilde u&=\varepsilon(u_{\rm drop}-\widetilde u),\\
-\lVert u-\widetilde u\rVert
-&\le\varepsilon(\lVert u_{\rm drop}\rVert+\lVert\widetilde u\rVert)
-\le2M\varepsilon.
-\end{aligned}
-$$
+设 $h_t$ 是当前 token 的层输入表示，$h_s$ 是候选位置的表示。indexer 的任务很小：对每个合法的 $s\le t$ 输出一个标量 $I_{t,s}$。
 
-最后一步用了凸组合与三角不等式；$\varepsilon=0$ 时误差为零。它是单头输出的最坏界，不保证最终模型答案的误差。
-:::
+因此可以省掉 value 聚合，只学习三条投影。下面的 $c_t^Q$ 是 MLA **已经算好的 query 压缩表示**：
 
-DSA 让各主注意力头**共享一份下标**，便于复用 KV 读取。于是把各头 softmax 后的概率取平均，选平均概率的 top-k：
+<IndexerInputs />
 
-<SharedSelection />
+这三条路径分别回答：
 
-因为平均丢弃质量恰好是 $1-\sum_{s\in\mathcal S}p_s$，这个选择能使它最小。这里平均的是**概率，不是原始 QK 分数**。不同头的实际任务贡献未必等权，后面仍需继续训练。
+- **小 key $k_s^I$：候选位置有什么特征？** 每个位置只存一份 128 维向量，降低全历史扫描的成本。
+- **索引 query $q_{t,j}^I$：当前要匹配哪些特征？** 64 个头提供多个可学习的匹配方向，复用已有的 $c_t^Q$ 生成。
+- **权重 $w_{t,j}^I$：这次各方向占多大作用？** 直接求和会等权混合；从当前 $h_t$ 生成权重，就能随 query 调整各方向的作用。权重可以为负，不是概率。
 
-## 3. 用低维打分预测位置，用 ReLU 保留多种响应
-
-精确的注意力概率要先算完整主注意力，成本已经付出。于是用小模型预测它。官方 lightning indexer 的打分为：
+然后把各头的匹配结果合成**每个位置一个分数**：
 
 $$
-\boxed{I_{t,s}=\sum_{j=1}^{H^I}w^I_{t,j}\,
+\boxed{I_{t,s}=\sum_{j=1}^{64}w^I_{t,j}\,
 \operatorname{ReLU}\!\left((q^I_{t,j})^\top k^I_s\right).}
 \tag{1}
 $$
 
-**64 个索引 query 头、每头 128 维，共享一个 key；不做 value 聚合。** 它只需输出排序分数。实际取 $k=2048$，这些宽度和预算来自实验配置，不能由误差界唯一推出。[官方配置](https://github.com/deepseek-ai/DeepSeek-V3.2-Exp/blob/87e509a2e5a100d221c97df52c6e8be7835f0057/inference/config_671B_v3.2.json)
+这里 $j$ 是索引头。所有索引头共用同一个 $k_s^I$；主 MLA 的 128 个注意力头是另一组头。维度与投影来自[官方配置](https://github.com/deepseek-ai/DeepSeek-V3.2-Exp/blob/87e509a2e5a100d221c97df52c6e8be7835f0057/inference/config_671B_v3.2.json)和 [`Indexer` 实现](https://github.com/deepseek-ai/DeepSeek-V3.2-Exp/blob/87e509a2e5a100d221c97df52c6e8be7835f0057/inference/model.py#L435-L487)。
 
-为什么逐头加 ReLU？没有非线性，多头加权可以合成一个 query：$\sum_j w_j q_j^\top k=(\sum_j w_j q_j)^\top k$。下面用一维例子看区别：
+ReLU 让打分具有非线性：去掉它，$\sum_j w_j q_j^\top k=(\sum_j w_jq_j)^\top k$，所有头可合成单个点积。论文选择 ReLU 还考虑了吞吐；图例放在文末展开区。
 
-<DsaRelu />
+## 4. indexer 在学什么：同一 query 下的位置重要性
 
-论文明确说选择 ReLU 考虑了吞吐；图中解释的是非线性的作用，并不说明 ReLU 是唯一选择。权重 $w$ 随当前 query 变化，且可以为负，因此索引分数也可以为负。[报告公式 (1)](https://arxiv.org/html/2512.02556v1#S2.SS1)、[官方 `Indexer`](https://github.com/deepseek-ai/DeepSeek-V3.2-Exp/blob/87e509a2e5a100d221c97df52c6e8be7835f0057/inference/model.py#L435-L487)
+“重要”需要一个具体标签。热身阶段让主 MLA 正常看完整历史，把**每个主注意力头 softmax 后的概率**按头平均，得到教师分布 $p_{t,s}$。不需要人工给历史 token 标注重要性。
 
-## 4. 用注意力概率教索引器，绕开离散选择的梯度
+固定当前 query，用四个可见位置举例：
 
-top-k 返回整数下标，普通反向传播无法通过下标学会排序。DSA 把主注意力当教师：令 $p$ 为按头平均的概率，$r=\operatorname{softmax}(I)$，训练索引器拟合它。
+<SharedSelection />
+
+这次教师认为位置 2、3 更值得看，所以希望 indexer 也给它们更高的分数。**换一个 query、换一层、换一段输入，教师与排序都可能变化。** indexer 学的是从当前表示和候选表示到重要性分数的函数，不是一张固定的位置排名表。
+
+教师只在训练阶段提供监督。推理时 indexer 直接预测排序，**无需先计算完整 MLA 来求教师 $p$**。
+
+| 模块 | 输出分布的范围 | 学习目标 |
+|---|---|---|
+| 主语言模型 | 词表里的下一个 token | 预测文本中的下一个 token |
+| indexer | 当前 query 可见的历史位置 | 接近主 MLA 分配给各位置的注意力概率 |
+
+主注意力头共享一份选择集合，按头平均的 $p$ 就衡量这份集合能保留多少**平均注意力概率**；它是实用的代理目标，不等于完整的最终任务贡献。
+
+## 5. indexer loss：把预测的位置分布拉向教师
+
+索引分数 $I$ 可以为任意实数。训练时沿**历史位置**做 softmax，得到预测分布 $r$，再和教师 $p$ 比较：
 
 $$
-\mathcal L^I=\sum_t D_{\rm KL}(p_{t,:}\|r_{t,:}),
+r_{t,:}=\operatorname{softmax}(I_{t,:}),
 \qquad
-\frac{\partial D_{\rm KL}(p\|r)}{\partial I_s}=r_s-p_s.
+\mathcal L^I=\sum_t\sum_{s\le t}p_{t,s}\log\frac{p_{t,s}}{r_{t,s}}.
 \tag{3}
 $$
 
-前半是论文的目标，后半是把教师视为常量时的梯度：**低估重要位置，就抬高它的分数。**
-
-<DsaKl />
-
-推理时直接对 $I$ 取 top-k 即可；softmax 不改变排序。
-
-:::details[拟合概率为什么有助于选对位置？]
-这是补充推导。记 $\mathcal S^\star=\operatorname{TopK}(p)$，$\widehat{\mathcal S}=\operatorname{TopK}(r)$，$p(A)=\sum_{s\in A}p_s$。预测集合在 $r$ 下最优，所以 $r(\mathcal S^\star)\le r(\widehat{\mathcal S})$。加减这两项：
+这就是 $D_{\rm KL}(p\|r)$。教师固定时，最小化它等价于用 $p$ 作软标签的交叉熵：让预测概率 $r$ 接近 $p$，而不是让原始分数 $I$ 等于概率。单个 query 对索引分数的梯度非常直接：
 
 $$
-\begin{aligned}
-p(\mathcal S^\star)-p(\widehat{\mathcal S})
-&\le(p-r)(\mathcal S^\star)+(r-p)(\widehat{\mathcal S})\\
-&\le\lVert p-r\rVert_1
-\le\sqrt{2D_{\rm KL}(p\|r)}.
-\end{aligned}
-\tag{B}
+\frac{\partial \mathcal L_t^I}{\partial I_{t,s}}=r_{t,s}-p_{t,s}.
+\tag{A}
 $$
 
-第二步用了每个集合的概率差不超过 $\frac12\lVert p-r\rVert_1$，最后一步是 Pinsker 不等式（自然对数）。约束的是**保留质量的差距**，不是下标必须完全相同；也只适用于完整历史上的分布。
-:::
+例如位置 2：教师给 **70%**，索引器只给 **25%**，梯度就是 $0.25-0.70=-0.45$。梯度下降减去这个负数，便会**抬高位置 2 的分数**。下面可以亲自点一步：
 
-## 5. 先训练索引器，再让主模型适应稀疏输入
+<IndexerLearning />
 
-随机索引器会漏掉重要上下文，所以先保持主模型稠密、冻结参数，单独热身索引器；再启用 top-k。起点是已扩展到 128K 的 V3.1-Terminus base。[报告 §2.1.1](https://arxiv.org/html/2512.02556v1#S2.SS1.SSS1)
+真实模型通过链式法则更新 $W_q^I,W_k^I,W_w$ 等参数，让更多输入上的分数都变得合理。索引 key 是这些参数对当前输入算出的缓存，不是独立优化的位置标签。
+
+**为什么另设这个 loss？** top-k 返回离散下标，主语言模型损失无法沿这些下标提供普通的排序梯度。KL 提供了独立、连续的监督。推理时只需排序 $I$；softmax 不改变排序，因此不必为 indexer 再算一次 softmax。[报告公式 (3)](https://arxiv.org/html/2512.02556v1#S2.SS1.SSS1)
+
+## 6. 先学会选择，再让主模型适应稀疏输入
+
+V3.2 从已有的 V3.1-Terminus base 继续训练。随机 indexer 还不会选位置，直接接管主 MLA 的输入会漏掉重要上下文，所以分两阶段：
 
 <DsaTraining />
 
-稀疏阶段的教师来自**当前选中集合内**的主注意力，概率在集合内归一化：
+**A：稠密热身。** 主模型冻结，继续看完整历史；按上面的全局教师 $p$ 训练 indexer。此时选错也不会截断主 MLA 的输入。
+
+**B：稀疏训练。** 打开 top-k，主 MLA 只看选中集合。主模型用语言模型损失适应稀疏输入；indexer 继续用 KL 学习，但教师改成**当前稀疏 MLA 在集合内的注意力概率**：
 
 $$
 \mathcal L^I=\sum_t D_{\rm KL}\!\left(
@@ -133,71 +136,88 @@ p^{\mathcal S}_{t,:}\,\middle\|\,
 \tag{4}
 $$
 
-这样不用额外跑完整的 dense 教师。但集合外没有直接监督，**集合内 KL 很小，也可能漏选重要位置**。
+两边都在集合内归一化，不额外跑完整 dense 教师。代价是：集合外没有直接 KL 监督，集合内 loss 很低仍可能漏选。
 
-工程上最重要的是分开两条梯度：**LM 损失只更新主模型，KL 只更新索引器**。索引器的输入（包括共享 query latent）和教师概率都要 `detach`，主注意力本身仍需反向传播。
+工程上切开两条梯度：indexer 的输入 $h,c^Q$ 和教师概率都 `detach`。**KL 只更新 indexer；语言模型损失只更新主模型。** 主 MLA 的计算结构沿用，参数在阶段 B 仍会更新。[报告 §2.1.1](https://arxiv.org/html/2512.02556v1#S2.SS1.SSS1)
 
-:::details[训练规模与最小代码]
-官方全局训练规模；128K 指 131072 token：
+:::details[训练规模、代码与 128K 实现细节]
+官方两阶段设置，128K = 131072 token；每步序列数是全局规模：
 
 | 阶段 | 步数 × 每步序列数 × 长度 | 学习率 |
 |---|---|---|
-| 稠密热身 | $1000\times16\times128\mathrm K$，约 2.1B token | $10^{-3}$ |
-| 稀疏训练 | $15000\times480\times128\mathrm K$，约 943.7B token | $7.3\times10^{-6}$ |
+| 热身 | $1000\times16\times128\mathrm K$，约 2.1B token | $10^{-3}$ |
+| 稀疏继续训练 | $15000\times480\times128\mathrm K$，约 943.7B token | $7.3\times10^{-6}$ |
 
-每步序列数是全局规模，不是单卡 batch。以下为教学伪代码，展示梯度边界：
+教学伪代码只展示稀疏阶段的梯度边界：
 
-```python title="稀疏训练：两组参数接收各自的梯度"
+```python title="选择不传梯度，主注意力仍需反向传播"
 I = indexer(h.detach(), query_latent.detach())
-selected = causal_topk(I)                 # 下标不传梯度
+selected = causal_topk(I)
 attention, logits = main_attention(selected)
 p = attention.detach().mean(dim=head_axis)
-
-loss_lm = lm_loss(logits, targets)
-loss_index = kl_on_selected(I, p, selected)
+loss = lm_loss(logits, targets) + kl_on_selected(I, p, selected)
 main_optimizer.zero_grad()
 index_optimizer.zero_grad()
-(loss_lm + loss_index).backward()
+loss.backward()
 main_optimizer.step()
 index_optimizer.step()
 ```
 
-[完整 CPU 示例](/files/dsa/dsa_training_demo.py)可运行 `python dsa_training_demo.py --check-only`，检查因果性、概率归一化、梯度隔离与 $k=N$ 等价性。它使用小型 MQA 和稠密矩阵模拟选择，不用于证明生产加速。
+[完整 CPU 教学示例](/files/dsa/dsa_training_demo.py)可运行 `python dsa_training_demo.py --check-only`。它检查因果性、归一化、梯度隔离和 $k=N$ 等价性；使用稠密矩阵模拟选择，不用于证明生产加速。
+
+扩到长上下文时，以下是按公开目标推导的实现要求，官方未公开完整训练器：
+
+- 128K × 128K 的 FP32 矩阵占 64 GiB，需要分块或重算。热身教师的 softmax 分母仍覆盖完整合法历史，不能逐 key 块独立归一化。
+- top-k 前屏蔽未来及其他 packed 样本；合法位置不足 $k$ 时，读取后继续屏蔽无效项。
+- 主注意力前后向都按选择集合访问 KV，并累加共享位置的梯度。先算全量分数再加 mask，无法省掉已经完成的打分。
+- 同时观察全局保留质量、长上下文任务和实际步时；集合内 KL 无法衡量所有漏选。
+
+实际索引 Q/K 还经过 RoPE、Hadamard 旋转与 FP8 量化；累加、ReLU 和头加权用 FP32。索引器与主 MLA 的 RoPE 布局不同。[固定版本代码](https://github.com/deepseek-ai/DeepSeek-V3.2-Exp/tree/87e509a2e5a100d221c97df52c6e8be7835f0057/inference)
 :::
 
-:::details[扩到 128K，工程实现要守住哪些条件？]
-下面是按公开目标推导的实现要求；官方未公布完整训练器。
+## 补充：三个数学与工程细节
 
-- **分块而非保存完整矩阵。** 一个 128K × 128K 的 FP32 矩阵就占 64 GiB。热身教师可先求全局 log-sum-exp，再按块重算概率、累计 KL；不能把每个 key 块单独 softmax 后拼起来。
-- **选择范围必须正确。** top-k 前屏蔽未来和其他 packed 样本；合法位置不足 $k$ 时，gather 后也要屏蔽无效项。
-- **前后向都要稀疏。** 按下标读 KV，反向正确累加多个 query 对同一 K/V 的梯度。全量计算后再加 mask，表达了稀疏语义，却没省掉打分计算。
-- **验证全局召回。** 除集合内 KL，还要在小验证集重算 dense 教师，测保留质量，并检查长上下文任务与实际步时。
+:::details[ReLU 如何让多个匹配方向同时起作用？]
+取两个一维 query 为 1、−1，权重都为 1：没有 ReLU 时相加为 0；分别经过 ReLU 后再相加，得到 $|k|$。
 
-V3.2 的索引 query 复用主模型的 1536 维 query latent。索引 Q/K 经 RoPE、正交 Hadamard 旋转后量化到 FP8；旋转在精确算术下保持点积，量化仍有误差。打分累加、ReLU 和头加权使用 FP32。索引器与主 MLA 的 RoPE 布局不同，不能直接互换。[官方实现](https://github.com/deepseek-ai/DeepSeek-V3.2-Exp/blob/87e509a2e5a100d221c97df52c6e8be7835f0057/inference/model.py#L428-L612)、[FP8 kernel](https://github.com/deepseek-ai/DeepSeek-V3.2-Exp/blob/87e509a2e5a100d221c97df52c6e8be7835f0057/inference/kernel.py#L199-L277)
+<DsaRelu />
+
+这是非线性表达能力的例子，不表示真实 indexer 在计算绝对值，也不证明 ReLU 是唯一选择。
 :::
 
-## 6. 计算和读取减少，缓存仍保留
+:::details[为什么“保留注意力概率”是合理的目标？]
+以下为我的补充推导。固定单头的 Q、K、V，丢掉的注意力概率为 $\varepsilon$，保留集合内重新归一化得到 $\widetilde u$。如果每个 value 范数不超过 $M$：
 
-每次选中的位置不同，未选 token 下次还可能用到，所以主 KV 不能删除。加上索引缓存后，**容量反而增加**：
+$$
+u=(1-\varepsilon)\widetilde u+\varepsilon u_{\rm drop}
+\quad\Longrightarrow\quad
+\lVert u-\widetilde u\rVert\le2M\varepsilon.
+\tag{B}
+$$
+
+因为两部分都是 value 的凸组合，范数不超过 $M$；再用三角不等式即可。保留集合需非空；$\varepsilon=0$ 时误差直接为零。这不是最终答案质量的保证。
+
+<AttentionMassDemo />
+
+对完整历史上的教师 $p$ 与预测 $r$，还可由 top-k 最优性和 Pinsker 不等式得到：
+
+$$
+p(\operatorname{TopK}(p))-p(\operatorname{TopK}(r))
+\le\lVert p-r\rVert_1\le\sqrt{2D_{\rm KL}(p\|r)}.
+\tag{C}
+$$
+
+它约束保留概率的差距，不要求下标完全一致；不能用于证明稀疏阶段没有漏选集合外的位置。
+:::
+
+:::details[主注意力少算了，整个模型能快多少？]
+以 128K 历史、top-2048、单层单次 decode 为例：
 
 <DsaCost />
 
-图按[官方配置](https://github.com/deepseek-ai/DeepSeek-V3.2-Exp/blob/87e509a2e5a100d221c97df52c6e8be7835f0057/inference/config_671B_v3.2.json)与 [FlashMLA 的 V3.2 缓存格式](https://github.com/deepseek-ai/FlashMLA/blob/ba89a3466e9470ad08ab39738d4e7bb66989e1e7/docs/20250929-hopper-fp8-sparse-deep-dive.md)推算。主注意力从 128K 选到 2K，只表示单 query 的主 KV 条目少了 64 倍，不能当作整体加速比。索引器仍全量扫描，整个 prefill 仍含二次复杂度。
+按[官方配置](https://github.com/deepseek-ai/DeepSeek-V3.2-Exp/blob/87e509a2e5a100d221c97df52c6e8be7835f0057/inference/config_671B_v3.2.json)与 [FlashMLA 的 V3.2 格式](https://github.com/deepseek-ai/FlashMLA/blob/ba89a3466e9470ad08ab39738d4e7bb66989e1e7/docs/20250929-hopper-fp8-sparse-deep-dive.md)估算：主 QK 为 576 维，value 为 512 维，128 个主 query 头；一次乘加计 2 FLOPs。
 
-:::details[图中数字怎么算？]
-固定 MQA 吸收形式：主 query 128 头，QK 为 576 维、value 为 512 维；乘加计 2 FLOPs。$N=131072$，$k=2048$：
-
-$$
-\begin{aligned}
-F_{\rm dense}&=2\times128\times(576+512)N,\\
-F_{\rm DSA}&=2\times128\times(576+512)k
-+2\times64\times128N.
-\end{aligned}
-$$
-
-一条 FP8 主 KV 为 $512+4\times4+64\times2=656$ 字节；额外索引为 $128+4=132$ 字节。理想读取量从 $656N$ 变为 $656k+132N$；缓存容量从 $656N$ 变为 $(656+132)N$。未计页面对齐、重复加载及其他模块。
+主缓存每条 656 字节，额外索引每条 132 字节。理想读取从 $656N$ 变成 $656k+132N$，容量却从 $656N$ 增加到 $788N$。未计投影、top-k、量化和调度等开销，不是实测加速比。索引器仍全量扫描，整个 prefill 仍有二次复杂度。
 :::
 
-使用已训练好的 V3.2 时，应用层照常输入文本，兼容的推理引擎在模型内部执行选择。给自己的 dense 模型加入 DSA，则要完成**索引器热身 → 稀疏继续训练 → 接入匹配的稀疏 kernel**。长上下文更值得这样做；短序列的索引和 top-k 开销可能抵消收益。
-
-继续阅读：[MLA 与注意力结构对比](/2026/09/23/deepseek-attention-structures/) · [CPU 训练示例](/files/dsa/dsa_training_demo.py)。
+继续阅读：[MLA 的压缩与计算形式](/2026/09/23/deepseek-attention-structures/) · [CPU 两阶段训练示例](/files/dsa/dsa_training_demo.py)。

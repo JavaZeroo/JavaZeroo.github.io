@@ -3,14 +3,14 @@
 import DsaFigure from './DsaFigure.astro';
 import SvgTex from '../figures/SvgTex.astro';
 const rows = [
-  { label: '头 1', p: [.6, .1, .2, .1], y: 65 },
-  { label: '头 2', p: [.1, .1, .2, .6], y: 110 },
-  { label: '平均', p: [.35, .1, .2, .35], y: 179 },
+  { label: '头 1', p: [.05, .8, .1, .05], y: 65 },
+  { label: '头 2', p: [.05, .6, .3, .05], y: 110 },
+  { label: '教师 p', p: [.05, .7, .2, .05], y: 179 },
 ];
 ---
 <DsaFigure columns={1} label="共享 top-k 的数学目标：按头平均注意力概率，选中平均概率最高的位置"
-  caption="合成例子：头 1 偏向位置 1，头 2 偏向位置 4。共享 top-2 选 1、4，保留平均注意力质量的 70%。">
-  <svg class="dsa-svg" viewBox="0 0 320 267" role="img" aria-label="两个头的概率分别为 60、10、20、10 与 10、10、20、60 百分比，平均后选第一和第四列">
+  caption="合成例子：平均后得到教师 p = [5%, 70%, 20%, 5%]。选位置 2、3，可保留 90% 的平均注意力概率。后面的训练实验沿用这组数据。">
+  <svg class="dsa-svg" viewBox="0 0 320 267" role="img" aria-label="两个 MLA 头的注意力概率按头平均得到 5、70、20、5 百分比；重要位置为 2 和 3">
     {[1, 2, 3, 4].map((n, i) => <SvgTex x={89 + i * 61} y={24} size={13} color="var(--text-2)" src={`位置 ${n}`} />)}
     {rows.map(row => <g>
       <SvgTex x={24} y={row.y + 16} size={14} weight={600} src={row.label} />
@@ -20,7 +20,7 @@ const rows = [
       </g>)}
     </g>)}
     <path class="dsa-arrow" d="M184 151 V168 M179 162 L184 168 L189 162" />
-    {[0, 3].map(i => <rect x={61 + i * 61} y="178" width="56" height="34" rx="6" fill="none" stroke="var(--cat-emerald)" stroke-width="2" />)}
+    {[1, 2].map(i => <rect x={61 + i * 61} y="178" width="56" height="34" rx="6" fill="none" stroke="var(--cat-emerald)" stroke-width="2" />)}
     <SvgTex x={160} y={246} size={16} src="$p_s=\frac{1}{H}\sum_h a_{h,s}$" />
   </svg>
 </DsaFigure>

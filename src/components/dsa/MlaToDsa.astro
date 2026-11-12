@@ -1,0 +1,62 @@
+---
+/** 从稠密 MLA 到 DSA，逐帧只引入一个选择环节。step 可固定某帧；省略位置编码、量化与主 MLA 内部投影。 */
+import OpScene from '../dsattn/OpScene.astro';
+import type { OpNode, OpEdge, OpFrame, OpItem } from '../dsattn/OpScene.astro';
+interface Props { step?: number }
+const { step } = Astro.props;
+const nodes: OpNode[] = [
+  { id: 'current', x: 12, y: 16, w: 146, h: 46, t: '当前 token', s: '$h_t, c_t^Q$', kind: 'in' },
+  { id: 'history', x: 202, y: 16, w: 146, h: 46, t: '已出现的 token', s: String.raw`$h_s\;(s\le t)$`, kind: 'in' },
+  { id: 'main-q', x: 12, y: 95, w: 146, h: 46, t: '主 MLA query', s: '沿用原有投影', kind: 'q' },
+  { id: 'main-kv', x: 12, y: 182, w: 146, h: 46, t: '主 KV 缓存', s: '全部 N 条压缩 KV', kind: 'cache' },
+  { id: 'index-k', x: 202, y: 95, w: 146, h: 46, t: '新增小 key 与缓存', s: '每位置 128 维', kind: 'idx' },
+  { id: 'index-q', x: 202, y: 182, w: 146, h: 46, t: '新增索引 query、w', s: '64 头 × 128 维', kind: 'idx' },
+  { id: 'scores', x: 202, y: 269, w: 146, h: 50, t: '轻量打分 I', s: '逐头 ReLU、加权', kind: 'idx' },
+  { id: 'topk', x: 202, y: 357, w: 146, h: 60, t: '因果 top-k', s: '输出下标集合 S', kind: 'idx' },
+  { id: 'dense', x: 12, y: 357, w: 146, h: 60, t: '主 MLA 注意力', s: '计算全部 N 个位置', kind: 'core' },
+  { id: 'sparse', x: 12, y: 357, w: 146, h: 60, t: '主 MLA 注意力', s: '只计算 S 中的位置', kind: 'core' },
+  { id: 'output', x: 12, y: 471, w: 146, h: 46, t: '原有输出投影', s: '得到 token 表示', kind: 'v' },
+];
+const edges: OpEdge[] = [
+  { from: 'current', to: 'main-q' },
+  { from: 'history', to: 'main-kv', d: 'M275 62 V78 H180 V205 H160' },
+  { from: 'main-q', to: 'dense', d: 'M12 118 H5 V387 H10' },
+  { from: 'main-q', to: 'sparse', d: 'M12 118 H5 V387 H10' },
+  { from: 'main-kv', to: 'dense', label: '全量读取', lx: 91, ly: 290 },
+  { from: 'main-kv', to: 'sparse', label: '按 S 读取', lx: 91, ly: 290 },
+  { from: 'dense', to: 'output' }, { from: 'sparse', to: 'output' },
+  { from: 'history', to: 'index-k' },
+  { from: 'current', to: 'index-q', d: 'M158 39 H190 V205 H200' },
+  { from: 'index-k', to: 'scores', d: 'M348 118 H355 V294 H350' },
+  { from: 'index-q', to: 'scores' },
+  { from: 'scores', to: 'topk' },
+  { from: 'topk', to: 'sparse', label: '下标', lx: 166, ly: 374 },
+];
+const main = ['current', 'history', 'main-q', 'main-kv', 'output'];
+const index = ['index-k', 'index-q', 'scores', 'topk'];
+const frames: OpFrame[] = [
+  { title: 'MLA 仍计算全部位置', caption: '每条 KV 已被压缩，但当前 query 仍要对全部 N 条计算注意力。下一步要减少参与主计算的位置数。', show: [...main, 'dense'], items: 0, cache: '已有：全部主 KV；每条表示保持 MLA 格式' },
+  { title: '为每个位置增加小 key', caption: '先给每个可见 token 生成一个 128 维索引 key。以后扫描这份小缓存，用较低成本判断哪些主 KV 值得读取。', show: [...main, 'dense', index[0]], add: [index[0]], items: 1, cur: [0], cache: '新增：索引 key 缓存；主 KV 继续保留' },
+  { title: '让检索随当前 query 改变', caption: '当前 token 生成索引 query 和头权重 w。同一段历史会随当前问题改变排序，因此不能给每个位置一个固定重要性。', show: [...main, 'dense', ...index.slice(0, 2)], add: [index[1]], items: 2, cur: [1], cache: '索引 query 不同，选中的位置也可以不同' },
+  { title: '把多头响应合成一个分数', caption: '每个索引头与同一份小 key 做点积，经过 ReLU 后按 w 加权求和。每个位置只得到一个分数 I，不生成 value 输出。', show: [...main, 'dense', ...index.slice(0, 3)], add: [index[2]], items: 3, cur: [2], cache: '索引器仍扫描所有合法位置，但每次打分更便宜' },
+  { title: '用 top-k 选出位置下标', caption: '先屏蔽未来位置，再选得分最高的 k 项。此时只得到下标集合 S，下一步才把它接入主 MLA。', show: [...main, 'dense', ...index], add: ['topk'], items: 4, cur: [3], cache: '输出是位置下标；V3.2 每个 query 最多选 2048 项' },
+  { title: '把选择结果接到主 MLA', caption: '主 MLA 只对 S 中的 KV 算自己的 QK、softmax 和 value 加权。索引分数只负责选谁；主注意力仍负责如何组合信息。', show: [...main, 'sparse', ...index], chg: ['sparse'], items: 5, cur: [4], cache: 'DSA = 原有 MLA 主路 + 新增索引与选择路径' },
+];
+const items: OpItem[] = [
+  { k: 'add', t: '小 key：降低全历史扫描成本。' },
+  { k: 'add', t: '索引 query 与权重：表达当前要找什么。' },
+  { k: 'add', t: '打分函数：把多个方向的响应合成一个排序分数。' },
+  { k: 'add', t: 'top-k：把计算预算变成具体位置下标。' },
+  { k: 'chg', t: '主 MLA 的输入范围：全部位置 → 选中位置。' },
+];
+---
+<OpScene id={step === undefined ? 'dsa-evolution' : `dsa-evolution-${step}`} label="从 MLA 到 DSA：逐步增加小 key、索引 query、多头打分和 top-k，最后改变主 MLA 的读取范围"
+  title="同一层，固定一个 query" listTitle="每一步增加什么、解决什么问题" nodes={nodes} edges={edges} frames={frames} items={items}
+  width={360} height={535} fontScale={1.15} step={step}
+  caption="这是结构拆解，热身和稀疏训练另见后文。图中 cᵠ 是 MLA 已有的 query 压缩表示；省略 RoPE、量化及主 MLA 内部投影。" />
+<style is:global>
+  .stepplayer[data-stepplayer^="dsa-evolution"] { display: flex; flex-direction: column; }
+  .stepplayer[data-stepplayer^="dsa-evolution"] .ops-graph { flex: 0 1 380px; max-width: 380px; margin-inline: auto; }
+  .stepplayer[data-stepplayer^="dsa-evolution"] .ctl { order: -2; margin: 0 0 .7rem; }
+  .stepplayer[data-stepplayer^="dsa-evolution"] .cap { order: -1; margin: 0 0 .7rem; }
+</style>

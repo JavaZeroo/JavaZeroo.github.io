@@ -1,0 +1,106 @@
+---
+/** 固定热身教师 p，用 r−p 更新一行示意 logits，观察 KL、预测分布和 top-2。不是完整 indexer 网络训练。无 props。 */
+import SvgTex from '../figures/SvgTex.astro';
+const p = [.05, .7, .2, .05];
+const initialKl = p.reduce((sum, v) => sum + v * Math.log(v / .25), 0);
+---
+<figure class="index-learning" data-index-learning data-teacher={JSON.stringify(p)} aria-label="固定 MLA 教师分布，逐步训练索引分数的交互实验">
+  <div class="index-learning-legend"><span class="teacher">教师 p：固定</span><span class="student">索引预测 r：随训练改变</span></div>
+  <svg viewBox="0 0 340 230" role="img" aria-label="四个位置的概率：教师为 5%、70%、20%、5%，索引预测初始各为 25%">
+    {p.map((v, i) => <g>
+      <rect x={26 + i * 78} y={186 - v * 180} width="22" height={v * 180} rx="3" fill="var(--cat-emerald)" />
+      <rect data-r-bar={i} x={59 + i * 78} y="141" width="22" height="45" rx="3" fill="var(--cat-indigo)" />
+      <SvgTex x={37 + i * 78} y={173 - v * 180} size={12} src={`${v * 100}%`} />
+      <text data-r-label={i} x={70 + i * 78} y="130" text-anchor="middle" fill="var(--text)" font-size="12">25%</text>
+      <SvgTex x={54 + i * 78} y={210} size={14} src={`位置 ${i + 1}`} />
+    </g>)}
+    <path d="M16 187 H327" fill="none" stroke="var(--border-2)" />
+  </svg>
+  <div class="index-learning-actions">
+    <button type="button" data-learn-once>训练一步</button>
+    <button type="button" data-learn-many>再训练 20 步</button>
+    <button type="button" data-learn-reset>重置</button>
+  </div>
+  <div class="index-learning-stats" aria-live="polite" aria-atomic="true">
+    <div><span>训练步数</span><strong data-learn-step>0</strong></div>
+    <div><span>indexer KL</span><strong data-learn-kl>{initialKl.toFixed(4)}</strong></div>
+    <div><span>当前 top-2</span><strong data-learn-selected>1、2</strong></div>
+  </div>
+  <p class="index-learning-values">当前分数 I：<output data-learn-logits>[0.00, 0.00, 0.00, 0.00]</output></p>
+  <p class="index-learning-values">位置 2 的下一步梯度 r − p：<output data-learn-gradient>−0.4500</output>；选中项保留教师概率 <output data-learn-mass>75.0%</output>。</p>
+  <figcaption>热身阶段的合成例子，沿用上图的教师。初始同分时按位置编号选择。这里直接按 r − p 更新示意分数 I；真实训练通过链式法则更新产生 I 的投影参数。热身时 top-k 尚不控制主 MLA。</figcaption>
+</figure>
+<style is:global>
+  .index-learning { padding: 1.1rem; margin: 1.8rem 0; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); }
+  .index-learning svg { display: block; width: 100%; max-width: 540px; height: auto; margin: .5rem auto; font-family: var(--font-sans); }
+  .index-learning-legend { display: flex; flex-wrap: wrap; justify-content: center; gap: .5rem 1.5rem; font-size: .86rem; }
+  .index-learning-legend span::before { content: ''; display: inline-block; width: .65rem; height: .65rem; border-radius: 2px; margin-right: .4rem; }
+  .index-learning .teacher::before { background: var(--cat-emerald); }
+  .index-learning .student::before { background: var(--cat-indigo); }
+  .index-learning-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
+  .index-learning-actions button { font: inherit; font-size: .88rem; border: 1px solid var(--border-2); border-radius: 6px; background: var(--bg-2); color: var(--text); padding: .4rem .65rem; cursor: pointer; }
+  .index-learning-actions button:first-child { border-color: var(--cat-indigo); }
+  .index-learning-actions button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+  .index-learning-stats { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: .5rem; margin: 1rem 0; padding: .75rem 0; border-block: 1px solid var(--border); }
+  .index-learning-stats div { display: grid; gap: .3rem; }
+  .index-learning-stats span { color: var(--text-2); font-size: .8rem; }
+  .index-learning-stats strong { font-variant-numeric: tabular-nums; font-size: 1.15rem; }
+  .index-learning-values, .index-learning figcaption { font-size: .84rem; line-height: 1.65; color: var(--text-2); }
+  .index-learning .index-learning-values { margin: .5rem 0; }
+  .index-learning output { font-variant-numeric: tabular-nums; overflow-wrap: anywhere; color: var(--text); }
+  .index-learning figcaption { margin-top: .85rem; }
+  @media(max-width:380px) { .index-learning { padding: .7rem; } }
+</style>
+<script>
+  function initIndexerLearning() {
+    document.querySelectorAll<HTMLElement>('[data-index-learning]').forEach(root => {
+      if (root.dataset.ready) return;
+      root.dataset.ready = '1';
+      const p: number[] = JSON.parse(root.dataset.teacher!);
+      let logits = p.map(() => 0), count = 0;
+      const softmax = () => {
+        const maximum = Math.max(...logits);
+        const exp = logits.map(v => Math.exp(v - maximum));
+        const total = exp.reduce((a, b) => a + b, 0);
+        return exp.map(v => v / total);
+      };
+      const set = (name: string, value: string) => { root.querySelector(`[data-learn-${name}]`)!.textContent = value; };
+      const render = () => {
+        const r = softmax();
+        r.forEach((v, i) => {
+          const bar = root.querySelector(`[data-r-bar="${i}"]`)!;
+          bar.setAttribute('y', String(186 - v * 180));
+          bar.setAttribute('height', String(v * 180));
+          const label = root.querySelector(`[data-r-label="${i}"]`)!;
+          label.setAttribute('y', String(175 - v * 180));
+          label.textContent = `${Math.round(v * 100)}%`;
+        });
+        const order = logits.map((_, i) => i).sort((a, b) => logits[b] - logits[a] || a - b);
+        const selected = order.slice(0, 2);
+        set('step', String(count));
+        set('kl', p.reduce((sum, v, i) => sum + v * Math.log(v / r[i]), 0).toFixed(4));
+        set('selected', selected.map(i => i + 1).join('、'));
+        set('logits', `[${logits.map(v => v.toFixed(2)).join(', ')}]`);
+        set('gradient', (r[1] - p[1]).toFixed(4));
+        set('mass', `${(100 * selected.reduce((sum, i) => sum + p[i], 0)).toFixed(1)}%`);
+        root.querySelector('svg')!.setAttribute('aria-label', `教师固定为 5%、70%、20%、5%；第 ${count} 步索引预测为 ${r.map(v => (v * 100).toFixed(1) + '%').join('、')}`);
+        root.dataset.prediction = JSON.stringify(r);
+        root.dataset.logits = JSON.stringify(logits);
+      };
+      const train = (steps: number) => {
+        for (let n = 0; n < steps; n++) {
+          const r = softmax();
+          logits = logits.map((v, i) => v - 2 * (r[i] - p[i]));
+          count++;
+        }
+        render();
+      };
+      root.querySelector('[data-learn-once]')!.addEventListener('click', () => train(1));
+      root.querySelector('[data-learn-many]')!.addEventListener('click', () => train(20));
+      root.querySelector('[data-learn-reset]')!.addEventListener('click', () => { logits = p.map(() => 0); count = 0; render(); });
+      render();
+    });
+  }
+  initIndexerLearning();
+  document.addEventListener('astro:page-load', initIndexerLearning);
+</script>

@@ -1,0 +1,223 @@
+---
+/**
+ * 注意力层的算子图分步动画（decode 一步）。左栏是从上往下的算子图，三条竖向的道：左边 query，中间 KV，右边 V 或 indexer；
+ * 每一帧在上一帧的图上改一处，改动用三种标记圈出来：新增（emerald）、改动（amber）、去掉（rose，划掉）。
+ * 右栏是 HTML 列表，逐帧累积「和上一代比改了什么」，当前这一步的条目高亮，底部一行是这一帧的 KV cache 大小。
+ *
+ * 数据约定：
+ * - 同一位置可以放几个节点变体（不同 id），每帧的 `show` 只列其中一个，切换时交叉淡入淡出，配 `chg` 标出来。
+ * - `del` 里的节点这一帧淡化并划掉，下一帧从 `show` 里拿掉就消失。
+ * - 节点写了 `at`（帧号 → 新位置），从那一帧起整个节点连同标记挪过去，先横后竖走折线：用来画「矩阵挪到另一侧」。
+ *   连到它的边按边的第一帧（`frames[0]`）时的位置自动走线，所以这类边要写 `frames`。
+ * - 边在两端节点都可见时自动显示；写了 `frames` 的边只在这些帧显示；一端被划掉时边跟着淡化。
+ * - 节点文字里 `$...$` 走 SvgTex，其余是普通 <text>。
+ *
+ * 帧间按拍子走（见底部 CSS）：要走的节点先描一圈琥珀色再收起（0–0.9 s）→ 挪位（0.5–1.7 s）→ 新节点从上往下依次展开
+ * → 新边画出来 → 改动标记出现并脉冲两次，右栏条目同时出现。自动播放每帧按字幕长度停留 6–13 s。
+ */
+import StepPlayer from '../figures/StepPlayer.astro';
+import SvgTex from '../figures/SvgTex.astro';
+import { texMix } from '../figures/tex';
+import type { Step, ElState, Move } from '../figures/StepPlayer.astro';
+
+export type OpKind = 'in' | 'q' | 'k' | 'v' | 'kv' | 'cache' | 'idx' | 'core' | 'op';
+export interface OpNode { id: string; x: number; y: number; w: number; h?: number; t: string; s?: string; kind?: OpKind; mono?: boolean; at?: Record<number, { x: number; y: number }> }
+export interface OpEdge { from: string; to: string; d?: string; label?: string; lx?: number; ly?: number; frames?: number[] }
+export interface OpFrame {
+  title: string; caption: string; facts?: string[]; hold?: number;
+  show: string[]; add?: string[]; chg?: string[]; del?: string[];
+  items: number; cur?: number[]; cache?: string;
+}
+export interface OpItem { k: 'add' | 'chg' | 'del' | 'note'; t: string }
+interface Props {
+  id: string; label: string; title: string; listTitle?: string;
+  nodes: OpNode[]; edges: OpEdge[]; frames: OpFrame[]; items: OpItem[];
+  height: number; width?: number; fontScale?: number; step?: number; caption?: string;
+}
+const { id, label, title, listTitle = '和上一代比，改了什么', nodes, edges, frames, items, height, width = 500, fontScale = 1, step, caption } = Astro.props;
+
+const H0 = 40;
+const full = nodes.map((n) => ({ ...n, h: n.h ?? H0 }));
+const byId = Object.fromEntries(full.map((n) => [n.id, n]));
+type FullNode = (typeof full)[number];
+// 节点在第 f 帧的位置：取 at 里不晚于 f 的最后一个，没有就是原位
+const pos = (n: FullNode, f: number) => {
+  const k = Object.keys(n.at ?? {}).map(Number).filter((x) => x <= f).sort((a, b) => b - a)[0];
+  return k === undefined ? { x: n.x, y: n.y } : n.at![k];
+};
+const g = (n: FullNode, f = 0) => { const p = pos(n, f); return { l: p.x, r: p.x + n.w, t: p.y, b: p.y + n.h, cx: p.x + n.w / 2, cy: p.y + n.h / 2 }; };
+// 自动走线：同一列直下；同一行横连；否则从源的底边下来 9 个单位、横到目标的中线、再向下
+const route = (e: OpEdge) => {
+  if (e.d) return e.d;
+  const f0 = e.frames?.[0] ?? 0, a = g(byId[e.from], f0), b = g(byId[e.to], f0);
+  if (Math.abs(a.cy - b.cy) < 2) return b.l >= a.r ? `M${a.r} ${a.cy} H ${b.l - 2}` : `M${a.l} ${a.cy} H ${b.r + 2}`;
+  if (Math.abs(a.cx - b.cx) < 2) return `M${a.cx} ${a.b} V ${b.t - 2}`;
+  return `M${a.cx} ${a.b} V ${a.b + 9} H ${b.cx} V ${b.t - 2}`;
+};
+const kindTag = { add: '新增', chg: '改动', del: '去掉', note: '说明' } as const;
+// 从上往下错开出场：按 y 最多晚 0.35 s
+const yd = (y: number) => `--yd:${((y / height) * 0.35).toFixed(2)}s`;
+const plain = (t: string) => t.replace(/\$[^$]*\$/g, 'xxxx').length;
+
+// 每一帧的状态表
+const caches = [...new Set(frames.map((f) => f.cache ?? ''))];
+const steps: Step[] = frames.map((f, fi) => {
+  const st: Record<string, ElState> = {};
+  const vis = new Set(f.show), del = new Set(f.del ?? []);
+  full.forEach((n) => {
+    st[n.id] = vis.has(n.id) ? 'on' : del.has(n.id) ? 'dim' : 'hide';
+    st[`${n.id}~add`] = f.add?.includes(n.id) ? 'on' : 'hide';
+    st[`${n.id}~chg`] = f.chg?.includes(n.id) ? 'on' : 'hide';
+    st[`${n.id}~del`] = del.has(n.id) ? 'on' : 'hide';
+  });
+  edges.forEach((e, ei) => {
+    const ok = (x: string) => vis.has(x) || del.has(x);
+    const inFrame = !e.frames || e.frames.includes(fi);
+    st[`e${ei}`] = inFrame && ok(e.from) && ok(e.to) ? (del.has(e.from) || del.has(e.to) ? 'dim' : 'on') : 'hide';
+  });
+  items.forEach((_, ii) => { st[`d${ii}`] = ii < f.items ? 'on' : 'hide'; st[`d${ii}~cur`] = f.cur?.includes(ii) ? 'on' : 'hide'; });
+  caches.forEach((c, ci) => { st[`c${ci}`] = c === (f.cache ?? '') && c ? 'on' : 'hide'; });
+  const move: Record<string, Move> = {};
+  full.forEach((n) => {
+    if (!n.at) return;
+    const p = pos(n, fi);
+    move[`${n.id}~mx`] = { x: p.x - n.x };
+    move[`${n.id}~my`] = { y: p.y - n.y };
+  });
+  const hold = f.hold ?? Math.round(Math.min(13000, Math.max(6000, 2600 + plain(f.caption) * 110)));
+  return { title: f.title, caption: f.caption, facts: f.facts, hold, state: st, move };
+});
+// 会挪位的节点画在最上层
+const order = [...full.filter((n) => !n.at), ...full.filter((n) => n.at)];
+const tex = (s: string) => s.includes('$');
+---
+
+<StepPlayer id={id} label={label} steps={steps} step={step} caption={caption}>
+  <div class="sp-panels">
+    <div class="sp-panel ops-graph">
+      <svg viewBox={`0 0 ${width} ${height}`} class="ops" role="img" aria-label={label} style={`--op-title:${12 * fontScale}px;--op-sub:${10.5 * fontScale}px`}>
+        <defs><marker id={`${id}-ar`} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0 L10 5 L0 10 z" /></marker></defs>
+        {edges.map((e, ei) => (
+          <g class="edge" data-el={`e${ei}`} style={yd(byId[e.to].y)}>
+            <path d={route(e)} pathLength="1" marker-end={`url(#${id}-ar)`} />
+            {e.label && <SvgTex x={e.lx ?? 0} y={e.ly ?? 0} align="start" size={10 * fontScale} color="var(--muted)" src={e.label} />}
+          </g>
+        ))}
+        {order.map((n) => {
+          const c = g(n), two = !!n.s, ty = two ? c.cy - 7 : c.cy, sy = c.cy + 10;
+          const ring = `--rx:${(1 + 16 / (n.w + 6)).toFixed(3)};--ry:${(1 + 16 / (n.h + 6)).toFixed(3)}`;
+          const body = (
+            <g class="nw" style={yd(n.y)}>
+              <g class:list={['node', n.kind ?? 'op', { mono: n.mono }]} data-el={n.id}>
+                <rect x={n.x} y={n.y} width={n.w} height={n.h} rx="7" />
+                {tex(n.t)
+                  ? <SvgTex x={c.cx} y={ty} size={12 * fontScale} weight={600} src={n.t} />
+                  : <text class="nt" x={c.cx} y={ty + 4.3} text-anchor="middle">{n.t}</text>}
+                {n.s && (tex(n.s)
+                  ? <SvgTex x={c.cx} y={sy} size={10.5 * fontScale} color="var(--text-2)" src={n.s} />
+                  : <text class="ns" x={c.cx} y={sy + 3.8} text-anchor="middle">{n.s}</text>)}
+              </g>
+              {(['add', 'chg', 'del'] as const).map((k) => (
+                <g class:list={['mark', k]} data-el={`${n.id}~${k}`}>
+                  <rect class="halo" x={n.x - 3} y={n.y - 3} width={n.w + 6} height={n.h + 6} rx="9" />
+                  <rect class="ring" x={n.x - 3} y={n.y - 3} width={n.w + 6} height={n.h + 6} rx="9" style={ring} />
+                  {k === 'del' && <path class="strike" pathLength="1" d={`M${n.x + 8} ${n.y + n.h - 6} L ${n.x + n.w - 8} ${n.y + 6}`} />}
+                  <rect class="pill" x={n.x + n.w - 30} y={n.y - 10} width="30" height="15" rx="7.5" />
+                  <text class="pt" x={n.x + n.w - 15} y={n.y + 1.5} text-anchor="middle">{kindTag[k]}</text>
+                </g>
+              ))}
+            </g>
+          );
+          return n.at ? <g class="mx" data-el={`${n.id}~mx`}><g class="my" data-el={`${n.id}~my`}>{body}</g></g> : body;
+        })}
+      </svg>
+    </div>
+    <div class="sp-panel ops-list">
+      <p class="ol-h">{title}</p>
+      <p class="ol-sub">{listTitle}</p>
+      <ol>
+        {items.map((it, ii) => (
+          <li class={`k-${it.k}`} data-el={`d${ii}`}>
+            <span class="cur" data-el={`d${ii}~cur`} />
+            <span class="tag">{kindTag[it.k]}</span>
+            <span class="txt" set:html={texMix(it.t)} />
+          </li>
+        ))}
+      </ol>
+      <div class="ol-c">
+        {caches.map((c, ci) => c && <p data-el={`c${ci}`} set:html={texMix(c)} />)}
+      </div>
+    </div>
+  </div>
+</StepPlayer>
+
+<style is:global>
+  .stepplayer .ops-graph { flex: 3 1 340px; }
+  .stepplayer .ops-list { flex: 2 1 250px; display: flex; flex-direction: column; font-size: 0.86rem; line-height: 1.55; }
+  .ops .edge path { fill: none; stroke: var(--text-2); stroke-width: 1.3; }
+  .ops marker path { fill: var(--text-2); }
+  .ops .node { --c: var(--text-2); }
+  .ops .node rect { fill: color-mix(in srgb, var(--c) 13%, var(--bg-2)); stroke: var(--c); stroke-width: 1.4; }
+  .ops .node.in { --c: var(--muted); }
+  .ops .node.q { --c: var(--cat-indigo); }
+  .ops .node.k, .ops .node.kv { --c: var(--cat-cyan); }
+  .ops .node.v { --c: var(--cat-emerald); }
+  .ops .node.cache { --c: var(--cat-amber); }
+  .ops .node.cache rect { stroke-dasharray: 5 3; }
+  .ops .node.idx { --c: var(--cat-rose); }
+  .ops .node.core rect { fill: color-mix(in srgb, var(--cat-indigo) 20%, var(--bg-2)); stroke: var(--cat-indigo); stroke-width: 1.7; }
+  .ops .nt { fill: var(--text); font-size: var(--op-title, 12px); font-weight: 600; }
+  .ops .mono .nt { font-family: var(--font-mono); font-weight: 600; }
+  .ops .ns { fill: var(--text-2); font-size: var(--op-sub, 10.5px); }
+  .ops .mark { --m: var(--cat-emerald); }
+  .ops .mark.chg { --m: var(--cat-amber); }
+  .ops .mark.del { --m: var(--cat-rose); }
+  .ops .halo { fill: none; stroke: var(--m); stroke-width: 2.2; }
+  .ops .strike { stroke: var(--m); stroke-width: 2.2; }
+  .ops .pill { fill: var(--m); }
+  .ops .pt { fill: var(--bg); font-size: 9.5px; font-weight: 700; }
+  .ops-list .ol-h { margin: 0.2rem 0 0; font-weight: 600; color: var(--text); }
+  .ops-list .ol-sub { margin: 0 0 0.5rem; color: var(--muted); font-size: 0.8rem; }
+  .ops-list ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.35rem; }
+  .ops-list li { position: relative; padding: 0.3rem 0.5rem 0.3rem 3.3rem; border-radius: 8px; color: var(--text-2); }
+  .ops-list li .cur { position: absolute; inset: 0; border-radius: 8px; background: color-mix(in srgb, var(--accent) 12%, transparent); border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); }
+  .ops-list li .tag { position: absolute; left: 0.5rem; top: 0.38rem; padding: 0 0.4rem; border-radius: 999px; font-size: 0.72rem; font-weight: 700; color: var(--bg); background: var(--t); }
+  .ops-list li.k-add { --t: var(--cat-emerald); }
+  .ops-list li.k-chg { --t: var(--cat-amber); }
+  .ops-list li.k-del { --t: var(--cat-rose); }
+  .ops-list li.k-note { --t: var(--muted); }
+  .ops-list li .txt { position: relative; }
+  @media (max-width: 700px) { .ops-list li.is-hide { display: none; } }
+  /* 帧间编排。离场：描一圈琥珀色（划掉的描玫红）后收起；挪位：先横后竖；进场：从上往下展开，再画边，最后标记出现并脉冲两次。
+     过渡时长取决于目标状态的规则，所以 is-hide / is-dim 写离场的节奏，默认规则写进场的节奏。 */
+  .stepplayer .ops .node { transform-box: fill-box; transform-origin: center; transition: opacity 0.45s ease calc(0.9s + var(--yd, 0s)), scale 0.45s ease calc(0.9s + var(--yd, 0s)); }
+  .stepplayer .ops .node.is-hide { scale: 1 0.6; transition: opacity 0.3s ease 0.6s, scale 0.3s ease 0.6s; }
+  .stepplayer .ops .node.is-dim { transition: opacity 0.4s ease 0.8s; }
+  .stepplayer .ops .node.is-hide > rect { animation: ops-leave 0.75s ease; }
+  .stepplayer .ops .node.is-dim > rect { animation: ops-leave-del 0.9s ease; }
+  @keyframes ops-leave { 0%, 80% { stroke: var(--cat-amber); stroke-width: 3.4px; } }
+  @keyframes ops-leave-del { 0%, 80% { stroke: var(--cat-rose); stroke-width: 3.4px; } }
+  .stepplayer .ops .mx { transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1) 0.5s; }
+  .stepplayer .ops .my { transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1) 1.1s; }
+  .stepplayer .ops .edge { transition: opacity 0.3s ease calc(1.45s + var(--yd, 0s)); }
+  .stepplayer .ops .edge path { stroke-dasharray: 1 1; transition: stroke-dashoffset 0.5s ease calc(1.45s + var(--yd, 0s)); }
+  .stepplayer .ops .edge.is-hide { transition: opacity 0.3s ease 0.3s; }
+  .stepplayer .ops .edge.is-hide path { stroke-dashoffset: 1; transition: stroke-dashoffset 0s linear 0.6s; }
+  .stepplayer .ops .edge.is-dim { transition: opacity 0.4s ease 0.8s; }
+  .stepplayer .ops .mark { transition: opacity 0.35s ease calc(1.75s + var(--yd, 0s)); }
+  .stepplayer .ops .mark.is-hide { transition: opacity 0.2s ease; }
+  .stepplayer .ops .ring { fill: none; stroke: var(--m); stroke-width: 2; opacity: 0; transform-box: fill-box; transform-origin: center; }
+  .stepplayer .ops .mark:not(.is-hide) .ring { animation: ops-ring 1s ease-out calc(1.8s + var(--yd, 0s)) 2; }
+  @keyframes ops-ring { from { opacity: 0.9; transform: scale(1); } to { opacity: 0; transform: scale(var(--rx), var(--ry)); } }
+  .stepplayer .ops .mark.del .strike { stroke-dasharray: 1 1; stroke-dashoffset: 1; transition: stroke-dashoffset 0.45s ease calc(1.85s + var(--yd, 0s)); }
+  .stepplayer .ops .mark.del:not(.is-hide) .strike { stroke-dashoffset: 0; }
+  .stepplayer .ops .mark.del.is-hide .strike { transition: stroke-dashoffset 0s 0.2s; }
+  .stepplayer .ops-list li, .stepplayer .ops-list .cur, .stepplayer .ops-list .ol-c p { transition: opacity 0.35s ease 1.75s; }
+  .stepplayer .ops-list li.is-hide, .stepplayer .ops-list .cur.is-hide, .stepplayer .ops-list .ol-c p.is-hide { transition: opacity 0.2s ease; }
+  .stepplayer .ops-list .cur:not(.is-hide) { animation: ops-cur 1.2s ease 1.8s; }
+  @keyframes ops-cur { 30% { background: color-mix(in srgb, var(--accent) 32%, transparent); } }
+  .stepplayer.sp-init .ops *, .stepplayer.sp-init .ops-list * { transition: none !important; }
+  @media (prefers-reduced-motion: reduce) { .stepplayer .ops *, .stepplayer .ops-list * { transition: none !important; animation: none !important; } }
+  .ops-list .ol-c { display: grid; align-items: end; margin-top: auto; padding-top: 0.6rem; }
+  .ops-list .ol-c p { grid-area: 1 / 1; margin: 0; padding: 0.45rem 0.6rem; border-radius: 8px; border: 1px dashed var(--cat-amber); color: var(--text); font-size: 0.82rem; }
+</style>

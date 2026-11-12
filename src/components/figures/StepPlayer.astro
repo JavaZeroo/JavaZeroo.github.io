@@ -6,22 +6,39 @@
  * `base` 没写的默认 on。`steps[i].title` 是步骤按钮上的字，`caption` 是这一步的字幕，`facts` 是右上角的计数。
  * 场景可以拆成几张并排的 SVG，各包一层 `<div class="sp-panel" data-el="...">`：宽屏并排，窄屏上下排列，
  * 且窄屏只显示这一步状态为 on 的面板。传 `step` 则固定在那一帧、不显示控件，正文里当静态图用。
- * 自动播放每帧 `interval` 毫秒；`prefers-reduced-motion` 时没有过渡。
+ * 自动播放每帧 `interval` 毫秒，单帧写了 `hold` 就按它停留；播放时控件下方有一条进度线。「↻」重放当前这一步的过渡。
+ * `prefers-reduced-motion` 时没有过渡。
+ * 运动：`steps[i].move` 写元素在这一步的位移与缩放（SVG 用户单位，`o` 是相对元素自身包围盒的变换原点，默认 center），
+ * 没写的沿用 `baseMove`，都没写的回到原位；帧间用 CSS transition 补间。受 move 控制的元素不要再写 SVG `transform` 属性，
+ * 需要时外面套一层 `<g>`。`steps[i].flow` 列出这一步「有数据在流动」的元素，里面的线条显示为流动的虚线。
  */
 import { texMix } from './tex';
 export type ElState = 'on' | 'dim' | 'hide';
-export interface Step { title: string; caption: string; facts?: string[]; state: Record<string, ElState> }
+/** 一步里某个元素的位移与缩放：x、y 是 SVG 用户单位，s 等比缩放，sx / sy 单独缩放，o 是变换原点（如 'left bottom'）。 */
+export interface Move { x?: number; y?: number; s?: number; sx?: number; sy?: number; o?: string }
+export interface Step {
+  title: string; caption: string; facts?: string[];
+  /** 自动播放时这一帧停留的毫秒数，不写用 `interval` */
+  hold?: number;
+  state: Record<string, ElState>;
+  move?: Record<string, Move>;
+  flow?: string[];
+}
 interface Props {
   id: string; label: string; steps: Step[];
   base?: Record<string, ElState>;
+  baseMove?: Record<string, Move>;
   step?: number; interval?: number; caption?: string;
 }
-const { id, label, steps, base = {}, step, interval = 3000, caption } = Astro.props;
+const { id, label, steps, base = {}, baseMove = {}, step, interval = 3000, caption } = Astro.props;
 const fixed = typeof step === 'number';
 const cur = fixed ? step : 0;
 // 每一步的完整状态表（含 base），序列化给脚本
 // 字幕和计数里的 $...$ 在构建期用 KaTeX 渲染好，脚本只负责切换
-const full = steps.map((s) => ({ title: s.title, caption: texMix(s.caption), facts: (s.facts || []).map(texMix), state: { ...base, ...s.state } }));
+const full = steps.map((s) => ({
+  title: s.title, caption: texMix(s.caption), facts: (s.facts || []).map(texMix), hold: s.hold,
+  state: { ...base, ...s.state }, move: { ...baseMove, ...(s.move || {}) }, flow: s.flow || [],
+}));
 const init = full[cur];
 ---
 
@@ -41,6 +58,8 @@ const init = full[cur];
         {full.map((s, i) => <li><button type="button" data-goto={i} class:list={{ cur: i === cur }}><span class="n">{i}</span><span class="t">{s.title}</span></button></li>)}
       </ol>
       <button type="button" data-next aria-label="下一步">›</button>
+      <button type="button" data-replay aria-label="重放这一步" title="重放这一步">↻</button>
+      <span class="prog" data-prog aria-hidden="true"><i /></span>
     </div>
   )}
   {caption && <figcaption set:html={texMix(caption)} />}
@@ -53,7 +72,10 @@ const init = full[cur];
   .stepplayer .scene svg { display: block; width: 100%; height: auto; font-family: var(--font-sans); }
   .stepplayer .sp-panels { display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: flex-start; }
   .stepplayer .sp-panel { flex: 1 1 300px; min-width: 0; }
-  .stepplayer [data-el] { transition: opacity 0.5s ease, transform 0.5s ease; }
+  .stepplayer [data-el] { transition: opacity 0.5s ease, transform 0.7s cubic-bezier(0.4, 0, 0.2, 1); }
+  .stepplayer.sp-init [data-el] { transition: none !important; }
+  .stepplayer .is-flow { stroke-dasharray: 5 4; animation: sp-flow 0.9s linear infinite; }
+  @keyframes sp-flow { to { stroke-dashoffset: -9; } }
   .stepplayer [data-el].is-dim { opacity: 0.22; }
   .stepplayer [data-el].is-hide { opacity: 0; pointer-events: none; }
   .stepplayer .facts { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.5rem 0 0; padding: 0; list-style: none; font-size: 0.82rem; color: var(--text-2); }
@@ -66,54 +88,92 @@ const init = full[cur];
   .stepplayer .ctl button:hover { color: var(--text); border-color: var(--border-2); }
   .stepplayer .ctl .play { min-width: 4.6em; }
   .stepplayer .ctl .play.on { color: var(--accent); border-color: var(--accent); }
+  .stepplayer .ctl .prog { flex: 1 0 100%; height: 2px; border-radius: 1px; background: var(--border); overflow: hidden; opacity: 0; transition: opacity 0.2s; }
+  .stepplayer .ctl .prog.on { opacity: 1; }
+  .stepplayer .ctl .prog i { display: block; height: 100%; background: var(--accent); transform-origin: left; transform: scaleX(0); }
   .stepplayer .steps { display: flex; flex-wrap: wrap; gap: 0.3rem; margin: 0; padding: 0; list-style: none; flex: 1; }
   .stepplayer .steps button { display: inline-flex; align-items: center; gap: 0.35em; }
   .stepplayer .steps button .n { display: inline-block; width: 1.4em; height: 1.4em; line-height: 1.4em; text-align: center; border-radius: 50%; background: var(--border); color: var(--text); font-size: 0.75rem; font-weight: 600; }
   .stepplayer .steps button.cur { color: var(--text); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--bg-2)); }
   .stepplayer .steps button.cur .n { background: var(--accent); color: #fff; }
   .stepplayer figcaption { margin-top: 0.6rem; font-size: 0.88rem; color: var(--text-2); text-align: center; line-height: 1.6; }
-  @media (prefers-reduced-motion: reduce) { .stepplayer [data-el] { transition: none; } }
+  @media (prefers-reduced-motion: reduce) { .stepplayer [data-el] { transition: none; } .stepplayer .is-flow { animation: none; } }
   @media (max-width: 640px) { .stepplayer .steps button .t { display: none; } }
   @media (max-width: 700px) { .stepplayer .sp-panel.is-hide, .stepplayer .sp-panel.is-dim { display: none; } }
 </style>
 
 <script>
   type ElState = 'on' | 'dim' | 'hide';
-  interface Step { title: string; caption: string; facts?: string[]; state: Record<string, ElState> }
+  interface Move { x?: number; y?: number; s?: number; sx?: number; sy?: number; o?: string }
+  interface Step { title: string; caption: string; facts?: string[]; hold?: number; state: Record<string, ElState>; move: Record<string, Move>; flow: string[] }
+  const toCss = (m: Move) => `translate(${m.x ?? 0}px, ${m.y ?? 0}px) scale(${m.sx ?? m.s ?? 1}, ${m.sy ?? m.s ?? 1})`;
   const stops = new Set<() => void>();
-  window.addEventListener('pagehide', () => { stops.forEach((stop) => stop()); });
+  document.addEventListener('astro:before-swap', () => { stops.forEach((stop) => stop()); stops.clear(); });
   const init = () => document.querySelectorAll<HTMLElement>('[data-stepplayer]').forEach((root) => {
-    if (root.dataset.ready || root.classList.contains('fixed')) { if (!root.dataset.ready) { root.dataset.ready = '1'; apply(root, Number(root.dataset.step || 0)); } return; }
+    if (root.dataset.ready || root.classList.contains('fixed')) { if (!root.dataset.ready) { root.dataset.ready = '1'; first(root, Number(root.dataset.step || 0)); } return; }
     root.dataset.ready = '1';
     let cur = Number(root.dataset.step || 0), timer: number | null = null;
     const steps = JSON.parse(root.querySelector('[data-script-steps]')!.textContent || '[]') as Step[];
     const play = root.querySelector<HTMLButtonElement>('[data-play]')!;
+    const prog = root.querySelector<HTMLElement>('[data-prog]')!, bar = prog.firstElementChild as HTMLElement;
     const go = (i: number) => { cur = (i + steps.length) % steps.length; apply(root, cur); root.focus({ preventScroll: true }); };
-    const stop = () => { if (timer !== null) { clearInterval(timer); timer = null; } play.classList.remove('on'); play.textContent = '▶ 播放'; };
+    const stop = () => { if (timer !== null) { clearTimeout(timer); timer = null; } play.classList.remove('on'); play.textContent = '▶ 播放'; prog.classList.remove('on'); };
     stops.add(stop);
-    const start = () => { stop(); play.classList.add('on'); play.textContent = '❚❚ 暂停'; timer = window.setInterval(() => { if (cur === steps.length - 1) stop(); else go(cur + 1); }, Number(root.dataset.interval) || 3000); };
+    // 每帧停留 hold（没写用 interval），进度线同步走满
+    const tick = () => {
+      const ms = steps[cur].hold ?? (Number(root.dataset.interval) || 3000);
+      bar.style.transition = 'none'; bar.style.transform = 'scaleX(0)'; void bar.offsetWidth;
+      bar.style.transition = `transform ${ms}ms linear`; bar.style.transform = 'scaleX(1)';
+      timer = window.setTimeout(() => { if (cur === steps.length - 1) stop(); else { go(cur + 1); tick(); } }, ms);
+    };
+    const start = () => { stop(); play.classList.add('on'); play.textContent = '❚❚ 暂停'; prog.classList.add('on'); tick(); };
+    // 重放：先无过渡地退回上一帧（第 0 帧则全部隐藏），再带过渡走到当前帧
+    const replay = () => {
+      stop();
+      root.classList.add('sp-init');
+      if (cur > 0) apply(root, cur - 1, true);
+      else root.querySelectorAll<HTMLElement>('[data-el]').forEach((el) => { if (!el.classList.contains('sp-panel')) el.classList.add('is-hide'); });
+      void root.offsetWidth;
+      requestAnimationFrame(() => { root.classList.remove('sp-init'); void root.offsetWidth; apply(root, cur); });
+    };
+    root.querySelector('[data-replay]')!.addEventListener('click', replay);
     play.addEventListener('click', () => (timer === null ? (cur === steps.length - 1 && go(0), start()) : stop()));
     root.querySelector('[data-prev]')!.addEventListener('click', () => { stop(); go(cur - 1); });
     root.querySelector('[data-next]')!.addEventListener('click', () => { stop(); go(cur + 1); });
     root.querySelectorAll<HTMLButtonElement>('[data-goto]').forEach((b) => b.addEventListener('click', () => { stop(); go(Number(b.dataset.goto)); }));
     root.tabIndex = 0;
     root.addEventListener('keydown', (e) => { if (e.key === 'ArrowRight') { stop(); go(cur + 1); e.preventDefault(); } if (e.key === 'ArrowLeft') { stop(); go(cur - 1); e.preventDefault(); } });
-    apply(root, cur);
+    first(root, cur);
   });
-  function apply(root: HTMLElement, i: number) {
+  // 首帧不补间：否则页面一加载，元素会从原位动到第 0 帧的位置
+  function first(root: HTMLElement, i: number) {
+    root.classList.add('sp-init');
+    apply(root, i);
+    void root.offsetWidth;
+    requestAnimationFrame(() => requestAnimationFrame(() => root.classList.remove('sp-init')));
+  }
+  function apply(root: HTMLElement, i: number, sceneOnly = false) {
     const steps = JSON.parse(root.querySelector('[data-script-steps]')!.textContent || '[]') as Step[];
     const s = steps[i];
     root.dataset.step = String(i);
     root.querySelectorAll<HTMLElement>('[data-el]').forEach((el) => {
-      const st = s.state[el.dataset.el!] ?? 'on';
+      const key = el.dataset.el!;
+      const st = s.state[key] ?? 'on';
       el.classList.toggle('is-dim', st === 'dim');
       el.classList.toggle('is-hide', st === 'hide');
+      el.classList.toggle('is-flow', s.flow.includes(key));
+      // 只碰受 move 控制的元素：第一次被移动时定下包围盒与原点，之后回到原位也保留，补间不会跳
+      const m = s.move[key];
+      if (m) { el.style.transformBox = 'fill-box'; el.style.transformOrigin = m.o ?? 'center'; el.style.transform = toCss(m); }
+      else if (el.style.transform) el.style.transform = 'translate(0px, 0px) scale(1, 1)';
     });
+    if (sceneOnly) return;
     const t = root.querySelector('[data-title]'); if (t) t.textContent = s.title;
     const c = root.querySelector('[data-cap]'); if (c) c.innerHTML = s.caption;
     const f = root.querySelector<HTMLElement>('[data-facts]');
     if (f) { f.innerHTML = (s.facts || []).map((x) => `<li>${x}</li>`).join(''); f.hidden = !(s.facts && s.facts.length); }
     root.querySelectorAll<HTMLButtonElement>('[data-goto]').forEach((b) => b.classList.toggle('cur', Number(b.dataset.goto) === i));
   }
-  init();
+  document.addEventListener('astro:page-load', init);
+  if (document.readyState !== 'loading') init(); else document.addEventListener('DOMContentLoaded', init);
 </script>

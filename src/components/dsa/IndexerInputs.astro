@@ -1,0 +1,31 @@
+---
+/** 索引器实际的三条投影：q 复用 MLA query latent，w 来自当前 hidden，key 来自各候选 hidden。无 props。 */
+import FlowDiagram from '../figures/FlowDiagram.astro';
+const queryNodes = [
+  { id: 'h', x: 70, y: 15, w: 220, h: 46, kind: 'in', lines: ['当前 token 的表示', '$h_t: 7168$'] },
+  { id: 'cq', x: 15, y: 105, w: 165, h: 56, kind: 'mla', lines: ['MLA 已有的压缩', '$c_t^Q:1536$'] },
+  { id: 'wproj', x: 215, y: 105, w: 130, h: 56, kind: 'main', lines: ['新增权重投影', '$W_w h_t$'] },
+  { id: 'q', x: 15, y: 217, w: 165, h: 56, kind: 'main', lines: ['新增索引 query 投影', '$q_t^I=W_q^I c_t^Q$', '64 头 × 128 维'] },
+  { id: 'w', x: 215, y: 217, w: 130, h: 56, kind: 'out', lines: ['头权重', '$w_t^I:64$'] },
+];
+const queryEdges = [{ from: 'h', to: 'cq' }, { from: 'h', to: 'wproj' }, { from: 'cq', to: 'q' }, { from: 'wproj', to: 'w' }];
+const keyNodes = [
+  { id: 'hs', x: 45, y: 15, w: 240, h: 46, kind: 'in', lines: ['每个可见 token 的表示', '$h_s:7168$'] },
+  { id: 'wk', x: 45, y: 105, w: 240, h: 56, kind: 'main', lines: ['新增 key 投影与归一化', String.raw`$k_s^I=\operatorname{LN}(W_k^I h_s)$`] },
+  { id: 'key', x: 45, y: 217, w: 240, h: 56, kind: 'out', lines: ['索引 key：128 维', '一份 key 供 64 个索引头使用'] },
+];
+const keyEdges = [{ from: 'hs', to: 'wk' }, { from: 'wk', to: 'key' }];
+---
+<div class="indexer-input-panels">
+  <FlowDiagram id="dsa-index-query" viewBox="0 0 360 292" minWidth={0} fontScale={1.2} nodes={queryNodes} edges={queryEdges}
+    label="当前 query 的两条索引路径：复用 1536 维 query latent 生成 64×128 维索引 query；hidden 另投影为 64 个头权重"
+    caption="当前 query 决定匹配方向 q，以及各方向的权重 w。青色框是新参数。" />
+  <FlowDiagram id="dsa-index-key" viewBox="0 0 330 292" minWidth={0} fontScale={1.2} nodes={keyNodes} edges={keyEdges}
+    label="每个可见 token 的 hidden 投影并归一化为一个 128 维索引 key，所有索引头共享"
+    caption="每个候选位置提供一个小 key。这里只画投影，省略 RoPE、旋转和 FP8 量化。" />
+</div>
+<style>
+  .indexer-input-panels { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .8rem; margin: 1.8rem 0; }
+  .indexer-input-panels :global(figure) { margin: 0; }
+  @media (max-width: 760px) { .indexer-input-panels { grid-template-columns: 1fr; } }
+</style>
